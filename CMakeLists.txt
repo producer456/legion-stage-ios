@@ -33,6 +33,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
     set_source_files_properties("${XCASSETS}" PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
     set_target_properties(Sequencer PROPERTIES
         XCODE_ATTRIBUTE_ASSETCATALOG_COMPILER_APPICON_NAME "AppIcon"
+        XCODE_ATTRIBUTE_CODE_SIGN_ENTITLEMENTS "${CMAKE_CURRENT_SOURCE_DIR}/resources/Legion Stage.entitlements"
     )
 else()
     juce_add_gui_app(Sequencer
