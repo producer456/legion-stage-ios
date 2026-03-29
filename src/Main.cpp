@@ -3,65 +3,45 @@
 #include "CrashLog.h"
 #include "SplashComponent.h"
 
-#if JUCE_IOS
-
-class SequencerApplication : public juce::JUCEApplication
-{
-public:
-    const juce::String getApplicationName() override    { return "Legion Stage"; }
-    const juce::String getApplicationVersion() override { return "1.1.0"; }
-    bool moreThanOneInstanceAllowed() override           { return false; }
-
-    void initialise(const juce::String& /*commandLine*/) override
-    {
-        CrashLog::install();
-
-        juce::Desktop::getInstance().setOrientationsEnabled(
-            juce::Desktop::rotatedClockwise | juce::Desktop::rotatedAntiClockwise);
-
-        mainComponent = std::make_unique<MainComponent>();
-        mainComponent->setVisible(true);
-        mainComponent->setBounds(juce::Desktop::getInstance().getDisplays().getPrimaryDisplay()->userArea);
-    }
-
-    void shutdown() override
-    {
-        mainComponent = nullptr;
-    }
-
-    void systemRequestedQuit() override
-    {
-        quit();
-    }
-
-private:
-    std::unique_ptr<MainComponent> mainComponent;
-};
-
-#else
-
 class MainWindow : public juce::DocumentWindow
 {
 public:
     MainWindow(const juce::String& name)
+#if JUCE_IOS
+        : DocumentWindow(name, juce::Colours::black, 0)
+#else
         : DocumentWindow(name, juce::Colours::black, DocumentWindow::allButtons)
+#endif
     {
+#if JUCE_IOS
+        setTitleBarHeight(0);
+        setFullScreen(true);
+#else
         setUsingNativeTitleBar(false);
         setResizable(true, true);
+#endif
 
+        // Show splash first, then load main content
         splash = std::make_unique<SplashComponent>();
         splash->onFinished = [this] {
             juce::MessageManager::callAsync([this] {
-                auto savedBounds = getBounds();
                 splash = nullptr;
-                setContentOwned(new MainComponent(), true);
-                setBounds(savedBounds);
+                setContentOwned(new MainComponent(), false);
+#if JUCE_IOS
+                setFullScreen(true);
+#endif
             });
         };
 
         setContentNonOwned(splash.get(), false);
+
+#if JUCE_IOS
+        setVisible(true);
+        setFullScreen(true);
+#else
         centreWithSize(1280, 800);
         setVisible(true);
+#endif
     }
 
     void closeButtonPressed() override
@@ -85,6 +65,11 @@ public:
     {
         CrashLog::install();
 
+#if JUCE_IOS
+        juce::Desktop::getInstance().setOrientationsEnabled(
+            juce::Desktop::rotatedClockwise | juce::Desktop::rotatedAntiClockwise);
+#endif
+
 #ifdef _WIN32
         juce::File oldExe("C:\\Program Files\\Legion Stage\\Legion Stage.exe.old");
         if (oldExe.existsAsFile())
@@ -107,7 +92,5 @@ public:
 private:
     std::unique_ptr<MainWindow> mainWindow;
 };
-
-#endif
 
 START_JUCE_APPLICATION(SequencerApplication)
