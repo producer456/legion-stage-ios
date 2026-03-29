@@ -124,7 +124,7 @@ void PluginHost::scanForPlugins()
         }
 #endif
 
-        auto foundFiles = format->searchPathsForPlugins(searchPaths, true, false);
+        auto foundFiles = format->searchPathsForPlugins(searchPaths, true, true);
         for (const auto& file : foundFiles)
         {
             juce::OwnedArray<juce::PluginDescription> foundTypes;
