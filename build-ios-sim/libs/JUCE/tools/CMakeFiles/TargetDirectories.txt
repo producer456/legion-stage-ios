@@ -1,7 +1,0 @@
-/Users/admin/legion-stage-ios/build-ios-sim/libs/JUCE/tools/CMakeFiles/install.dir
-/Users/admin/legion-stage-ios/build-ios-sim/libs/JUCE/tools/CMakeFiles/ALL_BUILD.dir
-/Users/admin/legion-stage-ios/build-ios-sim/libs/JUCE/tools/CMakeFiles/ZERO_CHECK.dir
-/Users/admin/legion-stage-ios/build-ios-sim/libs/JUCE/tools/modules/CMakeFiles/install.dir
-/Users/admin/legion-stage-ios/build-ios-sim/libs/JUCE/tools/extras/Build/CMakeFiles/install.dir
-/Users/admin/legion-stage-ios/build-ios-sim/libs/JUCE/tools/extras/Build/juceaide/CMakeFiles/juceaide.dir
-/Users/admin/legion-stage-ios/build-ios-sim/libs/JUCE/tools/extras/Build/juceaide/CMakeFiles/install.dir

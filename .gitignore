@@ -7,3 +7,4 @@ out/
 libs/asio-sdk/
 ci-debug.log
 build-ios/
+build-ios-sim/
