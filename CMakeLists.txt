@@ -19,12 +19,21 @@ if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
         DOCUMENT_BROWSER_ENABLED TRUE
         REQUIRES_FULL_SCREEN TRUE
         PLIST_TO_MERGE "${CMAKE_CURRENT_SOURCE_DIR}/resources/LaunchScreen.plist"
+        ICON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/resources/icon_1024.png"
+        CUSTOM_XCASSETS "${CMAKE_CURRENT_SOURCE_DIR}/resources/Images.xcassets"
         IPHONE_SCREEN_ORIENTATIONS UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
         IPAD_SCREEN_ORIENTATIONS UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
     )
     # Skip storyboard compilation (use UILaunchScreen plist key instead)
     # Works around ibtool "iOS Platform Not Installed" issue in Xcode 26 beta
     set_target_properties(Sequencer PROPERTIES JUCE_SHOULD_ADD_STORYBOARD FALSE)
+    # Add app icon xcassets
+    set(XCASSETS "${CMAKE_CURRENT_SOURCE_DIR}/resources/Images.xcassets")
+    target_sources(Sequencer PRIVATE "${XCASSETS}")
+    set_source_files_properties("${XCASSETS}" PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
+    set_target_properties(Sequencer PROPERTIES
+        XCODE_ATTRIBUTE_ASSETCATALOG_COMPILER_APPICON_NAME "AppIcon"
+    )
 else()
     juce_add_gui_app(Sequencer
         PRODUCT_NAME "Legion Stage"
