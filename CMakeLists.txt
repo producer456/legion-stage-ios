@@ -20,7 +20,11 @@ if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
         IPHONE_SCREEN_ORIENTATIONS UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait
         IPAD_SCREEN_ORIENTATIONS UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown
         IS_AU_PLUGIN_HOST TRUE
+        PLIST_TO_MERGE "${CMAKE_CURRENT_SOURCE_DIR}/resources/LaunchScreen.plist"
     )
+    # Skip storyboard compilation (use UILaunchScreen plist key instead)
+    # Works around ibtool "iOS Platform Not Installed" issue in Xcode 26 beta
+    set_target_properties(Sequencer PROPERTIES JUCE_SHOULD_ADD_STORYBOARD FALSE)
 else()
     juce_add_gui_app(Sequencer
         PRODUCT_NAME "Legion Stage"
@@ -123,18 +127,19 @@ if(WIN32)
 elseif(APPLE)
     find_library(COREAUDIO_FRAMEWORK CoreAudio)
     find_library(COREMIDI_FRAMEWORK CoreMIDI)
-    find_library(AUDIOUNIT_FRAMEWORK AudioUnit)
     find_library(AUDIOTOOLBOX_FRAMEWORK AudioToolbox)
     find_library(AVFOUNDATION_FRAMEWORK AVFoundation)
     target_link_libraries(Sequencer PRIVATE
         ${COREAUDIO_FRAMEWORK}
         ${COREMIDI_FRAMEWORK}
-        ${AUDIOUNIT_FRAMEWORK}
         ${AUDIOTOOLBOX_FRAMEWORK}
         ${AVFOUNDATION_FRAMEWORK}
     )
-    if(NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
+    if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
+        # AudioUnit.framework doesn't exist on iOS — it's part of AudioToolbox
+    else()
+        find_library(AUDIOUNIT_FRAMEWORK AudioUnit)
         find_library(OPENGL_FRAMEWORK OpenGL)
-        target_link_libraries(Sequencer PRIVATE ${OPENGL_FRAMEWORK})
+        target_link_libraries(Sequencer PRIVATE ${AUDIOUNIT_FRAMEWORK} ${OPENGL_FRAMEWORK})
     endif()
 endif()

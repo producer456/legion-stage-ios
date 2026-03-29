@@ -1,0 +1,11 @@
+{
+	"InstallScripts" : 
+	[
+		"/Users/admin/legion-stage-ios/build-ios/cmake_install.cmake",
+		"/Users/admin/legion-stage-ios/build-ios/libs/JUCE/cmake_install.cmake",
+		"/Users/admin/legion-stage-ios/build-ios/libs/JUCE/modules/cmake_install.cmake",
+		"/Users/admin/legion-stage-ios/build-ios/libs/JUCE/extras/Build/cmake_install.cmake",
+		"/Users/admin/legion-stage-ios/build-ios/libs/JUCE/extras/Build/juceaide/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

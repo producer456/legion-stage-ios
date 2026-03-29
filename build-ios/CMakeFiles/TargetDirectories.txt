@@ -1,0 +1,10 @@
+/Users/admin/legion-stage-ios/build-ios/CMakeFiles/Sequencer.dir
+/Users/admin/legion-stage-ios/build-ios/CMakeFiles/install.dir
+/Users/admin/legion-stage-ios/build-ios/CMakeFiles/ALL_BUILD.dir
+/Users/admin/legion-stage-ios/build-ios/CMakeFiles/ZERO_CHECK.dir
+/Users/admin/legion-stage-ios/build-ios/libs/JUCE/CMakeFiles/install.dir
+/Users/admin/legion-stage-ios/build-ios/libs/JUCE/CMakeFiles/ALL_BUILD.dir
+/Users/admin/legion-stage-ios/build-ios/libs/JUCE/CMakeFiles/ZERO_CHECK.dir
+/Users/admin/legion-stage-ios/build-ios/libs/JUCE/modules/CMakeFiles/install.dir
+/Users/admin/legion-stage-ios/build-ios/libs/JUCE/extras/Build/CMakeFiles/install.dir
+/Users/admin/legion-stage-ios/build-ios/libs/JUCE/extras/Build/juceaide/CMakeFiles/install.dir
