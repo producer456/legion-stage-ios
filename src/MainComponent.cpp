@@ -1042,13 +1042,21 @@ void MainComponent::loadSelectedPlugin()
     closePluginEditor();
     audioPlayer.setProcessor(nullptr);
 
+    statusLabel.setText("Loading plugin...", juce::dontSendNotification);
+
     juce::String err;
     bool ok = pluginHost.loadPlugin(selectedTrackIndex, pluginDescriptions[idx], err);
 
     audioPlayer.setProcessor(&pluginHost);
 
     if (ok)
+    {
         updateTrackDisplay();
+#if JUCE_IOS
+        // AUv3 plugins may need a moment for parameters to fully register
+        juce::Timer::callAfterDelay(500, [this] { updateParamSliders(); updateFxDisplay(); });
+#endif
+    }
     else
         statusLabel.setText("Failed: " + err, juce::dontSendNotification);
 
