@@ -1895,8 +1895,19 @@ void MainComponent::loadProject()
                             {
                                 juce::MemoryBlock state;
                                 state.fromBase64Encoding(stateStr);
+#if JUCE_IOS
+                                // AUv3 may need a moment to fully initialize before accepting state
+                                auto* plugin = pluginHost.getTrack(t).plugin;
+                                auto stateCopy = state;
+                                juce::Timer::callAfterDelay(300, [plugin, stateCopy] {
+                                    if (plugin != nullptr)
+                                        plugin->setStateInformation(
+                                            stateCopy.getData(), static_cast<int>(stateCopy.getSize()));
+                                });
+#else
                                 pluginHost.getTrack(t).plugin->setStateInformation(
                                     state.getData(), static_cast<int>(state.getSize()));
+#endif
                             }
                         }
                         break;
@@ -1919,14 +1930,32 @@ void MainComponent::loadProject()
                         if (pluginHost.loadFx(t, fxSlot, desc, err))
                         {
                             auto stateStr = fxXml->getStringAttribute("state");
+                            bool bypassed = fxXml->getBoolAttribute("bypassed", false);
                             if (stateStr.isNotEmpty())
                             {
                                 juce::MemoryBlock state;
                                 state.fromBase64Encoding(stateStr);
+#if JUCE_IOS
+                                auto* fxProc = pluginHost.getTrack(t).fxSlots[fxSlot].processor;
+                                auto stateCopy = state;
+                                int trackIdx = t;
+                                int slotIdx = fxSlot;
+                                juce::Timer::callAfterDelay(300, [this, fxProc, stateCopy, trackIdx, slotIdx, bypassed] {
+                                    if (fxProc != nullptr)
+                                        fxProc->setStateInformation(
+                                            stateCopy.getData(), static_cast<int>(stateCopy.getSize()));
+                                    pluginHost.setFxBypassed(trackIdx, slotIdx, bypassed);
+                                });
+#else
                                 pluginHost.getTrack(t).fxSlots[fxSlot].processor->setStateInformation(
                                     state.getData(), static_cast<int>(state.getSize()));
+                                pluginHost.setFxBypassed(t, fxSlot, bypassed);
+#endif
                             }
-                            pluginHost.setFxBypassed(t, fxSlot, fxXml->getBoolAttribute("bypassed", false));
+                            else
+                            {
+                                pluginHost.setFxBypassed(t, fxSlot, bypassed);
+                            }
                         }
                         break;
                     }
