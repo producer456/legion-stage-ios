@@ -2097,16 +2097,28 @@ void MainComponent::resized()
             gforceDisplay.setVisible(false);
             geissDisplay.setVisible(false);
             projectMDisplay.setVisible(false);
-            visExitButton.setVisible(false);
             visSelector.setVisible(false);
             setVisControlsVisible();
             projectorButton.setVisible(false);
+
+#if JUCE_IOS
+            // On iOS, always show EXIT button since there's no Escape key
+            visExitButton.setBounds(visArea.getRight() - 60, visArea.getY() + 5, 55, 35);
+            visExitButton.setVisible(true);
+            visExitButton.toFront(false);
+#else
+            visExitButton.setVisible(false);
+#endif
 
             if (currentVisMode == 0) { spectrumDisplay.setBounds(visArea); spectrumDisplay.setAlpha(1.0f); spectrumDisplay.setVisible(true); }
             else if (currentVisMode == 1) { lissajousDisplay.setBounds(visArea); lissajousDisplay.setVisible(true); }
             else if (currentVisMode == 2) { gforceDisplay.setBounds(visArea); gforceDisplay.setVisible(true); }
             else if (currentVisMode == 3) { geissDisplay.setBounds(visArea); geissDisplay.setVisible(true); }
             else if (currentVisMode == 4) { projectMDisplay.setBounds(visArea); projectMDisplay.setVisible(true); }
+
+#if JUCE_IOS
+            visExitButton.toFront(false);
+#endif
         }
         else
         {
