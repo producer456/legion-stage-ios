@@ -13,14 +13,14 @@ if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
         PRODUCT_NAME "Legion Stage"
         COMPANY_NAME "Dev"
         BUNDLE_ID "com.dev.legionstage"
+        IS_AU_PLUGIN_HOST TRUE
         BACKGROUND_AUDIO_ENABLED TRUE
         FILE_SHARING_ENABLED TRUE
         DOCUMENT_BROWSER_ENABLED TRUE
         REQUIRES_FULL_SCREEN TRUE
-        IPHONE_SCREEN_ORIENTATIONS UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait
-        IPAD_SCREEN_ORIENTATIONS UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown
-        IS_AU_PLUGIN_HOST TRUE
         PLIST_TO_MERGE "${CMAKE_CURRENT_SOURCE_DIR}/resources/LaunchScreen.plist"
+        IPHONE_SCREEN_ORIENTATIONS UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
+        IPAD_SCREEN_ORIENTATIONS UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
     )
     # Skip storyboard compilation (use UILaunchScreen plist key instead)
     # Works around ibtool "iOS Platform Not Installed" issue in Xcode 26 beta

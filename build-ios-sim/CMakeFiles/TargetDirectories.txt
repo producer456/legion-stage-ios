@@ -1,0 +1,10 @@
+/Users/admin/legion-stage-ios/build-ios-sim/CMakeFiles/Sequencer.dir
+/Users/admin/legion-stage-ios/build-ios-sim/CMakeFiles/install.dir
+/Users/admin/legion-stage-ios/build-ios-sim/CMakeFiles/ALL_BUILD.dir
+/Users/admin/legion-stage-ios/build-ios-sim/CMakeFiles/ZERO_CHECK.dir
+/Users/admin/legion-stage-ios/build-ios-sim/libs/JUCE/CMakeFiles/install.dir
+/Users/admin/legion-stage-ios/build-ios-sim/libs/JUCE/CMakeFiles/ALL_BUILD.dir
+/Users/admin/legion-stage-ios/build-ios-sim/libs/JUCE/CMakeFiles/ZERO_CHECK.dir
+/Users/admin/legion-stage-ios/build-ios-sim/libs/JUCE/modules/CMakeFiles/install.dir
+/Users/admin/legion-stage-ios/build-ios-sim/libs/JUCE/extras/Build/CMakeFiles/install.dir
+/Users/admin/legion-stage-ios/build-ios-sim/libs/JUCE/extras/Build/juceaide/CMakeFiles/install.dir

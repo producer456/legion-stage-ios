@@ -7,5 +7,11 @@
         <key>UIColorName</key>
         <string>SystemBackgroundColor</string>
     </dict>
+    <key>UIInterfaceOrientation</key>
+    <string>UIInterfaceOrientationLandscapeLeft</string>
+    <key>UIApplicationSupportsMultipleScenes</key>
+    <false/>
+    <key>UIRequiresFullScreen</key>
+    <true/>
 </dict>
 </plist>
