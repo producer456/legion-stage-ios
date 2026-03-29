@@ -1066,12 +1066,31 @@ void MainComponent::openPluginEditor()
     if (currentEditor == nullptr) return;
 
 #if JUCE_IOS
-    // On iOS, embed the editor as an overlay within the main component
-    addAndMakeVisible(*currentEditor);
-    auto editorSize = currentEditor->getBounds();
-    int ew = juce::jmin(editorSize.getWidth(), getWidth() - 20);
-    int eh = juce::jmin(editorSize.getHeight(), getHeight() - 20);
-    currentEditor->setBounds((getWidth() - ew) / 2, (getHeight() - eh) / 2, ew, eh);
+    // On iOS, embed the editor as an overlay with a close button
+    {
+        auto* overlay = new juce::Component();
+        overlay->setName("EditorOverlay");
+
+        auto* closeBtn = new juce::TextButton("X");
+        closeBtn->setColour(juce::TextButton::buttonColourId, juce::Colours::red.withAlpha(0.8f));
+        closeBtn->setColour(juce::TextButton::textColourOffId, juce::Colours::white);
+        closeBtn->onClick = [this] { closePluginEditor(); };
+        overlay->addAndMakeVisible(closeBtn);
+        overlay->addAndMakeVisible(*currentEditor);
+
+        auto editorSize = currentEditor->getBounds();
+        int ew = juce::jmin(editorSize.getWidth(), getWidth() - 20);
+        int eh = juce::jmin(editorSize.getHeight(), getHeight() - 60);
+        int ox = (getWidth() - ew) / 2;
+        int oy = (getHeight() - eh - 40) / 2;
+
+        overlay->setBounds(ox, oy, ew, eh + 40);
+        closeBtn->setBounds(ew - 50, 0, 50, 35);
+        currentEditor->setBounds(0, 40, ew, eh);
+
+        addAndMakeVisible(overlay);
+        overlay->toFront(true);
+    }
 #else
     editorWindow = std::make_unique<PluginEditorWindow>(track.plugin->getName(), currentEditor.get(),
         [this] { closePluginEditor(); });
@@ -1081,8 +1100,19 @@ void MainComponent::openPluginEditor()
 void MainComponent::closePluginEditor()
 {
 #if JUCE_IOS
-    if (currentEditor != nullptr)
-        removeChildComponent(currentEditor.get());
+    // Remove the overlay component that contains the editor and close button
+    for (int i = getNumChildComponents() - 1; i >= 0; --i)
+    {
+        if (auto* child = getChildComponent(i))
+        {
+            if (child->getName() == "EditorOverlay")
+            {
+                removeChildComponent(i);
+                delete child;
+                break;
+            }
+        }
+    }
 #else
     // Destroy window first (removes editor from component tree), then release editor
     editorWindow = nullptr;
@@ -2800,8 +2830,46 @@ void MainComponent::openFxEditor(int slotIndex)
     auto* editor = fxProc->createEditor();
     if (editor == nullptr) return;
 
+#if JUCE_IOS
+    auto* overlay = new juce::Component();
+    overlay->setName("EditorOverlay");
+
+    auto* closeBtn = new juce::TextButton("X");
+    closeBtn->setColour(juce::TextButton::buttonColourId, juce::Colours::red.withAlpha(0.8f));
+    closeBtn->setColour(juce::TextButton::textColourOffId, juce::Colours::white);
+    closeBtn->onClick = [this] {
+        for (int i = getNumChildComponents() - 1; i >= 0; --i)
+        {
+            if (auto* child = getChildComponent(i))
+            {
+                if (child->getName() == "EditorOverlay")
+                {
+                    removeChildComponent(i);
+                    delete child;
+                    break;
+                }
+            }
+        }
+    };
+    overlay->addAndMakeVisible(closeBtn);
+    overlay->addAndMakeVisible(editor);
+
+    auto editorSize = editor->getBounds();
+    int ew = juce::jmin(editorSize.getWidth(), getWidth() - 20);
+    int eh = juce::jmin(editorSize.getHeight(), getHeight() - 60);
+    int ox = (getWidth() - ew) / 2;
+    int oy = (getHeight() - eh - 40) / 2;
+
+    overlay->setBounds(ox, oy, ew, eh + 40);
+    closeBtn->setBounds(ew - 50, 0, 50, 35);
+    editor->setBounds(0, 40, ew, eh);
+
+    addAndMakeVisible(overlay);
+    overlay->toFront(true);
+#else
     auto name = fxProc->getName() + " (FX " + juce::String(slotIndex + 1) + ")";
     new PluginEditorWindow(name, editor, [editor] { delete editor->getParentComponent(); });
+#endif
 }
 
 void MainComponent::startMidiLearn(MidiTarget target)
