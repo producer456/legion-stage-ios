@@ -1016,7 +1016,26 @@ void MainComponent::scanPlugins()
     int id = 2;
     for (const auto& desc : pluginHost.getPluginList().getTypes())
     {
-        if (desc.isInstrument)
+        bool instrument = desc.isInstrument;
+
+        // AUv3 synths may not set isInstrument — check category too
+        if (!instrument)
+        {
+            auto cat = desc.category.toLowerCase();
+            if (cat.contains("instrument") || cat.contains("synth")
+                || cat.contains("generator") || cat.contains("music"))
+                instrument = true;
+        }
+
+        // Also check the AU type in the descriptor
+        if (!instrument && desc.pluginFormatName == "AudioUnit")
+        {
+            // AU Music Devices have 'aumu' manufacturer type
+            if (desc.fileOrIdentifier.contains("aumu"))
+                instrument = true;
+        }
+
+        if (instrument)
         {
             pluginSelector.addItem(desc.name, id);
             pluginDescriptions.add(desc);
