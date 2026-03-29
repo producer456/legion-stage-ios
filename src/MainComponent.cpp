@@ -1079,22 +1079,28 @@ void MainComponent::openPluginEditor()
         auto* overlay = new juce::Component();
         overlay->setName("EditorOverlay");
 
-        auto* closeBtn = new juce::TextButton("X");
-        closeBtn->setColour(juce::TextButton::buttonColourId, juce::Colours::red.withAlpha(0.8f));
+        auto* closeBtn = new juce::TextButton("CLOSE");
+        closeBtn->setColour(juce::TextButton::buttonColourId, juce::Colours::red.withAlpha(0.9f));
         closeBtn->setColour(juce::TextButton::textColourOffId, juce::Colours::white);
         closeBtn->onClick = [this] { closePluginEditor(); };
         overlay->addAndMakeVisible(closeBtn);
         overlay->addAndMakeVisible(*currentEditor);
 
-        auto editorSize = currentEditor->getBounds();
-        int ew = juce::jmin(editorSize.getWidth(), getWidth() - 20);
-        int eh = juce::jmin(editorSize.getHeight(), getHeight() - 60);
-        int ox = (getWidth() - ew) / 2;
-        int oy = (getHeight() - eh - 40) / 2;
+        // Use the editor's preferred size, not its current bounds
+        int edW = currentEditor->getWidth();
+        int edH = currentEditor->getHeight();
+        if (edW <= 0) edW = 600;
+        if (edH <= 0) edH = 400;
 
-        overlay->setBounds(ox, oy, ew, eh + 40);
-        closeBtn->setBounds(ew - 50, 0, 50, 35);
-        currentEditor->setBounds(0, 40, ew, eh);
+        int closeBarH = 44;
+        int ew = juce::jmin(edW, getWidth() - 20);
+        int eh = juce::jmin(edH, getHeight() - closeBarH - 20);
+        int ox = (getWidth() - ew) / 2;
+        int oy = (getHeight() - eh - closeBarH) / 2;
+
+        overlay->setBounds(ox, oy, ew, eh + closeBarH);
+        closeBtn->setBounds(0, 0, ew, closeBarH);
+        currentEditor->setBounds(0, closeBarH, ew, eh);
 
         addAndMakeVisible(overlay);
         overlay->toFront(true);
@@ -2900,18 +2906,26 @@ void MainComponent::openFxEditor(int slotIndex)
             }
         }
     };
+    closeBtn->setColour(juce::TextButton::buttonColourId, juce::Colours::red.withAlpha(0.9f));
+    closeBtn->setColour(juce::TextButton::textColourOffId, juce::Colours::white);
+    closeBtn->setButtonText("CLOSE");
     overlay->addAndMakeVisible(closeBtn);
     overlay->addAndMakeVisible(editor);
 
-    auto editorSize = editor->getBounds();
-    int ew = juce::jmin(editorSize.getWidth(), getWidth() - 20);
-    int eh = juce::jmin(editorSize.getHeight(), getHeight() - 60);
-    int ox = (getWidth() - ew) / 2;
-    int oy = (getHeight() - eh - 40) / 2;
+    int edW = editor->getWidth();
+    int edH = editor->getHeight();
+    if (edW <= 0) edW = 600;
+    if (edH <= 0) edH = 400;
 
-    overlay->setBounds(ox, oy, ew, eh + 40);
-    closeBtn->setBounds(ew - 50, 0, 50, 35);
-    editor->setBounds(0, 40, ew, eh);
+    int closeBarH = 44;
+    int ew = juce::jmin(edW, getWidth() - 20);
+    int eh = juce::jmin(edH, getHeight() - closeBarH - 20);
+    int ox = (getWidth() - ew) / 2;
+    int oy = (getHeight() - eh - closeBarH) / 2;
+
+    overlay->setBounds(ox, oy, ew, eh + closeBarH);
+    closeBtn->setBounds(0, 0, ew, closeBarH);
+    editor->setBounds(0, closeBarH, ew, eh);
 
     addAndMakeVisible(overlay);
     overlay->toFront(true);
