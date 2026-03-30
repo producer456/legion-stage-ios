@@ -2512,11 +2512,11 @@ void MainComponent::resized()
 #if JUCE_IOS
     // ── Volume/Pan strip — far right edge ──
     auto mixStrip = area.removeFromRight(60).reduced(4, 4);
-    volumeLabel.setBounds(mixStrip.removeFromTop(14));
-    volumeSlider.setBounds(mixStrip.removeFromTop(mixStrip.getHeight() / 2 - 10));
-    mixStrip.removeFromTop(4);
     panLabel.setBounds(mixStrip.removeFromTop(14));
-    panSlider.setBounds(mixStrip.reduced(4, 0));
+    panSlider.setBounds(mixStrip.removeFromTop(50).reduced(4, 0));
+    mixStrip.removeFromTop(4);
+    volumeLabel.setBounds(mixStrip.removeFromTop(14));
+    volumeSlider.setBounds(mixStrip);
 #endif
 
     // ── Right Panel ──
