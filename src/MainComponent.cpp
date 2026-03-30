@@ -2241,7 +2241,11 @@ void MainComponent::resized()
     // Transport group
     recordButton.setBounds(topBar.removeFromLeft(55));
     topBar.removeFromLeft(3);
+    scrollLeftButton.setBounds(topBar.removeFromLeft(35));
+    topBar.removeFromLeft(2);
     playButton.setBounds(topBar.removeFromLeft(55));
+    topBar.removeFromLeft(2);
+    scrollRightButton.setBounds(topBar.removeFromLeft(35));
     topBar.removeFromLeft(3);
     stopButton.setBounds(topBar.removeFromLeft(50));
     topBar.removeFromLeft(3);
@@ -2263,10 +2267,6 @@ void MainComponent::resized()
     pianoToggleButton.setBounds(topBar.removeFromLeft(45));
     topBar.removeFromLeft(3);
     mixerButton.setBounds(topBar.removeFromLeft(38));
-    topBar.removeFromLeft(4);
-    scrollLeftButton.setBounds(topBar.removeFromLeft(35));
-    topBar.removeFromLeft(2);
-    scrollRightButton.setBounds(topBar.removeFromLeft(35));
     zoomOutButton.setVisible(false);
     zoomInButton.setVisible(false);
     topBar.removeFromLeft(4);
