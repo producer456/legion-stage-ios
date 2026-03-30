@@ -770,6 +770,12 @@ MainComponent::MainComponent()
     scanPlugins();
     scanMidiDevices();
     selectTrack(0);
+
+#if JUCE_IOS
+    // AUv3 extensions may take time to register with the system
+    // Rescan after a delay to catch late-registering plugins
+    juce::Timer::callAfterDelay(3000, [this] { scanPlugins(); });
+#endif
     updateStatusLabel();
 
     // Initial undo snapshot
@@ -1086,8 +1092,18 @@ void MainComponent::scanPlugins()
     }
     pluginSelector.setSelectedId(1, juce::dontSendNotification);
 
+#if JUCE_IOS
+    auto nativeScanResults = AUScanner::scanAllAudioUnits();
+    int nativeInst = 0, nativeFx = 0;
+    for (const auto& a : nativeScanResults)
+        if (a.isInstrument) nativeInst++; else nativeFx++;
+    statusLabel.setText("Plugins: " + juce::String(pluginDescriptions.size()) + " inst, "
+                        + juce::String(fxDescriptions.size()) + " fx (native: "
+                        + juce::String(nativeInst) + " inst, " + juce::String(nativeFx) + " fx)",
+#else
     statusLabel.setText("Found " + juce::String(pluginDescriptions.size()) + " instruments, "
                         + juce::String(fxDescriptions.size()) + " effects",
+#endif
                         juce::dontSendNotification);
 }
 
