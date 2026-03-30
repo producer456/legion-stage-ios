@@ -181,13 +181,33 @@ bool PluginHost::loadPlugin(int trackIndex, const juce::PluginDescription& desc,
     unloadPlugin(trackIndex);
 
 #if JUCE_IOS
-    // AUv3 plugins on iOS — try sync first, JUCE internally handles AU async
-    auto instance = formatManager.createPluginInstance(desc, storedSampleRate, storedBlockSize, errorMsg);
+    // AUv3 plugins on iOS REQUIRE async instantiation
+    std::unique_ptr<juce::AudioPluginInstance> instance;
+    bool finished = false;
+
+    formatManager.createPluginInstanceAsync(desc, storedSampleRate, storedBlockSize,
+        [&](std::unique_ptr<juce::AudioPluginInstance> result, const juce::String& err)
+        {
+            instance = std::move(result);
+            if (err.isNotEmpty()) errorMsg = err;
+            finished = true;
+        });
+
+    // Wait for async completion — pump the run loop on iOS
+    auto deadline = juce::Time::getMillisecondCounter() + 15000;
+    while (!finished && juce::Time::getMillisecondCounter() < deadline)
+    {
+        AUScanner::pumpRunLoop(100);
+    }
+
+    if (!finished)
+    {
+        errorMsg = "Plugin instantiation timed out";
+        return false;
+    }
     if (instance == nullptr)
     {
-        // If sync failed, the error message tells us why
-        if (errorMsg.isEmpty())
-            errorMsg = "Failed to create plugin instance (AUv3 async?)";
+        if (errorMsg.isEmpty()) errorMsg = "Plugin instance is null after async creation";
         return false;
     }
 #else

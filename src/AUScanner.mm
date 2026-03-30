@@ -67,11 +67,22 @@ juce::Array<AUScanner::AUInfo> AUScanner::scanAllAudioUnits()
     return results;
 }
 
+void AUScanner::pumpRunLoop(int milliseconds)
+{
+    [[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode
+                             beforeDate:[NSDate dateWithTimeIntervalSinceNow:milliseconds / 1000.0]];
+}
+
 #else
 
 juce::Array<AUScanner::AUInfo> AUScanner::scanAllAudioUnits()
 {
     return {};
+}
+
+void AUScanner::pumpRunLoop(int milliseconds)
+{
+    juce::Thread::sleep(milliseconds);
 }
 
 #endif
