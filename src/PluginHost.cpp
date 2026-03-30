@@ -69,16 +69,12 @@ void PluginHost::setupGraph()
 void PluginHost::scanForPlugins()
 {
 #if JUCE_IOS && JUCE_PLUGINHOST_AU
-    // On iOS, use native AudioComponent scan with JUCE-compatible identifiers
+    // On iOS, use AVAudioUnitComponentManager to find all AUv3 plugins
+    // and add them directly to the known plugin list
     {
-        auto* auFormat = formatManager.getFormat(0);
-        if (auFormat == nullptr) return;
-
         auto nativeAUs = AUScanner::scanAllAudioUnits();
         for (const auto& info : nativeAUs)
         {
-            // Build JUCE-compatible AU identifier: "AudioUnit:Category/type,subtype,manu"
-            // info.identifier is "type/subtype/manufacturer"
             auto parts = juce::StringArray::fromTokens(info.identifier, "/", "");
             if (parts.size() != 3) continue;
 
@@ -89,11 +85,19 @@ void PluginHost::scanForPlugins()
             else if (info.category == "MIDI") category = "MidiEffects";
             else category = "Effects";
 
-            juce::String juceId = "AudioUnit:" + category + "/" + parts[0] + "," + parts[1] + "," + parts[2];
+            juce::PluginDescription pd;
+            pd.name = info.name;
+            pd.pluginFormatName = "AudioUnit";
+            pd.category = info.category;
+            pd.manufacturerName = info.manufacturer;
+            pd.isInstrument = info.isInstrument;
+            pd.numInputChannels = info.isInstrument ? 0 : 2;
+            pd.numOutputChannels = 2;
+            pd.uniqueId = info.uniqueId;
+            // JUCE AU identifier format: "AudioUnit:Category/type,subtype,manufacturer"
+            pd.fileOrIdentifier = "AudioUnit:" + category + "/" + parts[0] + "," + parts[1] + "," + parts[2];
 
-            // Use JUCE's scan to create a proper PluginDescription
-            juce::OwnedArray<juce::PluginDescription> foundTypes;
-            knownPluginList.scanAndAddFile(juceId, true, foundTypes, *auFormat);
+            knownPluginList.addType(pd);
         }
     }
     return;
