@@ -1017,12 +1017,12 @@ void MainComponent::scanPlugins()
     pluginSelector.addItem("-- Plugin --", 1);
 
 #if JUCE_IOS
-    // Get native AU instrument list for definitive categorization
+    // Get native AU instrument identifiers for definitive categorization
     auto nativeAUs = AUScanner::scanAllAudioUnits();
-    juce::StringArray nativeInstrumentNames;
+    juce::StringArray instrumentIdentifiers;
     for (const auto& info : nativeAUs)
         if (info.isInstrument)
-            nativeInstrumentNames.add(info.name);
+            instrumentIdentifiers.add(info.identifier);
 #endif
 
     int id = 2;
@@ -1030,7 +1030,7 @@ void MainComponent::scanPlugins()
     {
         bool instrument = desc.isInstrument;
 
-        // AUv3 synths may not set isInstrument — check category too
+        // Check category string
         if (!instrument)
         {
             auto cat = desc.category.toLowerCase();
@@ -1039,7 +1039,7 @@ void MainComponent::scanPlugins()
                 instrument = true;
         }
 
-        // Also check the AU type in the descriptor
+        // Check AU type code in identifier
         if (!instrument && desc.pluginFormatName == "AudioUnit")
         {
             if (desc.fileOrIdentifier.contains("aumu"))
@@ -1047,14 +1047,14 @@ void MainComponent::scanPlugins()
         }
 
 #if JUCE_IOS
-        // Cross-reference with native AU scanner
+        // Cross-reference with native AU scanner using identifier matching
         if (!instrument)
         {
-            for (const auto& instName : nativeInstrumentNames)
+            for (const auto& instId : instrumentIdentifiers)
             {
-                // Native names are like "Manufacturer: PluginName"
-                auto shortName = instName.fromLastOccurrenceOf(": ", false, false);
-                if (desc.name.containsIgnoreCase(shortName) || shortName.containsIgnoreCase(desc.name))
+                // Check if the JUCE identifier contains the native AU type/subtype/manu
+                if (desc.fileOrIdentifier.containsIgnoreCase(instId)
+                    || instId.containsIgnoreCase(desc.fileOrIdentifier))
                 {
                     instrument = true;
                     break;
@@ -1063,6 +1063,8 @@ void MainComponent::scanPlugins()
         }
 #endif
 
+        // On iOS, also add all plugins to instrument list (user can pick)
+        // Effects will still appear in FX dropdowns too
         if (instrument)
         {
             pluginSelector.addItem(desc.name, id);
@@ -1075,19 +1077,6 @@ void MainComponent::scanPlugins()
         }
     }
     pluginSelector.setSelectedId(1, juce::dontSendNotification);
-
-    // Debug: show first few plugin identifiers to diagnose categorization
-    juce::String debugInfo;
-    int debugCount = 0;
-    for (const auto& desc : pluginHost.getPluginList().getTypes())
-    {
-        if (debugCount < 3)
-        {
-            debugInfo += desc.name + " [" + desc.fileOrIdentifier.substring(0, 20) + "] inst=" + (desc.isInstrument ? "Y" : "N") + " | ";
-            debugCount++;
-        }
-    }
-    DBG("Plugin debug: " + debugInfo);
 
     statusLabel.setText("Found " + juce::String(pluginDescriptions.size()) + " instruments, "
                         + juce::String(fxDescriptions.size()) + " effects",

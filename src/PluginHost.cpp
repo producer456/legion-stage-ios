@@ -68,51 +68,7 @@ void PluginHost::setupGraph()
 
 void PluginHost::scanForPlugins()
 {
-#if JUCE_IOS && JUCE_PLUGINHOST_AU
-    // On iOS, use JUCE's scan then supplement with native AU scanner
-    // for any components JUCE missed
-    {
-        auto* auFormat = formatManager.getFormat(0);
-        if (auFormat != nullptr)
-        {
-            auto searchPaths = auFormat->getDefaultLocationsToSearch();
-            auto foundFiles = auFormat->searchPathsForPlugins(searchPaths, true, true);
-            for (const auto& file : foundFiles)
-            {
-                juce::OwnedArray<juce::PluginDescription> foundTypes;
-                knownPluginList.scanAndAddFile(file, true, foundTypes, *auFormat);
-            }
-        }
-
-        // Use native scanner to find instruments JUCE may have missed
-        // and build a lookup of AU type codes for categorization
-        auto nativeAUs = AUScanner::scanAllAudioUnits();
-        for (const auto& info : nativeAUs)
-        {
-            if (!info.isInstrument) continue;
-
-            // Check if JUCE already found this one
-            bool found = false;
-            for (const auto& desc : knownPluginList.getTypes())
-            {
-                if (desc.name.containsIgnoreCase(info.name.fromLastOccurrenceOf(": ", false, false))
-                    || info.name.containsIgnoreCase(desc.name))
-                {
-                    found = true;
-                    break;
-                }
-            }
-
-            if (!found && auFormat != nullptr)
-            {
-                // Try JUCE scan with the native identifier
-                juce::OwnedArray<juce::PluginDescription> foundTypes;
-                knownPluginList.scanAndAddFile(info.identifier, true, foundTypes, *auFormat);
-            }
-        }
-    }
-    return;
-#endif
+    // Simple scan: let each format find its plugins
 
     for (int fi = 0; fi < formatManager.getNumFormats(); ++fi)
     {
