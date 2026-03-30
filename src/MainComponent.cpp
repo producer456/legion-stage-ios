@@ -3063,6 +3063,39 @@ void MainComponent::openFxEditor(int slotIndex)
 
 void MainComponent::startMidiLearn(MidiTarget target)
 {
+    // Check if this target already has a mapping — offer to unlearn
+    for (int i = midiMappings.size() - 1; i >= 0; --i)
+    {
+        if (midiMappings[i].target == target)
+        {
+            auto mapping = midiMappings[i];
+            juce::String info = "CC" + juce::String(mapping.ccNumber) + " ch" + juce::String(mapping.channel);
+
+            juce::AlertWindow::showOkCancelBox(
+                juce::MessageBoxIconType::QuestionIcon,
+                "MIDI Mapping Exists",
+                "This control is mapped to " + info + ".\n\nRemove mapping?",
+                "Unlearn", "Keep & Remap",
+                nullptr,
+                juce::ModalCallbackFunction::create([this, target, i](int result) {
+                    if (result == 1)
+                    {
+                        // Unlearn — remove the mapping
+                        midiMappings.remove(i);
+                        statusLabel.setText("MIDI mapping removed", juce::dontSendNotification);
+                        midiLearnTarget = MidiTarget::None;
+                    }
+                    else
+                    {
+                        // Keep & remap — proceed with normal learn
+                        midiLearnTarget = target;
+                        statusLabel.setText("Waiting for CC...", juce::dontSendNotification);
+                    }
+                }));
+            return;
+        }
+    }
+
     midiLearnTarget = target;
 
     juce::String targetName;
