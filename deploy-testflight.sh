@@ -68,7 +68,24 @@ xcodebuild -exportArchive \
     -allowProvisioningUpdates
 
 echo ">> Waiting for build to process..."
-sleep 60
+
+# Poll until the newest build is VALID (up to 5 minutes)
+for i in $(seq 1 30); do
+    sleep 10
+    TOKEN=$(python3 -c "
+import jwt, time
+key = open('$HOME/.appstoreconnect/private_keys/AuthKey_$API_KEY.p8').read()
+payload = {'iss': '$API_ISSUER', 'iat': int(time.time()), 'exp': int(time.time()) + 1200, 'aud': 'appstoreconnect-v1'}
+print(jwt.encode(payload, key, algorithm='ES256', headers={'kid': '$API_KEY'}))
+")
+    STATE=$(curl -s -H "Authorization: Bearer $TOKEN" \
+        "https://api.appstoreconnect.apple.com/v1/builds?sort=-uploadedDate&limit=1" \
+        | python3 -c "import sys,json; d=json.load(sys.stdin)['data'][0]; print(d['attributes']['processingState'])")
+    echo "  Build state: $STATE"
+    if [ "$STATE" = "VALID" ]; then
+        break
+    fi
+done
 
 echo ">> Setting encryption compliance and adding to test group..."
 TOKEN=$(python3 -c "
