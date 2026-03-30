@@ -25,8 +25,11 @@ cmake -B "$BUILD_DIR" -G Xcode \
     -DCMAKE_SYSTEM_NAME=iOS \
     -DCMAKE_OSX_DEPLOYMENT_TARGET=16.0
 
-echo ">> Archiving..."
+# Auto-increment build number based on timestamp
+BUILD_NUMBER=$(date +%Y%m%d%H%M)
+echo ">> Archiving (build $BUILD_NUMBER)..."
 xcodebuild -project "$BUILD_DIR/Sequencer.xcodeproj" \
+    CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
     -scheme Sequencer \
     -configuration Release \
     -destination "generic/platform=iOS" \
