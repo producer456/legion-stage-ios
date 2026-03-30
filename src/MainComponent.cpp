@@ -2156,35 +2156,42 @@ void MainComponent::paint(juce::Graphics& g)
     // Main body
     g.fillAll(juce::Colour(c.body));
 
+#if JUCE_IOS
+    int iosStatusBarH = 30;
+#else
+    int iosStatusBarH = 0;
+#endif
+
     // Top bar background
+    int topBarDrawH = 80 + iosStatusBarH;
     if (auto* lnf = dynamic_cast<DawLookAndFeel*>(&getLookAndFeel()))
     {
         if (lnf->getSidePanelWidth() > 0)
         {
-            // Custom top bar (e.g. wood grain)
+            // Custom top bar (e.g. wood grain) — extended to cover iOS status bar
             int sidePW = lnf->getSidePanelWidth();
-            lnf->drawTopBarBackground(g, sidePW, 0, getWidth() - sidePW * 2, 80);
+            lnf->drawTopBarBackground(g, sidePW, 0, getWidth() - sidePW * 2, topBarDrawH);
         }
         else
         {
             g.setColour(juce::Colour(c.bodyLight));
-            g.fillRect(0, 0, getWidth(), 80);
+            g.fillRect(0, 0, getWidth(), topBarDrawH);
         }
     }
     else
     {
         g.setColour(juce::Colour(c.bodyLight));
-        g.fillRect(0, 0, getWidth(), 80);
+        g.fillRect(0, 0, getWidth(), topBarDrawH);
     }
 
     // Toolbar background
     g.setColour(juce::Colour(c.bodyDark));
-    g.fillRect(0, 80, getWidth(), 65);
+    g.fillRect(0, topBarDrawH, getWidth(), 65);
 
     // Panel dividers (stop at right panel edge)
     g.setColour(juce::Colour(c.border));
-    g.drawHorizontalLine(80, 0, static_cast<float>(getWidth() - 180));
-    g.drawHorizontalLine(145, 0, static_cast<float>(getWidth() - 180));
+    g.drawHorizontalLine(topBarDrawH, 0, static_cast<float>(getWidth() - 180));
+    g.drawHorizontalLine(topBarDrawH + 65, 0, static_cast<float>(getWidth() - 180));
 
     // Accent stripe at top
     g.setColour(juce::Colour(c.accentStripe));
@@ -2217,9 +2224,9 @@ void MainComponent::resized()
 
 #if JUCE_IOS
     // Add padding for iOS status bar (time, battery, wifi)
-    int statusBarPad = 50;
+    int statusBarPad = 30;
     area.removeFromTop(statusBarPad);
-    int topBarH = 60;
+    int topBarH = 70;
 #else
     int topBarH = 80;
 #endif
