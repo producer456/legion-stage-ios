@@ -1,66 +1,67 @@
-// Include AudioToolbox BEFORE JuceHeader to avoid type conflicts
-#if __APPLE__
-#import <AudioToolbox/AudioToolbox.h>
-#import <Foundation/Foundation.h>
-#endif
+// AUScanner — uses AVAudioUnitComponentManager to discover AUv3 plugins
+// Apple headers MUST come before JUCE to avoid Point/AudioBuffer conflicts
 
+#import <AVFAudio/AVAudioUnitComponent.h>
+#import <Foundation/Foundation.h>
+
+// Now include JUCE
 #include "AUScanner.h"
 
 #if JUCE_IOS || JUCE_MAC
+
+enum {
+    kAUType_MusicDevice    = 'aumu',
+    kAUType_Effect         = 'aufx',
+    kAUType_MusicEffect    = 'aumf',
+    kAUType_Generator      = 'augn',
+    kAUType_MIDIProcessor  = 'aumi'
+};
+
+static juce::String fourCC(UInt32 val)
+{
+    char str[5] = {
+        static_cast<char>((val >> 24) & 0xFF),
+        static_cast<char>((val >> 16) & 0xFF),
+        static_cast<char>((val >> 8) & 0xFF),
+        static_cast<char>(val & 0xFF), 0
+    };
+    return juce::String(str);
+}
 
 juce::Array<AUScanner::AUInfo> AUScanner::scanAllAudioUnits()
 {
     juce::Array<AUInfo> results;
 
-    UInt32 types[] = {
-        kAudioUnitType_MusicDevice,      // aumu - instruments
-        kAudioUnitType_Effect,           // aufx - effects
-        kAudioUnitType_MusicEffect,      // aumf - music effects (MIDI-aware FX)
-        kAudioUnitType_Generator,        // augn - generators
-        kAudioUnitType_MIDIProcessor     // aumi - MIDI processors
-    };
+    AVAudioUnitComponentManager* manager = [AVAudioUnitComponentManager sharedAudioUnitComponentManager];
 
-    auto fourCC = [](UInt32 val) -> juce::String {
-        char str[5] = {
-            static_cast<char>((val >> 24) & 0xFF),
-            static_cast<char>((val >> 16) & 0xFF),
-            static_cast<char>((val >> 8) & 0xFF),
-            static_cast<char>(val & 0xFF), 0
-        };
-        return juce::String(str);
-    };
+    AudioComponentDescription searchDesc = {};
+    NSArray<AVAudioUnitComponent*>* components = [manager componentsMatchingDescription:searchDesc];
 
-    for (auto type : types)
+    for (AVAudioUnitComponent* comp in components)
     {
-        AudioComponentDescription desc = {};
-        desc.componentType = type;
+        AudioComponentDescription desc = comp.audioComponentDescription;
 
-        AudioComponent comp = nullptr;
-        while ((comp = AudioComponentFindNext(comp, &desc)) != nullptr)
-        {
-            AudioComponentDescription found;
-            if (AudioComponentGetDescription(comp, &found) != noErr)
-                continue;
+        if (desc.componentType != kAUType_MusicDevice &&
+            desc.componentType != kAUType_Effect &&
+            desc.componentType != kAUType_MusicEffect &&
+            desc.componentType != kAUType_Generator &&
+            desc.componentType != kAUType_MIDIProcessor)
+            continue;
 
-            CFStringRef cfName = nullptr;
-            AudioComponentCopyName(comp, &cfName);
+        AUInfo info;
+        info.name = juce::String::fromUTF8([comp.name UTF8String]);
+        info.manufacturer = juce::String::fromUTF8([comp.manufacturerName UTF8String]);
+        info.identifier = fourCC(desc.componentType) + "/"
+                        + fourCC(desc.componentSubType) + "/"
+                        + fourCC(desc.componentManufacturer);
+        info.isInstrument = (desc.componentType == kAUType_MusicDevice);
+        info.category = (desc.componentType == kAUType_MusicDevice) ? "Instrument" :
+                       (desc.componentType == kAUType_Effect ||
+                        desc.componentType == kAUType_MusicEffect) ? "Effect" :
+                       (desc.componentType == kAUType_Generator) ? "Generator" : "MIDI";
+        info.uniqueId = static_cast<int>(desc.componentType ^ desc.componentSubType ^ desc.componentManufacturer);
 
-            AUInfo info;
-            info.name = cfName ? juce::String::fromCFString(cfName) : "Unknown";
-            if (cfName) CFRelease(cfName);
-
-            info.manufacturer = fourCC(found.componentManufacturer);
-            info.identifier = fourCC(found.componentType) + "/"
-                            + fourCC(found.componentSubType) + "/"
-                            + fourCC(found.componentManufacturer);
-            info.isInstrument = (type == kAudioUnitType_MusicDevice);
-            info.category = (type == kAudioUnitType_MusicDevice) ? "Instrument" :
-                           (type == kAudioUnitType_Effect || type == kAudioUnitType_MusicEffect) ? "Effect" :
-                           (type == kAudioUnitType_Generator) ? "Generator" : "MIDI";
-            info.uniqueId = static_cast<int>(found.componentType ^ found.componentSubType ^ found.componentManufacturer);
-
-            results.add(info);
-        }
+        results.add(info);
     }
 
     return results;
