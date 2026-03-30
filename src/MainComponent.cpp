@@ -2267,10 +2267,8 @@ void MainComponent::resized()
     scrollLeftButton.setBounds(topBar.removeFromLeft(35));
     topBar.removeFromLeft(2);
     scrollRightButton.setBounds(topBar.removeFromLeft(35));
-    topBar.removeFromLeft(3);
-    zoomOutButton.setBounds(topBar.removeFromLeft(45));
-    topBar.removeFromLeft(2);
-    zoomInButton.setBounds(topBar.removeFromLeft(45));
+    zoomOutButton.setVisible(false);
+    zoomInButton.setVisible(false);
     topBar.removeFromLeft(4);
     statusLabel.setBounds(topBar.removeFromLeft(juce::jmin(140, topBar.getWidth() / 2)));
 
