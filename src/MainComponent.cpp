@@ -2197,8 +2197,12 @@ void MainComponent::paint(juce::Graphics& g)
     int iosStatusBarH = 0;
 #endif
 
-    // Top bar background
-    int topBarDrawH = 80 + iosStatusBarH;
+    // Top bar background — must match resized() layout
+#if JUCE_IOS
+    int topBarDrawH = iosStatusBarH + 70;  // matches statusBarPad(30) + topBarH(70)
+#else
+    int topBarDrawH = 80;
+#endif
     if (auto* lnf = dynamic_cast<DawLookAndFeel*>(&getLookAndFeel()))
     {
         if (lnf->getSidePanelWidth() > 0)
