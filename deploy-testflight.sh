@@ -30,10 +30,14 @@ echo ">> Pulling latest from repo..."
 git pull origin main
 
 echo ">> Configuring build..."
-rm -rf "$BUILD_DIR"
-cmake -B "$BUILD_DIR" -G Xcode \
-    -DCMAKE_SYSTEM_NAME=iOS \
-    -DCMAKE_OSX_DEPLOYMENT_TARGET=16.0
+if [ ! -f "$BUILD_DIR/Sequencer.xcodeproj/project.pbxproj" ]; then
+    rm -rf "$BUILD_DIR"
+    cmake -B "$BUILD_DIR" -G Xcode \
+        -DCMAKE_SYSTEM_NAME=iOS \
+        -DCMAKE_OSX_DEPLOYMENT_TARGET=16.0
+else
+    echo "  Reusing existing CMake config"
+fi
 
 BUILD_NUMBER=$(date +%Y%m%d%H%M)
 echo ">> Archiving (build $BUILD_NUMBER)..."
