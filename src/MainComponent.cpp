@@ -2222,6 +2222,46 @@ void MainComponent::resized()
     // ── Top Bar ──
     auto topBar = area.removeFromTop(topBarH).reduced(4, 10);
 
+#if JUCE_IOS
+    // iOS layout: transport on the left, then separator, then everything else
+    // Transport group
+    recordButton.setBounds(topBar.removeFromLeft(55));
+    topBar.removeFromLeft(3);
+    playButton.setBounds(topBar.removeFromLeft(55));
+    topBar.removeFromLeft(3);
+    stopButton.setBounds(topBar.removeFromLeft(50));
+    topBar.removeFromLeft(3);
+    loopButton.setBounds(topBar.removeFromLeft(50));
+    topBar.removeFromLeft(3);
+    metronomeButton.setBounds(topBar.removeFromLeft(45));
+    topBar.removeFromLeft(3);
+    panicButton.setBounds(topBar.removeFromLeft(55));
+
+    topBar.removeFromLeft(12);  // separator gap
+
+    // Track name + tools
+    trackNameLabel.setBounds(topBar.removeFromLeft(140));
+    topBar.removeFromLeft(4);
+    midiLearnButton.setBounds(topBar.removeFromLeft(55));
+    topBar.removeFromLeft(3);
+    countInButton.setBounds(topBar.removeFromLeft(70));
+    topBar.removeFromLeft(3);
+    pianoToggleButton.setBounds(topBar.removeFromLeft(45));
+    topBar.removeFromLeft(3);
+    mixerButton.setBounds(topBar.removeFromLeft(38));
+    topBar.removeFromLeft(4);
+    scrollLeftButton.setBounds(topBar.removeFromLeft(35));
+    topBar.removeFromLeft(2);
+    scrollRightButton.setBounds(topBar.removeFromLeft(35));
+    topBar.removeFromLeft(3);
+    zoomOutButton.setBounds(topBar.removeFromLeft(45));
+    topBar.removeFromLeft(2);
+    zoomInButton.setBounds(topBar.removeFromLeft(45));
+    topBar.removeFromLeft(4);
+    statusLabel.setBounds(topBar.removeFromLeft(juce::jmin(140, topBar.getWidth() / 2)));
+
+    beatLabel.setBounds(topBar.removeFromRight(80));
+#else
     midiLearnButton.setBounds(topBar.removeFromLeft(65));
     topBar.removeFromLeft(4);
     trackNameLabel.setBounds(topBar.removeFromLeft(180));
@@ -2257,6 +2297,7 @@ void MainComponent::resized()
     topBar.removeFromLeft(4);
 
     beatLabel.setBounds(topBar.removeFromRight(100));
+#endif
 
     // ── Fullscreen Visualizer Mode ──
     if (visualizerFullScreen)
