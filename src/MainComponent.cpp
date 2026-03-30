@@ -2292,6 +2292,17 @@ void MainComponent::resized()
 
     topBar.removeFromLeft(12);  // separator gap
 
+    // BPM group
+    bpmDownButton.setBounds(topBar.removeFromLeft(28));
+    topBar.removeFromLeft(2);
+    bpmLabel.setBounds(topBar.removeFromLeft(65));
+    topBar.removeFromLeft(2);
+    bpmUpButton.setBounds(topBar.removeFromLeft(28));
+    topBar.removeFromLeft(3);
+    tapTempoButton.setBounds(topBar.removeFromLeft(40));
+
+    topBar.removeFromLeft(12);  // separator gap
+
     // Track name + tools
     trackNameLabel.setBounds(topBar.removeFromLeft(140));
     topBar.removeFromLeft(4);
@@ -2304,10 +2315,9 @@ void MainComponent::resized()
     mixerButton.setBounds(topBar.removeFromLeft(38));
     zoomOutButton.setVisible(false);
     zoomInButton.setVisible(false);
-    topBar.removeFromLeft(4);
-    statusLabel.setBounds(topBar.removeFromLeft(juce::jmin(140, topBar.getWidth() / 2)));
 
     beatLabel.setBounds(topBar.removeFromRight(80));
+    statusLabel.setBounds(topBar);
 #else
     midiLearnButton.setBounds(topBar.removeFromLeft(65));
     topBar.removeFromLeft(4);
@@ -2582,6 +2592,7 @@ void MainComponent::resized()
     redoButton.setBounds(toolbar.removeFromLeft(50));
 
     // Pack remaining controls at the right end of the toolbar
+#if !JUCE_IOS
     tapTempoButton.setBounds(toolbar.removeFromRight(50));
     toolbar.removeFromRight(3);
     bpmUpButton.setBounds(toolbar.removeFromRight(32));
@@ -2590,6 +2601,7 @@ void MainComponent::resized()
     toolbar.removeFromRight(2);
     bpmDownButton.setBounds(toolbar.removeFromRight(32));
     toolbar.removeFromRight(6);
+#endif
     midi2Button.setBounds(toolbar.removeFromRight(36));
     toolbar.removeFromRight(2);
     visSelector.setBounds(toolbar.removeFromRight(72));
