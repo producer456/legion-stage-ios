@@ -72,7 +72,17 @@ xcodebuild -exportArchive \
 
 echo ">> Waiting for build to process..."
 
-# Poll until the newest build is VALID (up to 5 minutes)
+# Poll until a new build appears and is VALID (up to 5 minutes)
+echo ">> Waiting for new build to appear..."
+PREV_BUILD_ID=$(curl -s -H "Authorization: Bearer $(python3 -c "
+import jwt, time
+key = open('$HOME/.appstoreconnect/private_keys/AuthKey_$API_KEY.p8').read()
+payload = {'iss': '$API_ISSUER', 'iat': int(time.time()), 'exp': int(time.time()) + 1200, 'aud': 'appstoreconnect-v1'}
+print(jwt.encode(payload, key, algorithm='ES256', headers={'kid': '$API_KEY'}))
+")" "https://api.appstoreconnect.apple.com/v1/builds?sort=-uploadedDate&limit=1" \
+    | python3 -c "import sys,json; print(json.load(sys.stdin)['data'][0]['id'])")
+echo "  Previous latest: $PREV_BUILD_ID"
+
 for i in $(seq 1 30); do
     sleep 10
     TOKEN=$(python3 -c "
@@ -81,11 +91,13 @@ key = open('$HOME/.appstoreconnect/private_keys/AuthKey_$API_KEY.p8').read()
 payload = {'iss': '$API_ISSUER', 'iat': int(time.time()), 'exp': int(time.time()) + 1200, 'aud': 'appstoreconnect-v1'}
 print(jwt.encode(payload, key, algorithm='ES256', headers={'kid': '$API_KEY'}))
 ")
-    STATE=$(curl -s -H "Authorization: Bearer $TOKEN" \
+    RESULT=$(curl -s -H "Authorization: Bearer $TOKEN" \
         "https://api.appstoreconnect.apple.com/v1/builds?sort=-uploadedDate&limit=1" \
-        | python3 -c "import sys,json; d=json.load(sys.stdin)['data'][0]; print(d['attributes']['processingState'])")
-    echo "  Build state: $STATE"
-    if [ "$STATE" = "VALID" ]; then
+        | python3 -c "import sys,json; d=json.load(sys.stdin)['data'][0]; print(d['id'],d['attributes']['processingState'])")
+    CURRENT_ID=$(echo "$RESULT" | cut -d' ' -f1)
+    STATE=$(echo "$RESULT" | cut -d' ' -f2)
+    echo "  Build: $CURRENT_ID state: $STATE"
+    if [ "$CURRENT_ID" != "$PREV_BUILD_ID" ] && [ "$STATE" = "VALID" ]; then
         break
     fi
 done
