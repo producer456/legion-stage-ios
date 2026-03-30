@@ -2290,13 +2290,13 @@ void MainComponent::resized()
     topBar.removeFromLeft(3);
     loopButton.setBounds(topBar.removeFromLeft(50));
 
-    topBar.removeFromLeft(8);  // gap before met/panic
+    topBar.removeFromLeft(16);  // gap before met/panic
 
     metronomeButton.setBounds(topBar.removeFromLeft(45));
     topBar.removeFromLeft(3);
     panicButton.setBounds(topBar.removeFromLeft(55));
 
-    topBar.removeFromLeft(12);  // separator gap
+    topBar.removeFromLeft(16);  // gap before BPM
 
     // BPM group
     bpmDownButton.setBounds(topBar.removeFromLeft(28));
