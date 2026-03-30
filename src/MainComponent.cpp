@@ -1682,7 +1682,9 @@ void MainComponent::updateParamSliders()
     if (selectedParams.isEmpty())
     {
         juce::StringArray commonNames = { "cutoff", "filter", "resonance",
-                                           "attack", "release", "drive", "mix", "volume" };
+                                           "attack", "decay", "sustain", "release",
+                                           "drive", "mix", "volume", "level", "gain",
+                                           "osc", "detune", "lfo" };
         for (auto& cn : commonNames)
         {
             for (auto* param : allParams)
@@ -1694,11 +1696,14 @@ void MainComponent::updateParamSliders()
         }
     }
 
-    // Fallback: first N parameters
-    if (selectedParams.isEmpty())
+    // Fallback: fill remaining slots with first available parameters
+    if (selectedParams.size() < NUM_PARAM_SLIDERS)
     {
-        for (int i = 0; i < juce::jmin(NUM_PARAM_SLIDERS, allParams.size()); ++i)
-            selectedParams.add(allParams[i]);
+        for (int i = 0; i < allParams.size() && selectedParams.size() < NUM_PARAM_SLIDERS; ++i)
+        {
+            if (!selectedParams.contains(allParams[i]))
+                selectedParams.add(allParams[i]);
+        }
     }
 
     for (int i = 0; i < NUM_PARAM_SLIDERS; ++i)
