@@ -842,6 +842,19 @@ void MainComponent::timerCallback()
         recordButton.setColour(juce::TextButton::buttonOnColourId, juce::Colour(themeManager.getColors().red));
     }
 
+    // Scrolling text on piano toggle button when active
+    if (touchPianoVisible)
+    {
+        juce::String scrollText = "  ON SCREEN KEYBOARD  ";
+        int offset = (static_cast<int>(juce::Time::currentTimeMillis() / 200)) % scrollText.length();
+        juce::String visible = scrollText.substring(offset) + scrollText.substring(0, offset);
+        pianoToggleButton.setButtonText(visible.substring(0, 6));
+    }
+    else
+    {
+        pianoToggleButton.setButtonText("KEYS");
+    }
+
     // Sync transport button toggle states for animated OLED icons
     playButton.setToggleState(eng.isPlaying(), juce::dontSendNotification);
     metronomeButton.setToggleState(eng.isMetronomeOn(), juce::dontSendNotification);
