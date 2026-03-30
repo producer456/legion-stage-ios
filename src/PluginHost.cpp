@@ -1,9 +1,11 @@
 #include "PluginHost.h"
+#include "AUScanner.h"
 #include "SpectrumComponent.h"
 #include "LissajousComponent.h"
 #include "GForceComponent.h"
 #include "GeissComponent.h"
 #include "ProjectMComponent.h"
+
 
 PluginHost::PluginHost()
 {
@@ -66,6 +68,29 @@ void PluginHost::setupGraph()
 
 void PluginHost::scanForPlugins()
 {
+#if JUCE_IOS && JUCE_PLUGINHOST_AU
+    // On iOS, use native AudioComponent API to find all AU components
+    // JUCE's searchPathsForPlugins may miss AUv3 app extensions
+    {
+        auto auComponents = AUScanner::scanAllAudioUnits();
+        for (const auto& info : auComponents)
+        {
+            juce::PluginDescription pd;
+            pd.name = info.name;
+            pd.pluginFormatName = "AudioUnit";
+            pd.category = info.category;
+            pd.isInstrument = info.isInstrument;
+            pd.manufacturerName = info.manufacturer;
+            pd.fileOrIdentifier = info.identifier;
+            pd.uniqueId = info.uniqueId;
+            pd.numInputChannels = info.isInstrument ? 0 : 2;
+            pd.numOutputChannels = 2;
+            knownPluginList.addType(pd);
+        }
+    }
+    return;
+#endif
+
     for (int fi = 0; fi < formatManager.getNumFormats(); ++fi)
     {
         auto* format = formatManager.getFormat(fi);
@@ -73,10 +98,7 @@ void PluginHost::scanForPlugins()
 
         auto searchPaths = format->getDefaultLocationsToSearch();
 
-#if JUCE_IOS
-        // On iOS, AUv3 plugins are discovered via AVAudioUnitComponentManager.
-        // No filesystem paths needed — JUCE handles it internally.
-#elif defined(__APPLE__)
+#if defined(__APPLE__) && !JUCE_IOS
         // macOS VST3 locations
         juce::StringArray extraPaths = {
             "/Library/Audio/Plug-Ins/VST3",

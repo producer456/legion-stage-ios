@@ -89,6 +89,8 @@ target_sources(Sequencer PRIVATE
     src/UpdateChecker.cpp
     src/UpdateDialog.h
     src/UpdateDialog.cpp
+    src/AUScanner.h
+    src/AUScanner.mm
 )
 
 target_compile_definitions(Sequencer PRIVATE
