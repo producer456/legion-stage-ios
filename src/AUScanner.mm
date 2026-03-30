@@ -3,6 +3,9 @@
 
 #import <AVFAudio/AVAudioUnitComponent.h>
 #import <Foundation/Foundation.h>
+#if __IPHONE_OS_VERSION_MIN_REQUIRED
+#import <UIKit/UIDevice.h>
+#endif
 
 // Now include JUCE
 #include "AUScanner.h"
@@ -73,6 +76,11 @@ void AUScanner::pumpRunLoop(int milliseconds)
                              beforeDate:[NSDate dateWithTimeIntervalSinceNow:milliseconds / 1000.0]];
 }
 
+bool AUScanner::isIPhone()
+{
+    return [[UIDevice currentDevice] userInterfaceIdiom] == UIUserInterfaceIdiomPhone;
+}
+
 #else
 
 juce::Array<AUScanner::AUInfo> AUScanner::scanAllAudioUnits()
@@ -83,6 +91,11 @@ juce::Array<AUScanner::AUInfo> AUScanner::scanAllAudioUnits()
 void AUScanner::pumpRunLoop(int milliseconds)
 {
     juce::Thread::sleep(milliseconds);
+}
+
+bool AUScanner::isIPhone()
+{
+    return false;
 }
 
 #endif

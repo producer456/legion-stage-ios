@@ -2196,15 +2196,11 @@ void MainComponent::paint(juce::Graphics& g)
     g.fillAll(juce::Colour(c.body));
 
 #if JUCE_IOS
-    int iosStatusBarH = 30;
+    bool paintPhone = AUScanner::isIPhone();
+    int iosStatusBarH = paintPhone ? 20 : 30;
+    int topBarDrawH = iosStatusBarH + (paintPhone ? 44 : 70);
 #else
     int iosStatusBarH = 0;
-#endif
-
-    // Top bar background — must match resized() layout
-#if JUCE_IOS
-    int topBarDrawH = iosStatusBarH + 70;  // matches statusBarPad(30) + topBarH(70)
-#else
     int topBarDrawH = 80;
 #endif
     if (auto* lnf = dynamic_cast<DawLookAndFeel*>(&getLookAndFeel()))
@@ -2275,68 +2271,127 @@ void MainComponent::resized()
     }
 
 #if JUCE_IOS
-    // Add padding for iOS status bar (time, battery, wifi)
-    int statusBarPad = 30;
+    bool isPhone = AUScanner::isIPhone();
+    int statusBarPad = isPhone ? 20 : 30;
     area.removeFromTop(statusBarPad);
-    int topBarH = 70;
+    int topBarH = isPhone ? 44 : 70;
 #else
+    bool isPhone = false;
+#endif
+
+#if !JUCE_IOS
     int topBarH = 80;
 #endif
-    int bottomBarH = 45;
-    int rightPanelW = 180;
+    int bottomBarH = isPhone ? 0 : 45;
+    int rightPanelW = isPhone ? 0 : 180;
 
     // ── Top Bar ──
-    auto topBar = area.removeFromTop(topBarH).reduced(4, 10);
+    auto topBar = area.removeFromTop(topBarH).reduced(4, isPhone ? 2 : 10);
 
 #if JUCE_IOS
-    // iOS layout: transport on the left, then separator, then everything else
-    // Transport group
-    recordButton.setBounds(topBar.removeFromLeft(55));
-    topBar.removeFromLeft(3);
-    scrollLeftButton.setBounds(topBar.removeFromLeft(35));
-    topBar.removeFromLeft(2);
-    playButton.setBounds(topBar.removeFromLeft(55));
-    topBar.removeFromLeft(2);
-    scrollRightButton.setBounds(topBar.removeFromLeft(35));
-    topBar.removeFromLeft(3);
-    stopButton.setBounds(topBar.removeFromLeft(50));
-    topBar.removeFromLeft(3);
-    loopButton.setBounds(topBar.removeFromLeft(50));
-
-    topBar.removeFromLeft(16);  // gap before met/panic
-
-    metronomeButton.setBounds(topBar.removeFromLeft(45));
-    topBar.removeFromLeft(3);
-    panicButton.setBounds(topBar.removeFromLeft(55));
-
-    topBar.removeFromLeft(16);  // gap before BPM
-
-    // BPM group
-    bpmDownButton.setBounds(topBar.removeFromLeft(28));
-    topBar.removeFromLeft(2);
-    bpmLabel.setBounds(topBar.removeFromLeft(65));
-    topBar.removeFromLeft(2);
-    bpmUpButton.setBounds(topBar.removeFromLeft(28));
-    topBar.removeFromLeft(3);
-    tapTempoButton.setBounds(topBar.removeFromLeft(40));
-
-    topBar.removeFromLeft(12);  // separator gap
-
-    // Track name + tools
-    trackNameLabel.setBounds(topBar.removeFromLeft(140));
-    topBar.removeFromLeft(4);
-    midiLearnButton.setBounds(topBar.removeFromLeft(55));
-    topBar.removeFromLeft(3);
-    countInButton.setBounds(topBar.removeFromLeft(70));
-    topBar.removeFromLeft(3);
-    pianoToggleButton.setBounds(topBar.removeFromLeft(45));
-    topBar.removeFromLeft(3);
-    mixerButton.setBounds(topBar.removeFromLeft(38));
     zoomOutButton.setVisible(false);
     zoomInButton.setVisible(false);
 
-    beatLabel.setBounds(topBar.removeFromRight(80));
-    statusLabel.setBounds(topBar);
+    if (isPhone)
+    {
+        // ── iPhone compact layout ──
+        // Single row: essential transport only
+        int bh = topBar.getHeight();
+        int bw = 38;
+
+        recordButton.setBounds(topBar.removeFromLeft(bw));
+        topBar.removeFromLeft(2);
+        scrollLeftButton.setBounds(topBar.removeFromLeft(28));
+        topBar.removeFromLeft(1);
+        playButton.setBounds(topBar.removeFromLeft(bw));
+        topBar.removeFromLeft(1);
+        scrollRightButton.setBounds(topBar.removeFromLeft(28));
+        topBar.removeFromLeft(2);
+        stopButton.setBounds(topBar.removeFromLeft(bw));
+        topBar.removeFromLeft(2);
+        loopButton.setBounds(topBar.removeFromLeft(bw));
+        topBar.removeFromLeft(4);
+        metronomeButton.setBounds(topBar.removeFromLeft(32));
+        topBar.removeFromLeft(2);
+        panicButton.setBounds(topBar.removeFromLeft(bw));
+        topBar.removeFromLeft(4);
+
+        // BPM
+        bpmDownButton.setBounds(topBar.removeFromLeft(22));
+        bpmLabel.setBounds(topBar.removeFromLeft(50));
+        bpmUpButton.setBounds(topBar.removeFromLeft(22));
+        topBar.removeFromLeft(4);
+
+        // Right side
+        beatLabel.setBounds(topBar.removeFromRight(60));
+        pianoToggleButton.setBounds(topBar.removeFromRight(35));
+        topBar.removeFromRight(2);
+        mixerButton.setBounds(topBar.removeFromRight(30));
+
+        // Hide items that don't fit on iPhone
+        trackNameLabel.setVisible(false);
+        midiLearnButton.setVisible(false);
+        countInButton.setVisible(false);
+        tapTempoButton.setVisible(false);
+        statusLabel.setVisible(false);
+        audioSettingsButton.setVisible(false);
+        themeSelector.setVisible(false);
+        fullscreenButton.setVisible(false);
+        projectorButton.setVisible(false);
+    }
+    else
+    {
+        // ── iPad layout ──
+        // Transport group
+        recordButton.setBounds(topBar.removeFromLeft(55));
+        topBar.removeFromLeft(3);
+        scrollLeftButton.setBounds(topBar.removeFromLeft(35));
+        topBar.removeFromLeft(2);
+        playButton.setBounds(topBar.removeFromLeft(55));
+        topBar.removeFromLeft(2);
+        scrollRightButton.setBounds(topBar.removeFromLeft(35));
+        topBar.removeFromLeft(3);
+        stopButton.setBounds(topBar.removeFromLeft(50));
+        topBar.removeFromLeft(3);
+        loopButton.setBounds(topBar.removeFromLeft(50));
+
+        topBar.removeFromLeft(16);  // gap before met/panic
+
+        metronomeButton.setBounds(topBar.removeFromLeft(45));
+        topBar.removeFromLeft(3);
+        panicButton.setBounds(topBar.removeFromLeft(55));
+
+        topBar.removeFromLeft(16);  // gap before BPM
+
+        // BPM group
+        bpmDownButton.setBounds(topBar.removeFromLeft(28));
+        topBar.removeFromLeft(2);
+        bpmLabel.setBounds(topBar.removeFromLeft(65));
+        topBar.removeFromLeft(2);
+        bpmUpButton.setBounds(topBar.removeFromLeft(28));
+        topBar.removeFromLeft(3);
+        tapTempoButton.setBounds(topBar.removeFromLeft(40));
+
+        topBar.removeFromLeft(12);  // separator gap
+
+        // Track name + tools
+        trackNameLabel.setBounds(topBar.removeFromLeft(140));
+        trackNameLabel.setVisible(true);
+        topBar.removeFromLeft(4);
+        midiLearnButton.setBounds(topBar.removeFromLeft(55));
+        midiLearnButton.setVisible(true);
+        topBar.removeFromLeft(3);
+        countInButton.setBounds(topBar.removeFromLeft(70));
+        countInButton.setVisible(true);
+        topBar.removeFromLeft(3);
+        pianoToggleButton.setBounds(topBar.removeFromLeft(45));
+        topBar.removeFromLeft(3);
+        mixerButton.setBounds(topBar.removeFromLeft(38));
+
+        beatLabel.setBounds(topBar.removeFromRight(80));
+        statusLabel.setBounds(topBar);
+        statusLabel.setVisible(true);
+    }
 #else
     midiLearnButton.setBounds(topBar.removeFromLeft(65));
     topBar.removeFromLeft(4);
@@ -2585,6 +2640,89 @@ void MainComponent::resized()
     fullscreenButton.setVisible(true);
     midi2Button.setVisible(true);
     setVisControlsVisible();
+
+#if JUCE_IOS
+    if (isPhone)
+    {
+        // iPhone: skip edit toolbar and right panel, full-width arranger
+        newClipButton.setVisible(false);
+        deleteClipButton.setVisible(false);
+        duplicateClipButton.setVisible(false);
+        splitClipButton.setVisible(false);
+        editClipButton.setVisible(false);
+        quantizeButton.setVisible(false);
+        gridSelector.setVisible(false);
+        saveButton.setVisible(false);
+        loadButton.setVisible(false);
+        undoButton.setVisible(false);
+        redoButton.setVisible(false);
+        openEditorButton.setVisible(false);
+        midiInputSelector.setVisible(false);
+        midiRefreshButton.setVisible(false);
+        midi2Button.setVisible(false);
+        visSelector.setVisible(false);
+        fullscreenButton.setVisible(false);
+        projectorButton.setVisible(false);
+        for (int i = 0; i < NUM_FX_SLOTS; ++i)
+        {
+            fxSelectors[i]->setVisible(false);
+            fxEditorButtons[i]->setVisible(false);
+        }
+        for (int i = 0; i < NUM_PARAM_SLIDERS; ++i)
+        {
+            paramSliders[i]->setVisible(false);
+            paramLabels[i]->setVisible(false);
+        }
+        volumeSlider.setVisible(false);
+        volumeLabel.setVisible(false);
+        panSlider.setVisible(false);
+        panLabel.setVisible(false);
+        spectrumDisplay.setVisible(false);
+        lissajousDisplay.setVisible(false);
+        gforceDisplay.setVisible(false);
+        geissDisplay.setVisible(false);
+        projectMDisplay.setVisible(false);
+
+        // Plugin selector as a compact bottom bar
+        auto bottomBar = area.removeFromBottom(36).reduced(2, 2);
+        pluginSelector.setBounds(bottomBar.removeFromLeft(bottomBar.getWidth() / 2 - 2));
+        bottomBar.removeFromLeft(4);
+
+        // Volume/Pan knobs in bottom bar
+        volumeSlider.setVisible(true);
+        volumeSlider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
+        volumeSlider.setBounds(bottomBar.removeFromRight(32));
+        panSlider.setVisible(true);
+        panSlider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
+        panSlider.setBounds(bottomBar.removeFromRight(32));
+
+        // Touch piano
+        if (touchPianoVisible)
+        {
+            auto pianoArea = area.removeFromBottom(80);
+            touchPiano.setBounds(pianoArea);
+        }
+
+        // Arranger fills the rest
+        area.reduce(2, 2);
+        if (mixerVisible)
+        {
+            mixerComponent->setBounds(area);
+            mixerComponent->setVisible(true);
+            if (timelineComponent) timelineComponent->setVisible(false);
+        }
+        else
+        {
+            mixerComponent->setVisible(false);
+            if (timelineComponent)
+            {
+                timelineComponent->setVisible(true);
+                timelineComponent->setBounds(area);
+            }
+        }
+        return;
+    }
+#endif
 
     // ── Edit Toolbar ──
     auto toolbar = area.removeFromTop(65).reduced(4, 4);

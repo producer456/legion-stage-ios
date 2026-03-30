@@ -17,4 +17,5 @@ namespace AUScanner
 
     juce::Array<AUInfo> scanAllAudioUnits();
     void pumpRunLoop(int milliseconds);
+    bool isIPhone();
 }
