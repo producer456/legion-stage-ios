@@ -2240,6 +2240,15 @@ void MainComponent::paint(juce::Graphics& g)
     g.setColour(juce::Colour(c.accentStripe));
     g.fillRect(0, 0, getWidth(), 2);
 
+#if JUCE_IOS
+    // Draw rectangle around track name label
+    if (trackNameLabel.isVisible())
+    {
+        g.setColour(juce::Colour(c.textSecondary));
+        g.drawRect(trackNameLabel.getBounds().expanded(4, 2), 1);
+    }
+#endif
+
     int rightPanelX = getWidth() - 180;
 
     // Draw decorative side panels if the theme provides them
