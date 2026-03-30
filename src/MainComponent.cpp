@@ -2509,16 +2509,6 @@ void MainComponent::resized()
     toolbar.removeFromRight(2);
     themeSelector.setBounds(toolbar.removeFromRight(82));
 
-#if JUCE_IOS
-    // ── Volume/Pan strip — far right edge ──
-    auto mixStrip = area.removeFromRight(60).reduced(4, 4);
-    panLabel.setBounds(mixStrip.removeFromTop(14));
-    panSlider.setBounds(mixStrip.removeFromTop(50).reduced(4, 0));
-    mixStrip.removeFromTop(4);
-    volumeLabel.setBounds(mixStrip.removeFromTop(14));
-    volumeSlider.setBounds(mixStrip);
-#endif
-
     // ── Right Panel ──
     auto rightPanel = area.removeFromRight(rightPanelW).reduced(8, 4);
 
@@ -2680,9 +2670,29 @@ void MainComponent::resized()
         spectrumDisplay.setAlpha(1.0f);
     }
 
-#if !JUCE_IOS
-    // Volume/Pan — fills remaining space (on top of spectrum) — desktop only
-    // On iOS these are in the far-right strip
+#if JUCE_IOS
+    // Volume/Pan as knobs at the bottom of right panel
+    {
+        int volKnobSize = 80;
+        int panKnobSize = 65;
+        int mixH = volKnobSize + 16;
+        auto mixArea = rightPanel.removeFromBottom(mixH);
+
+        int totalW = volKnobSize + panKnobSize + 8;
+        int startX = mixArea.getX() + (mixArea.getWidth() - totalW) / 2;
+
+        volumeLabel.setBounds(startX, mixArea.getY(), volKnobSize, 14);
+        volumeSlider.setBounds(startX, mixArea.getY() + 14, volKnobSize, volKnobSize);
+        volumeSlider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
+
+        int panX = startX + volKnobSize + 8;
+        int panY = mixArea.getY() + (volKnobSize - panKnobSize) / 2;
+        panLabel.setBounds(panX, mixArea.getY(), panKnobSize, 14);
+        panSlider.setBounds(panX, panY + 14, panKnobSize, panKnobSize);
+        panSlider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
+    }
+#else
+    // Volume/Pan — fills remaining space (on top of spectrum)
     auto mixArea = rightPanel;
     auto volArea = mixArea.removeFromLeft(mixArea.getWidth() / 2);
     auto panArea = mixArea;
