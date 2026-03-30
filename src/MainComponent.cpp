@@ -584,8 +584,8 @@ MainComponent::MainComponent()
 
     // ── Touch Piano ──
 #if JUCE_IOS
-    addAndMakeVisible(touchPiano);  // always visible on iOS
-    touchPianoVisible = true;
+    addChildComponent(touchPiano);  // hidden by default on iOS too
+    touchPianoVisible = false;
 #else
     addChildComponent(touchPiano);  // hidden by default on desktop
 #endif
