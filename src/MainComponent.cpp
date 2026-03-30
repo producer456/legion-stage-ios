@@ -1,4 +1,7 @@
 #include "MainComponent.h"
+#if JUCE_IOS
+#include "AUScanner.h"
+#endif
 
 MainComponent::MainComponent()
 {
@@ -1013,6 +1016,15 @@ void MainComponent::scanPlugins()
     fxDescriptions.clear();
     pluginSelector.addItem("-- Plugin --", 1);
 
+#if JUCE_IOS
+    // Get native AU instrument list for definitive categorization
+    auto nativeAUs = AUScanner::scanAllAudioUnits();
+    juce::StringArray nativeInstrumentNames;
+    for (const auto& info : nativeAUs)
+        if (info.isInstrument)
+            nativeInstrumentNames.add(info.name);
+#endif
+
     int id = 2;
     for (const auto& desc : pluginHost.getPluginList().getTypes())
     {
@@ -1030,10 +1042,26 @@ void MainComponent::scanPlugins()
         // Also check the AU type in the descriptor
         if (!instrument && desc.pluginFormatName == "AudioUnit")
         {
-            // AU Music Devices have 'aumu' manufacturer type
             if (desc.fileOrIdentifier.contains("aumu"))
                 instrument = true;
         }
+
+#if JUCE_IOS
+        // Cross-reference with native AU scanner
+        if (!instrument)
+        {
+            for (const auto& instName : nativeInstrumentNames)
+            {
+                // Native names are like "Manufacturer: PluginName"
+                auto shortName = instName.fromLastOccurrenceOf(": ", false, false);
+                if (desc.name.containsIgnoreCase(shortName) || shortName.containsIgnoreCase(desc.name))
+                {
+                    instrument = true;
+                    break;
+                }
+            }
+        }
+#endif
 
         if (instrument)
         {
@@ -1047,6 +1075,19 @@ void MainComponent::scanPlugins()
         }
     }
     pluginSelector.setSelectedId(1, juce::dontSendNotification);
+
+    // Debug: show first few plugin identifiers to diagnose categorization
+    juce::String debugInfo;
+    int debugCount = 0;
+    for (const auto& desc : pluginHost.getPluginList().getTypes())
+    {
+        if (debugCount < 3)
+        {
+            debugInfo += desc.name + " [" + desc.fileOrIdentifier.substring(0, 20) + "] inst=" + (desc.isInstrument ? "Y" : "N") + " | ";
+            debugCount++;
+        }
+    }
+    DBG("Plugin debug: " + debugInfo);
 
     statusLabel.setText("Found " + juce::String(pluginDescriptions.size()) + " instruments, "
                         + juce::String(fxDescriptions.size()) + " effects",

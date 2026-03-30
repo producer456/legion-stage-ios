@@ -69,8 +69,8 @@ void PluginHost::setupGraph()
 void PluginHost::scanForPlugins()
 {
 #if JUCE_IOS && JUCE_PLUGINHOST_AU
-    // On iOS, first use JUCE's scan to get properly formatted plugin descriptions,
-    // then use our native scanner to fix instrument categorization
+    // On iOS, use JUCE's scan then supplement with native AU scanner
+    // for any components JUCE missed
     {
         auto* auFormat = formatManager.getFormat(0);
         if (auFormat != nullptr)
@@ -84,60 +84,31 @@ void PluginHost::scanForPlugins()
             }
         }
 
-        // Now fix instrument categorization using native AU type info
+        // Use native scanner to find instruments JUCE may have missed
+        // and build a lookup of AU type codes for categorization
         auto nativeAUs = AUScanner::scanAllAudioUnits();
-
-        // Build a set of instrument names from native scan
-        juce::StringArray instrumentNames;
         for (const auto& info : nativeAUs)
         {
-            if (info.isInstrument)
-                instrumentNames.add(info.name);
-        }
+            if (!info.isInstrument) continue;
 
-        // Also add any instruments the native scan found that JUCE missed
-        for (const auto& info : nativeAUs)
-        {
-            bool alreadyInList = false;
+            // Check if JUCE already found this one
+            bool found = false;
             for (const auto& desc : knownPluginList.getTypes())
             {
-                if (desc.name == info.name || desc.fileOrIdentifier.contains(info.identifier))
+                if (desc.name.containsIgnoreCase(info.name.fromLastOccurrenceOf(": ", false, false))
+                    || info.name.containsIgnoreCase(desc.name))
                 {
-                    alreadyInList = true;
+                    found = true;
                     break;
                 }
             }
 
-            if (!alreadyInList)
+            if (!found && auFormat != nullptr)
             {
-                // Try to create a proper description through JUCE
+                // Try JUCE scan with the native identifier
                 juce::OwnedArray<juce::PluginDescription> foundTypes;
-                if (auFormat != nullptr)
-                    knownPluginList.scanAndAddFile(info.identifier, true, foundTypes, *auFormat);
+                knownPluginList.scanAndAddFile(info.identifier, true, foundTypes, *auFormat);
             }
-        }
-
-        // Fix isInstrument flag on all known types
-        auto types = knownPluginList.getTypes();
-        knownPluginList.clear();
-        for (auto desc : types)
-        {
-            // Check if this plugin's name matches a known instrument
-            for (const auto& instName : instrumentNames)
-            {
-                if (desc.name == instName || instName.contains(desc.name) || desc.name.contains(instName))
-                {
-                    desc.isInstrument = true;
-                    desc.category = "Instrument";
-                    break;
-                }
-            }
-
-            // Also check by AU type code in the identifier
-            if (desc.fileOrIdentifier.contains("aumu"))
-                desc.isInstrument = true;
-
-            knownPluginList.addType(desc);
         }
     }
     return;
