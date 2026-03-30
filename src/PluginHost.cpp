@@ -68,7 +68,36 @@ void PluginHost::setupGraph()
 
 void PluginHost::scanForPlugins()
 {
-    // Simple scan: let each format find its plugins
+#if JUCE_IOS && JUCE_PLUGINHOST_AU
+    // On iOS, use native AudioComponent scan with JUCE-compatible identifiers
+    {
+        auto* auFormat = formatManager.getFormat(0);
+        if (auFormat == nullptr) return;
+
+        auto nativeAUs = AUScanner::scanAllAudioUnits();
+        for (const auto& info : nativeAUs)
+        {
+            // Build JUCE-compatible AU identifier: "AudioUnit:Category/type,subtype,manu"
+            // info.identifier is "type/subtype/manufacturer"
+            auto parts = juce::StringArray::fromTokens(info.identifier, "/", "");
+            if (parts.size() != 3) continue;
+
+            juce::String category;
+            if (info.isInstrument) category = "Synths";
+            else if (info.category == "Effect") category = "Effects";
+            else if (info.category == "Generator") category = "Generators";
+            else if (info.category == "MIDI") category = "MidiEffects";
+            else category = "Effects";
+
+            juce::String juceId = "AudioUnit:" + category + "/" + parts[0] + "," + parts[1] + "," + parts[2];
+
+            // Use JUCE's scan to create a proper PluginDescription
+            juce::OwnedArray<juce::PluginDescription> foundTypes;
+            knownPluginList.scanAndAddFile(juceId, true, foundTypes, *auFormat);
+        }
+    }
+    return;
+#endif
 
     for (int fi = 0; fi < formatManager.getNumFormats(); ++fi)
     {
