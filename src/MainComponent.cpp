@@ -2285,7 +2285,9 @@ void MainComponent::resized()
     stopButton.setBounds(topBar.removeFromLeft(50));
     topBar.removeFromLeft(3);
     loopButton.setBounds(topBar.removeFromLeft(50));
-    topBar.removeFromLeft(3);
+
+    topBar.removeFromLeft(8);  // gap before met/panic
+
     metronomeButton.setBounds(topBar.removeFromLeft(45));
     topBar.removeFromLeft(3);
     panicButton.setBounds(topBar.removeFromLeft(55));
