@@ -2215,7 +2215,14 @@ void MainComponent::resized()
         }
     }
 
+#if JUCE_IOS
+    // Add padding for iOS status bar (time, battery, wifi)
+    int statusBarPad = 50;
+    area.removeFromTop(statusBarPad);
+    int topBarH = 60;
+#else
     int topBarH = 80;
+#endif
     int bottomBarH = 45;
     int rightPanelW = 180;
 
