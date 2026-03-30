@@ -2509,6 +2509,16 @@ void MainComponent::resized()
     toolbar.removeFromRight(2);
     themeSelector.setBounds(toolbar.removeFromRight(82));
 
+#if JUCE_IOS
+    // ── Volume/Pan strip — far right edge ──
+    auto mixStrip = area.removeFromRight(60).reduced(4, 4);
+    volumeLabel.setBounds(mixStrip.removeFromTop(14));
+    volumeSlider.setBounds(mixStrip.removeFromTop(mixStrip.getHeight() / 2 - 10));
+    mixStrip.removeFromTop(4);
+    panLabel.setBounds(mixStrip.removeFromTop(14));
+    panSlider.setBounds(mixStrip.reduced(4, 0));
+#endif
+
     // ── Right Panel ──
     auto rightPanel = area.removeFromRight(rightPanelW).reduced(8, 4);
 
@@ -2670,7 +2680,9 @@ void MainComponent::resized()
         spectrumDisplay.setAlpha(1.0f);
     }
 
-    // Volume/Pan — fills remaining space (on top of spectrum)
+#if !JUCE_IOS
+    // Volume/Pan — fills remaining space (on top of spectrum) — desktop only
+    // On iOS these are in the far-right strip
     auto mixArea = rightPanel;
     auto volArea = mixArea.removeFromLeft(mixArea.getWidth() / 2);
     auto panArea = mixArea;
@@ -2680,6 +2692,7 @@ void MainComponent::resized()
 
     panLabel.setBounds(panArea.removeFromTop(14));
     panSlider.setBounds(panArea.reduced(8, 0));
+#endif
 
     // ── Touch Piano (bottom of main area, when visible) ──
     if (touchPianoVisible)
