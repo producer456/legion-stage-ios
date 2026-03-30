@@ -848,14 +848,36 @@ void MainComponent::timerCallback()
     loopButton.setToggleState(eng.isLoopEnabled(), juce::dontSendNotification);
     countInButton.setToggleState(eng.isCountInEnabled(), juce::dontSendNotification);
 
-    // Only repaint OLED buttons during playback (animations active)
+    // Pulse animation for active toggle buttons
+    {
+        float pulse = 0.7f + 0.3f * std::sin(static_cast<float>(juce::Time::currentTimeMillis()) * 0.004f);
+        auto& c = themeManager.getColors();
+
+        auto pulseButton = [&](juce::TextButton& btn, juce::Colour onColour) {
+            if (btn.getToggleState())
+            {
+                btn.setColour(juce::TextButton::buttonOnColourId, onColour.withMultipliedBrightness(pulse));
+                btn.repaint();
+            }
+            else
+            {
+                btn.setColour(juce::TextButton::buttonOnColourId, onColour);
+            }
+        };
+
+        pulseButton(loopButton, juce::Colour(c.btnLoopOn));
+        pulseButton(countInButton, juce::Colour(c.btnCountInOn));
+        pulseButton(midiLearnButton, juce::Colour(c.amber));
+        pulseButton(pianoToggleButton, juce::Colour(c.lcdText));
+        pulseButton(mixerButton, juce::Colour(c.lcdText));
+        pulseButton(metronomeButton, juce::Colour(c.btnMetronomeOn));
+    }
+
+    // Repaint OLED buttons during playback (animations active)
     if (eng.isPlaying())
     {
         playButton.repaint();
         stopButton.repaint();
-        metronomeButton.repaint();
-        loopButton.repaint();
-        countInButton.repaint();
     }
     {
         double now = juce::Time::getMillisecondCounterHiRes() * 0.001;
@@ -2991,6 +3013,10 @@ void MainComponent::applyThemeToControls()
     panicButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xffdd6600));
     midiLearnButton.setColour(juce::TextButton::buttonColourId, juce::Colour(c.btnNav));
     midiLearnButton.setColour(juce::TextButton::buttonOnColourId, juce::Colour(c.amber));
+    pianoToggleButton.setColour(juce::TextButton::buttonColourId, juce::Colour(c.btnNav));
+    pianoToggleButton.setColour(juce::TextButton::buttonOnColourId, juce::Colour(c.lcdText));
+    mixerButton.setColour(juce::TextButton::buttonColourId, juce::Colour(c.btnNav));
+    mixerButton.setColour(juce::TextButton::buttonOnColourId, juce::Colour(c.lcdText));
 
     // Edit toolbar
     newClipButton.setColour(juce::TextButton::buttonColourId, juce::Colour(c.btnNewClip));
