@@ -3113,6 +3113,7 @@ void MainComponent::startMidiLearn(MidiTarget target)
         case MidiTarget::TrackPrev: targetName = "Track Prev"; break;
         case MidiTarget::Param0: case MidiTarget::Param1: case MidiTarget::Param2:
         case MidiTarget::Param3: case MidiTarget::Param4: case MidiTarget::Param5:
+        case MidiTarget::Param6: case MidiTarget::Param7: case MidiTarget::Param8:
             targetName = "Param " + juce::String(static_cast<int>(target) - static_cast<int>(MidiTarget::Param0) + 1);
             break;
         case MidiTarget::GeissWaveform:   targetName = "Geiss Wave"; break;
@@ -3206,6 +3207,7 @@ void MainComponent::applyMidiCC(const MidiMapping& mapping, int value)
             break;
         case MidiTarget::Param0: case MidiTarget::Param1: case MidiTarget::Param2:
         case MidiTarget::Param3: case MidiTarget::Param4: case MidiTarget::Param5:
+        case MidiTarget::Param6: case MidiTarget::Param7: case MidiTarget::Param8:
         {
             int idx = static_cast<int>(mapping.target) - static_cast<int>(MidiTarget::Param0);
             if (idx >= 0 && idx < NUM_PARAM_SLIDERS && paramSliders[idx]->isEnabled())

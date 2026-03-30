@@ -167,7 +167,11 @@ private:
     void handleIncomingMidiMessage(juce::MidiInput* source, const juce::MidiMessage& msg) override;
 
     // ── FX Inserts ──
+#if JUCE_IOS
+    static constexpr int NUM_FX_SLOTS = 1;
+#else
     static constexpr int NUM_FX_SLOTS = 2;
+#endif
     juce::OwnedArray<juce::ComboBox> fxSelectors;
     juce::OwnedArray<juce::TextButton> fxEditorButtons;
     void updateFxDisplay();
@@ -208,7 +212,11 @@ private:
     std::unique_ptr<juce::MidiOutput> midiOutput;  // kept open for CI responses
 
     // ── Plugin Parameters ──
+#if JUCE_IOS
+    static constexpr int NUM_PARAM_SLIDERS = 9;
+#else
     static constexpr int NUM_PARAM_SLIDERS = 6;
+#endif
     juce::OwnedArray<juce::Slider> paramSliders;
     juce::OwnedArray<juce::Label> paramLabels;
     void updateParamSliders();
@@ -266,7 +274,7 @@ private:
     enum class MidiTarget {
         None, Volume, Pan, Bpm,
         Play, Stop, Record, Metronome, Loop,
-        Param0, Param1, Param2, Param3, Param4, Param5,
+        Param0, Param1, Param2, Param3, Param4, Param5, Param6, Param7, Param8,
         TrackNext, TrackPrev,
         GeissWaveform, GeissPalette, GeissScene,
         GeissWaveScale, GeissWarpLock, GeissPaletteLock, GeissSpeed,
