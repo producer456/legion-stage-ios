@@ -1063,8 +1063,15 @@ void MainComponent::scanPlugins()
         }
 #endif
 
-        // On iOS, also add all plugins to instrument list (user can pick)
-        // Effects will still appear in FX dropdowns too
+#if JUCE_IOS
+        // On iOS, add ALL plugins to both instrument and FX lists
+        // AUv3 synths often don't report isInstrument correctly
+        pluginSelector.addItem(desc.name + (instrument ? "" : " [AU]"), id);
+        pluginDescriptions.add(desc);
+        id++;
+        if (!instrument)
+            fxDescriptions.add(desc);
+#else
         if (instrument)
         {
             pluginSelector.addItem(desc.name, id);
@@ -1075,6 +1082,7 @@ void MainComponent::scanPlugins()
         {
             fxDescriptions.add(desc);
         }
+#endif
     }
     pluginSelector.setSelectedId(1, juce::dontSendNotification);
 
