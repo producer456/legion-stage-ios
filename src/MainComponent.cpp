@@ -1947,6 +1947,7 @@ void MainComponent::loadProject()
         pluginHost.getEngine().setBpm(bpm);
         bpmLabel.setText(juce::String(static_cast<int>(bpm)) + " BPM", juce::dontSendNotification);
 
+        // First pass: restore mixer settings and clips only (no plugin loading)
         for (auto* trackXml : xml->getChildWithTagNameIterator("Track"))
         {
             int t = trackXml->getIntAttribute("index", -1);
@@ -1962,11 +1963,11 @@ void MainComponent::loadProject()
                 track.gainProcessor->soloed.store(trackXml->getBoolAttribute("soloed", false));
             }
 
-            // Restore plugin
+#if !JUCE_IOS
+            // Desktop: load plugins synchronously in-line
             auto* pluginXml = trackXml->getChildByName("Plugin");
             if (pluginXml != nullptr)
             {
-                // Find the plugin description element
                 for (auto* descXml : pluginXml->getChildIterator())
                 {
                     juce::PluginDescription desc;
@@ -1975,38 +1976,23 @@ void MainComponent::loadProject()
                         juce::String err;
                         if (pluginHost.loadPlugin(t, desc, err))
                         {
-                            // Restore plugin state
                             auto stateStr = pluginXml->getStringAttribute("state");
                             if (stateStr.isNotEmpty())
                             {
                                 juce::MemoryBlock state;
                                 state.fromBase64Encoding(stateStr);
-#if JUCE_IOS
-                                // AUv3 may need a moment to fully initialize before accepting state
-                                auto* plugin = pluginHost.getTrack(t).plugin;
-                                auto stateCopy = state;
-                                juce::Timer::callAfterDelay(300, [plugin, stateCopy] {
-                                    if (plugin != nullptr)
-                                        plugin->setStateInformation(
-                                            stateCopy.getData(), static_cast<int>(stateCopy.getSize()));
-                                });
-#else
                                 pluginHost.getTrack(t).plugin->setStateInformation(
                                     state.getData(), static_cast<int>(state.getSize()));
-#endif
                             }
                         }
                         break;
                     }
                 }
             }
-
-            // Restore FX chains
             for (auto* fxXml : trackXml->getChildWithTagNameIterator("FX"))
             {
                 int fxSlot = fxXml->getIntAttribute("slot", -1);
                 if (fxSlot < 0 || fxSlot >= Track::NUM_FX_SLOTS) continue;
-
                 for (auto* descXml : fxXml->getChildIterator())
                 {
                     juce::PluginDescription desc;
@@ -2016,37 +2002,20 @@ void MainComponent::loadProject()
                         if (pluginHost.loadFx(t, fxSlot, desc, err))
                         {
                             auto stateStr = fxXml->getStringAttribute("state");
-                            bool bypassed = fxXml->getBoolAttribute("bypassed", false);
                             if (stateStr.isNotEmpty())
                             {
                                 juce::MemoryBlock state;
                                 state.fromBase64Encoding(stateStr);
-#if JUCE_IOS
-                                auto* fxProc = pluginHost.getTrack(t).fxSlots[fxSlot].processor;
-                                auto stateCopy = state;
-                                int trackIdx = t;
-                                int slotIdx = fxSlot;
-                                juce::Timer::callAfterDelay(300, [this, fxProc, stateCopy, trackIdx, slotIdx, bypassed] {
-                                    if (fxProc != nullptr)
-                                        fxProc->setStateInformation(
-                                            stateCopy.getData(), static_cast<int>(stateCopy.getSize()));
-                                    pluginHost.setFxBypassed(trackIdx, slotIdx, bypassed);
-                                });
-#else
                                 pluginHost.getTrack(t).fxSlots[fxSlot].processor->setStateInformation(
                                     state.getData(), static_cast<int>(state.getSize()));
-                                pluginHost.setFxBypassed(t, fxSlot, bypassed);
-#endif
                             }
-                            else
-                            {
-                                pluginHost.setFxBypassed(t, fxSlot, bypassed);
-                            }
+                            pluginHost.setFxBypassed(t, fxSlot, fxXml->getBoolAttribute("bypassed", false));
                         }
                         break;
                     }
                 }
             }
+#endif
 
             auto* cp = track.clipPlayer;
             if (cp == nullptr) continue;
@@ -2081,6 +2050,83 @@ void MainComponent::loadProject()
                 slot.state.store(ClipSlot::Playing);
             }
         }
+
+#if JUCE_IOS
+        // On iOS, load plugins asynchronously after the file callback returns
+        // to avoid run loop reentrancy crashes during AUv3 async instantiation
+        auto xmlCopy = std::make_shared<juce::XmlElement>(*xml);
+        auto fileName = file.getFileName();
+        juce::MessageManager::callAsync([this, xmlCopy, fileName] {
+            audioPlayer.setProcessor(nullptr);
+            for (auto* trackXml : xmlCopy->getChildWithTagNameIterator("Track"))
+            {
+                int t = trackXml->getIntAttribute("index", -1);
+                if (t < 0 || t >= PluginHost::NUM_TRACKS) continue;
+
+                auto* pluginXml = trackXml->getChildByName("Plugin");
+                if (pluginXml != nullptr)
+                {
+                    for (auto* descXml : pluginXml->getChildIterator())
+                    {
+                        juce::PluginDescription desc;
+                        if (desc.loadFromXml(*descXml))
+                        {
+                            juce::String err;
+                            if (pluginHost.loadPlugin(t, desc, err))
+                            {
+                                auto stateStr = pluginXml->getStringAttribute("state");
+                                if (stateStr.isNotEmpty())
+                                {
+                                    juce::MemoryBlock state;
+                                    state.fromBase64Encoding(stateStr);
+                                    auto* plugin = pluginHost.getTrack(t).plugin;
+                                    if (plugin != nullptr)
+                                        plugin->setStateInformation(state.getData(), static_cast<int>(state.getSize()));
+                                }
+                            }
+                            break;
+                        }
+                    }
+                }
+
+                // Restore FX
+                for (auto* fxXml : trackXml->getChildWithTagNameIterator("FX"))
+                {
+                    int fxSlot = fxXml->getIntAttribute("slot", -1);
+                    if (fxSlot < 0 || fxSlot >= Track::NUM_FX_SLOTS) continue;
+                    for (auto* descXml : fxXml->getChildIterator())
+                    {
+                        juce::PluginDescription fxDesc;
+                        if (fxDesc.loadFromXml(*descXml))
+                        {
+                            juce::String err;
+                            if (pluginHost.loadFx(t, fxSlot, fxDesc, err))
+                            {
+                                auto stateStr = fxXml->getStringAttribute("state");
+                                if (stateStr.isNotEmpty())
+                                {
+                                    juce::MemoryBlock state;
+                                    state.fromBase64Encoding(stateStr);
+                                    auto* proc = pluginHost.getTrack(t).fxSlots[fxSlot].processor;
+                                    if (proc != nullptr)
+                                        proc->setStateInformation(state.getData(), static_cast<int>(state.getSize()));
+                                }
+                                pluginHost.setFxBypassed(t, fxSlot, fxXml->getBoolAttribute("bypassed", false));
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+            audioPlayer.setProcessor(&pluginHost);
+            updateTrackDisplay();
+            if (timelineComponent) timelineComponent->repaint();
+            statusLabel.setText("Loaded: " + fileName, juce::dontSendNotification);
+            takeSnapshot();
+        });
+#else
+        // Desktop: load plugins synchronously (already in the loop above — not reached on iOS)
+#endif
 
         updateTrackDisplay();
         if (timelineComponent) timelineComponent->repaint();
