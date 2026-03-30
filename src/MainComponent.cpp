@@ -56,7 +56,11 @@ MainComponent::MainComponent()
     addAndMakeVisible(trackNameLabel);
     trackNameLabel.setJustificationType(juce::Justification::centred);
     trackNameLabel.setFont(juce::Font(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 16.0f, juce::Font::bold)));
+#if JUCE_IOS
+    trackNameLabel.setColour(juce::Label::textColourId, juce::Colour(themeManager.getColors().textSecondary));
+#else
     trackNameLabel.setColour(juce::Label::textColourId, juce::Colour(themeManager.getColors().amber));
+#endif
 
     addAndMakeVisible(recordButton);
     recordButton.setClickingTogglesState(true);
@@ -3015,7 +3019,11 @@ void MainComponent::applyThemeToControls()
     auto fontName = themeManager.getLookAndFeel()->getUIFontName();
 
     // Labels
+#if JUCE_IOS
+    trackNameLabel.setColour(juce::Label::textColourId, juce::Colour(c.textSecondary));
+#else
     trackNameLabel.setColour(juce::Label::textColourId, juce::Colour(c.amber));
+#endif
     trackNameLabel.setFont(juce::Font(fontName, 16.0f, juce::Font::bold));
     beatLabel.setFont(juce::Font(fontName, 16.0f, juce::Font::bold));
     beatLabel.setColour(juce::Label::textColourId, juce::Colour(c.lcdText));
