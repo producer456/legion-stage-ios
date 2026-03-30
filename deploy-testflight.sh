@@ -10,6 +10,9 @@ BUILD_DIR="$REPO_DIR/build-ios"
 TEAM_ID="9TUXM4MBAV"
 ARCHIVE_PATH="/tmp/LegionStage.xcarchive"
 EXPORT_PATH="/tmp/LegionStageExport"
+API_KEY="FV5WR6A335"
+API_ISSUER="063d077f-1dbb-4904-8ead-515fe477da68"
+INTERNAL_GROUP_ID="f7bfbd76-3c8c-4411-9c27-af47b73d7c2e"
 
 cd "$REPO_DIR"
 
@@ -64,7 +67,31 @@ xcodebuild -exportArchive \
     -exportPath "$EXPORT_PATH" \
     -allowProvisioningUpdates
 
+echo ">> Waiting for build to process..."
+sleep 60
+
+echo ">> Setting encryption compliance and adding to test group..."
+TOKEN=$(python3 -c "
+import jwt, time
+key = open('$HOME/.appstoreconnect/private_keys/AuthKey_$API_KEY.p8').read()
+payload = {'iss': '$API_ISSUER', 'iat': int(time.time()), 'exp': int(time.time()) + 1200, 'aud': 'appstoreconnect-v1'}
+print(jwt.encode(payload, key, algorithm='ES256', headers={'kid': '$API_KEY'}))
+")
+
+BUILD_ID=$(curl -s -H "Authorization: Bearer $TOKEN" \
+    "https://api.appstoreconnect.apple.com/v1/builds?sort=-uploadedDate&limit=1" \
+    | python3 -c "import sys,json; print(json.load(sys.stdin)['data'][0]['id'])")
+
+# Set no encryption
+curl -s -X PATCH -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+    -d "{\"data\":{\"type\":\"builds\",\"id\":\"$BUILD_ID\",\"attributes\":{\"usesNonExemptEncryption\":false}}}" \
+    "https://api.appstoreconnect.apple.com/v1/builds/$BUILD_ID" > /dev/null
+
+# Add to internal testers group
+curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+    -d "{\"data\":[{\"type\":\"builds\",\"id\":\"$BUILD_ID\"}]}" \
+    "https://api.appstoreconnect.apple.com/v1/betaGroups/$INTERNAL_GROUP_ID/relationships/builds" > /dev/null
+
 echo ""
-echo ">> Done! Build uploaded to TestFlight."
-echo ">> It will be available on your iPad in ~15 minutes."
+echo ">> Done! Build $BUILD_ID uploaded and ready in TestFlight."
 echo ">> Open TestFlight app on iPad to install."
