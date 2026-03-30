@@ -2632,21 +2632,12 @@ void MainComponent::resized()
     rightPanel.removeFromTop(4);
 
     // FX insert slots
-    for (int i = 0; i < NUM_FX_SLOTS; ++i)
-    {
-        auto fxRow = rightPanel.removeFromTop(32);
-        fxEditorButtons[i]->setBounds(fxRow.removeFromRight(32));
-        fxRow.removeFromRight(2);
-        fxSelectors[i]->setBounds(fxRow);
-        rightPanel.removeFromTop(3);
-    }
-    rightPanel.removeFromTop(4);
-
-    // Plugin parameter knobs — 3x2 grid
+    // Plugin parameter knobs — 3x3 grid on iOS, 3x2 on desktop
     if (paramSliders.size() > 0)
     {
         int knobSize = juce::jmin(58, (rightPanel.getWidth() - 8) / 3);
-        int knobAreaH = 2 * (knobSize + 16) + 4;
+        int numRows = (NUM_PARAM_SLIDERS + 2) / 3;
+        int knobAreaH = numRows * (knobSize + 16) + 4;
         auto knobArea = rightPanel.removeFromTop(knobAreaH);
         rightPanel.removeFromTop(4);
 
@@ -2661,6 +2652,17 @@ void MainComponent::resized()
             paramSliders[i]->setBounds(kx, ky + 14, knobSize, knobSize);
         }
     }
+
+    // FX slots — below the knobs
+    for (int i = 0; i < NUM_FX_SLOTS; ++i)
+    {
+        auto fxRow = rightPanel.removeFromTop(32);
+        fxEditorButtons[i]->setBounds(fxRow.removeFromRight(32));
+        fxRow.removeFromRight(2);
+        fxSelectors[i]->setBounds(fxRow);
+        rightPanel.removeFromTop(3);
+    }
+    rightPanel.removeFromTop(4);
 
     // Spectrum ghosted behind volume/pan area (only when not the active visualizer)
     if (currentVisMode != 0)
