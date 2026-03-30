@@ -180,9 +180,21 @@ bool PluginHost::loadPlugin(int trackIndex, const juce::PluginDescription& desc,
 
     unloadPlugin(trackIndex);
 
+#if JUCE_IOS
+    // AUv3 plugins on iOS — try sync first, JUCE internally handles AU async
+    auto instance = formatManager.createPluginInstance(desc, storedSampleRate, storedBlockSize, errorMsg);
+    if (instance == nullptr)
+    {
+        // If sync failed, the error message tells us why
+        if (errorMsg.isEmpty())
+            errorMsg = "Failed to create plugin instance (AUv3 async?)";
+        return false;
+    }
+#else
     auto instance = formatManager.createPluginInstance(desc, storedSampleRate, storedBlockSize, errorMsg);
     if (instance == nullptr)
         return false;
+#endif
 
     auto& track = tracks[static_cast<size_t>(trackIndex)];
     track.plugin = instance.get();

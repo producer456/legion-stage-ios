@@ -1125,13 +1125,13 @@ void MainComponent::loadSelectedPlugin()
     if (ok)
     {
         updateTrackDisplay();
+        statusLabel.setText("Loaded: " + pluginDescriptions[idx].name + " [" + pluginDescriptions[idx].fileOrIdentifier.substring(0, 40) + "]", juce::dontSendNotification);
 #if JUCE_IOS
-        // AUv3 plugins may need a moment for parameters to fully register
         juce::Timer::callAfterDelay(500, [this] { updateParamSliders(); updateFxDisplay(); });
 #endif
     }
     else
-        statusLabel.setText("Failed: " + err, juce::dontSendNotification);
+        statusLabel.setText("FAIL: " + err + " [" + pluginDescriptions[idx].fileOrIdentifier.substring(0, 30) + "]", juce::dontSendNotification);
 
     updateStatusLabel();
 }
