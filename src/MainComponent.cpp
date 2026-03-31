@@ -2196,7 +2196,7 @@ void MainComponent::paint(juce::Graphics& g)
     g.fillAll(juce::Colour(c.body));
 
 #if JUCE_IOS
-    bool paintPhone = AUScanner::isIPhone();
+    bool paintPhone = AUScanner::isIPhone() && !forceIPadLayout;
     int iosStatusBarH = paintPhone ? 20 : 30;
     int topBarDrawH = iosStatusBarH + (paintPhone ? 44 : 70);
 #else
@@ -2271,7 +2271,7 @@ void MainComponent::resized()
     }
 
 #if JUCE_IOS
-    bool isPhone = AUScanner::isIPhone();
+    bool isPhone = AUScanner::isIPhone() && !forceIPadLayout;
     int statusBarPad = isPhone ? 20 : 30;
     area.removeFromTop(statusBarPad);
     int topBarH = isPhone ? 44 : 70;
@@ -2324,6 +2324,18 @@ void MainComponent::resized()
 
         // Right side
         beatLabel.setBounds(topBar.removeFromRight(60));
+
+        // iPad mode toggle
+        settingsButton.setButtonText("PAD");
+        settingsButton.setBounds(topBar.removeFromRight(32));
+        settingsButton.setVisible(true);
+        settingsButton.onClick = [this] {
+            forceIPadLayout = !forceIPadLayout;
+            resized();
+            repaint();
+        };
+        topBar.removeFromRight(2);
+
         pianoToggleButton.setBounds(topBar.removeFromRight(35));
         topBar.removeFromRight(2);
         mixerButton.setBounds(topBar.removeFromRight(30));
@@ -2389,6 +2401,21 @@ void MainComponent::resized()
         mixerButton.setBounds(topBar.removeFromLeft(38));
 
         beatLabel.setBounds(topBar.removeFromRight(80));
+
+        // Show "PHONE" button to switch back if on an iPhone using iPad layout
+        if (AUScanner::isIPhone())
+        {
+            settingsButton.setButtonText("PHN");
+            settingsButton.setBounds(topBar.removeFromRight(36));
+            settingsButton.setVisible(true);
+            settingsButton.onClick = [this] {
+                forceIPadLayout = false;
+                resized();
+                repaint();
+            };
+            topBar.removeFromRight(4);
+        }
+
         statusLabel.setBounds(topBar);
         statusLabel.setVisible(true);
     }

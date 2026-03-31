@@ -52,6 +52,7 @@ public:
 private:
     ThemeManager themeManager;
     juce::ComboBox themeSelector;
+    bool forceIPadLayout = false;
     SpectrumComponent spectrumDisplay;
     LissajousComponent lissajousDisplay;
     GForceComponent gforceDisplay;
