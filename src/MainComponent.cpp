@@ -2295,39 +2295,11 @@ void MainComponent::resized()
     if (isPhone)
     {
         // ── iPhone compact layout ──
-        // Single row: essential transport only
-        int bh = topBar.getHeight();
-        int bw = 38;
+        int bw = 32;
 
-        recordButton.setBounds(topBar.removeFromLeft(bw));
-        topBar.removeFromLeft(2);
-        scrollLeftButton.setBounds(topBar.removeFromLeft(28));
-        topBar.removeFromLeft(1);
-        playButton.setBounds(topBar.removeFromLeft(bw));
-        topBar.removeFromLeft(1);
-        scrollRightButton.setBounds(topBar.removeFromLeft(28));
-        topBar.removeFromLeft(2);
-        stopButton.setBounds(topBar.removeFromLeft(bw));
-        topBar.removeFromLeft(2);
-        loopButton.setBounds(topBar.removeFromLeft(bw));
-        topBar.removeFromLeft(4);
-        metronomeButton.setBounds(topBar.removeFromLeft(32));
-        topBar.removeFromLeft(2);
-        panicButton.setBounds(topBar.removeFromLeft(bw));
-        topBar.removeFromLeft(4);
-
-        // BPM
-        bpmDownButton.setBounds(topBar.removeFromLeft(22));
-        bpmLabel.setBounds(topBar.removeFromLeft(50));
-        bpmUpButton.setBounds(topBar.removeFromLeft(22));
-        topBar.removeFromLeft(4);
-
-        // Right side
-        beatLabel.setBounds(topBar.removeFromRight(60));
-
-        // iPad mode toggle
+        // Right side first (fixed positions)
         settingsButton.setButtonText("PAD");
-        settingsButton.setBounds(topBar.removeFromRight(32));
+        settingsButton.setBounds(topBar.removeFromRight(30));
         settingsButton.setVisible(true);
         settingsButton.onClick = [this] {
             forceIPadLayout = !forceIPadLayout;
@@ -2335,10 +2307,34 @@ void MainComponent::resized()
             repaint();
         };
         topBar.removeFromRight(2);
-
-        pianoToggleButton.setBounds(topBar.removeFromRight(35));
+        pianoToggleButton.setBounds(topBar.removeFromRight(30));
         topBar.removeFromRight(2);
-        mixerButton.setBounds(topBar.removeFromRight(30));
+        mixerButton.setBounds(topBar.removeFromRight(26));
+        topBar.removeFromRight(2);
+        bpmLabel.setBounds(topBar.removeFromRight(45));
+        topBar.removeFromRight(2);
+
+        // Transport from left
+        recordButton.setBounds(topBar.removeFromLeft(bw));
+        topBar.removeFromLeft(1);
+        scrollLeftButton.setBounds(topBar.removeFromLeft(24));
+        topBar.removeFromLeft(1);
+        playButton.setBounds(topBar.removeFromLeft(bw));
+        topBar.removeFromLeft(1);
+        scrollRightButton.setBounds(topBar.removeFromLeft(24));
+        topBar.removeFromLeft(1);
+        stopButton.setBounds(topBar.removeFromLeft(bw));
+        topBar.removeFromLeft(1);
+        loopButton.setBounds(topBar.removeFromLeft(bw));
+        topBar.removeFromLeft(3);
+        metronomeButton.setBounds(topBar.removeFromLeft(28));
+        topBar.removeFromLeft(1);
+        panicButton.setBounds(topBar.removeFromLeft(bw));
+
+        // Hide BPM +/- buttons on iPhone (use label tap instead)
+        bpmDownButton.setVisible(false);
+        bpmUpButton.setVisible(false);
+        beatLabel.setVisible(false);
 
         // Hide items that don't fit on iPhone
         trackNameLabel.setVisible(false);
