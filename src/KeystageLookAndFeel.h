@@ -110,7 +110,7 @@ public:
     float getButtonRadius() const override { return 4.0f; }
 
     // White oak side panels — like the Korg Keystage wood cheeks
-    int getSidePanelWidth() const override { return 18; }
+    int getSidePanelWidth() const override { return 10; }
 
     void drawSidePanels(juce::Graphics& g, int width, int height) override
     {

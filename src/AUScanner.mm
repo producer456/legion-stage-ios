@@ -3,7 +3,7 @@
 
 #import <AVFAudio/AVAudioUnitComponent.h>
 #import <Foundation/Foundation.h>
-#if __IPHONE_OS_VERSION_MIN_REQUIRED
+#if TARGET_OS_IOS || TARGET_OS_SIMULATOR
 #import <UIKit/UIDevice.h>
 #endif
 

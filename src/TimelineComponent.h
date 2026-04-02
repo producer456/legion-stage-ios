@@ -21,6 +21,8 @@ public:
     // Callback for undo snapshots before drag edits
     std::function<void()> onBeforeEdit;
 
+    void setVisibleTracks(int n) { visibleTracks = n; }
+
     void paint(juce::Graphics& g) override;
     void resized() override;
     void timerCallback() override;
@@ -41,8 +43,8 @@ private:
     double lastPaintedScrollX = -1.0;
     int scrollY = 0;           // vertical scroll offset in pixels
     double pixelsPerBeat = 40.0;
-    int trackHeight = 72;      // computed dynamically to fit 8 tracks
-    static constexpr int visibleTracks = 8;
+    int trackHeight = 72;      // computed dynamically
+    int visibleTracks = 8;
     int headerHeight = 28;
     int trackLabelWidth = 140;  // room for track name + M/S buttons
     double gridResolution = 0.25; // beats per grid line (0.25 = 1/16, 0.5 = 1/8, 1.0 = 1/4)

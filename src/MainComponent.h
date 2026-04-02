@@ -15,6 +15,7 @@
 #include "TouchPianoComponent.h"
 #include "MixerComponent.h"
 #include "UpdateDialog.h"
+#include "ChordDetector.h"
 
 class PluginEditorWindow : public juce::DocumentWindow
 {
@@ -46,6 +47,8 @@ public:
     void resized() override;
     void timerCallback() override;
     void mouseDown(const juce::MouseEvent& e) override;
+    void mouseDrag(const juce::MouseEvent& e) override;
+    void mouseUp(const juce::MouseEvent& e) override;
     bool keyPressed(const juce::KeyPress& key) override;
     bool keyStateChanged(bool isKeyDown) override;
 
@@ -117,6 +120,12 @@ private:
     juce::TextButton projectorButton { "PROJ" };
     bool projectorMode = false;
     juce::TextButton testNoteButton { "Test Note" };
+    juce::TextButton phoneMenuButton { "..." };
+
+    // ── iPhone swipe gesture tracking ──
+    juce::Point<float> swipeStartPos;
+    bool swipeActive = false;
+    void showPhoneMenu();
 
     // ── Mixer ──
     std::unique_ptr<MixerComponent> mixerComponent;
@@ -204,6 +213,10 @@ private:
     void saveProject();
     void loadProject();
 
+
+    // ── Chord Detector ──
+    ChordDetector chordDetector;
+    juce::Label chordLabel;
 
     // ── MIDI 2.0 CI ──
     Midi2Handler midi2Handler;

@@ -63,10 +63,25 @@ void ClipPlayerNode::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBu
                 slot.clip = std::make_unique<MidiClip>();
             double beatsPerSample = (engine.getBpm() / 60.0) / currentSampleRate;
             double blockStartPos = engine.getPositionInBeats() - (beatsPerSample * numSamples);
-            slot.clip->timelinePosition = blockStartPos;
+
+            // When looping, anchor to loop start so the full loop region is covered.
+            // Notes played after the loop wraps back will land at their correct position
+            // rather than being clamped to the clip start.
+            if (engine.isLoopEnabled() && engine.hasLoopRegion())
+            {
+                double ls = engine.getLoopStart();
+                slot.clip->timelinePosition = ls;
+                slot.clip->lengthInBeats = engine.getLoopEnd() - ls;
+                recordStartBeat = ls;
+            }
+            else
+            {
+                slot.clip->timelinePosition = blockStartPos;
+                recordStartBeat = blockStartPos;
+            }
+
             slot.state.store(ClipSlot::Recording);
             recordingSlot = targetSlot;
-            recordStartBeat = blockStartPos;
         }
     }
 
@@ -179,11 +194,18 @@ void ClipPlayerNode::processRecording(const juce::MidiBuffer& incomingMidi, int 
             double beatTimestamp = (pos - recordStartBeat) + (metadata.samplePosition * beatsPerSample);
             if (beatTimestamp < 0.0) beatTimestamp = 0.0;
 
+            // In loop mode the clip length is fixed to the loop region.
+            // Skip any notes that fall at or beyond the clip end — they belong
+            // to a second pass and would otherwise duplicate already-recorded content.
+            bool loopMode = engine.isLoopEnabled() && engine.hasLoopRegion();
+            if (loopMode && slot.clip->lengthInBeats > 0.0 && beatTimestamp >= slot.clip->lengthInBeats)
+                continue;
+
             msg.setTimeStamp(beatTimestamp);
             slot.clip->events.addEvent(msg);
 
-            // Extend clip length to fit the recorded content
-            if (beatTimestamp > slot.clip->lengthInBeats - 0.1)
+            // Only auto-extend clip length when not in loop mode (loop length is already fixed)
+            if (!loopMode && beatTimestamp > slot.clip->lengthInBeats - 0.1)
             {
                 // Round up to next bar
                 slot.clip->lengthInBeats = std::ceil(beatTimestamp / 4.0) * 4.0;
@@ -238,13 +260,23 @@ void ClipPlayerNode::triggerSlot(int slotIndex)
         {
             // Transport already running with REC → start recording immediately
             if (slot.clip == nullptr)
-            {
                 slot.clip = std::make_unique<MidiClip>();
-                slot.clip->timelinePosition = engine.getPositionInBeats();
+
+            if (engine.isLoopEnabled() && engine.hasLoopRegion())
+            {
+                double ls = engine.getLoopStart();
+                slot.clip->timelinePosition = ls;
+                slot.clip->lengthInBeats = engine.getLoopEnd() - ls;
+                recordStartBeat = ls;
             }
+            else
+            {
+                slot.clip->timelinePosition = engine.getPositionInBeats();
+                recordStartBeat = engine.getPositionInBeats();
+            }
+
             slot.state.store(ClipSlot::Recording);
             recordingSlot = slotIndex;
-            recordStartBeat = engine.getPositionInBeats();
         }
         else
         {

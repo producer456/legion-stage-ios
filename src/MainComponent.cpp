@@ -315,6 +315,7 @@ MainComponent::MainComponent()
     fullscreenButton.setClickingTogglesState(true);
     fullscreenButton.onClick = [this] {
         visualizerFullScreen = fullscreenButton.getToggleState();
+        projectorMode = visualizerFullScreen;  // always projector mode
         resized();
         repaint();
     };
@@ -345,7 +346,7 @@ MainComponent::MainComponent()
         grabKeyboardFocus();
     };
 
-    addAndMakeVisible(projectorButton);
+    addChildComponent(projectorButton);  // hidden — merged with fullscreen
     projectorButton.setClickingTogglesState(true);
     projectorButton.onClick = [this] {
         projectorMode = projectorButton.getToggleState();
@@ -586,6 +587,15 @@ MainComponent::MainComponent()
 
     testNoteButton.setVisible(false);
 
+    // ── Chord Detector Label ──
+    addAndMakeVisible(chordLabel);
+    chordLabel.setJustificationType(juce::Justification::centred);
+
+    // ── iPhone Menu Button ──
+    addAndMakeVisible(phoneMenuButton);
+    phoneMenuButton.setVisible(false);
+    phoneMenuButton.onClick = [this] { showPhoneMenu(); };
+
     // ── Touch Piano ──
 #if JUCE_IOS
     addChildComponent(touchPiano);  // hidden by default on iOS too
@@ -776,9 +786,9 @@ MainComponent::MainComponent()
     selectTrack(0);
 
 #if JUCE_IOS
-    // AUv3 extensions may take time to register with the system
-    // Rescan after a delay to catch late-registering plugins
     juce::Timer::callAfterDelay(3000, [this] { scanPlugins(); });
+    // Force layout refresh after orientation settles
+    juce::Timer::callAfterDelay(500, [this] { resized(); repaint(); });
 #endif
     updateStatusLabel();
 
@@ -830,6 +840,10 @@ void MainComponent::timerCallback()
         double beat = eng.getPositionInBeats();
         beatLabel.setText("Beat: " + juce::String(beat, 1), juce::dontSendNotification);
     }
+
+    // Update chord detector display
+    auto chordName = chordDetector.getChordName();
+    chordLabel.setText(chordName.isEmpty() ? "---" : chordName, juce::dontSendNotification);
 
     // Flash record button hazard orange when armed
     if (recordButton.getToggleState())
@@ -1302,6 +1316,12 @@ void MainComponent::selectMidiDevice()
 
 void MainComponent::handleIncomingMidiMessage(juce::MidiInput* /*source*/, const juce::MidiMessage& msg)
 {
+    // Chord detection for incoming MIDI notes
+    if (msg.isNoteOn())
+        chordDetector.noteOn(msg.getNoteNumber());
+    else if (msg.isNoteOff())
+        chordDetector.noteOff(msg.getNoteNumber());
+
     // MIDI Learn — capture CC mapping
     if (midiLearnActive && midiLearnTarget != MidiTarget::None && msg.isController())
     {
@@ -2186,6 +2206,161 @@ void MainComponent::loadProject()
 void MainComponent::mouseDown(const juce::MouseEvent& e)
 {
     grabKeyboardFocus();
+
+#if JUCE_IOS
+    bool isPhone = AUScanner::isIPhone() && !forceIPadLayout;
+    if (isPhone)
+    {
+        swipeStartPos = e.position;
+        swipeActive = true;
+    }
+#endif
+}
+
+void MainComponent::mouseDrag(const juce::MouseEvent& e)
+{
+    (void)e;
+}
+
+void MainComponent::mouseUp(const juce::MouseEvent& e)
+{
+#if JUCE_IOS
+    if (swipeActive)
+    {
+        swipeActive = false;
+        auto delta = e.position - swipeStartPos;
+        float absX = std::abs(delta.x);
+        float absY = std::abs(delta.y);
+
+        // Require minimum swipe distance and mostly horizontal
+        if (absX > 80.0f && absX > absY * 2.0f)
+        {
+            if (delta.x < 0)
+                selectTrack(juce::jmin(PluginHost::NUM_TRACKS - 1, selectedTrackIndex + 1));
+            else
+                selectTrack(juce::jmax(0, selectedTrackIndex - 1));
+        }
+    }
+#else
+    (void)e;
+#endif
+}
+
+void MainComponent::showPhoneMenu()
+{
+    juce::PopupMenu menu;
+
+    // Track info at top
+    auto& track = pluginHost.getTrack(selectedTrackIndex);
+    juce::String trackName = "Track " + juce::String(selectedTrackIndex + 1);
+    if (track.plugin != nullptr)
+        trackName += " — " + track.plugin->getName();
+    menu.addSectionHeader(trackName);
+    menu.addSeparator();
+
+    // Track navigation submenu
+    juce::PopupMenu trackMenu;
+    for (int i = 0; i < PluginHost::NUM_TRACKS; ++i)
+    {
+        auto& t = pluginHost.getTrack(i);
+        juce::String label = "Track " + juce::String(i + 1);
+        if (t.plugin != nullptr)
+            label += " — " + t.plugin->getName();
+        trackMenu.addItem(200 + i, label, true, i == selectedTrackIndex);
+    }
+    menu.addSubMenu("Select Track", trackMenu);
+    menu.addSeparator();
+
+    // Project
+    menu.addItem(1, "Save Project");
+    menu.addItem(2, "Load Project");
+    menu.addItem(3, "Undo");
+    menu.addItem(4, "Redo");
+    menu.addSeparator();
+
+    // Audio
+    menu.addItem(5, "Audio Info");
+    menu.addItem(6, "Test Note");
+    menu.addItem(7, juce::String("MIDI Learn ") + (midiLearnActive ? "(Active)" : ""), true, midiLearnActive);
+    menu.addItem(8, juce::String("Count-In ") + (countInButton.getToggleState() ? "ON" : "OFF"), true, countInButton.getToggleState());
+    menu.addSeparator();
+
+    // Visualizer submenu
+    juce::PopupMenu visMenu;
+    visMenu.addItem(100, "Spectrum", true, currentVisMode == 0);
+    visMenu.addItem(101, "Lissajous", true, currentVisMode == 1);
+    visMenu.addItem(102, "G-Force", true, currentVisMode == 2);
+    visMenu.addItem(103, "Geiss", true, currentVisMode == 3);
+    visMenu.addItem(104, "MilkDrop", true, currentVisMode == 4);
+    menu.addSubMenu("Visualizer", visMenu);
+    menu.addItem(10, "Fullscreen Vis");
+    menu.addSeparator();
+
+    // FX slot
+    juce::PopupMenu fxMenu;
+    fxMenu.addItem(300, "(No FX)", true, true);
+    for (int i = 0; i < fxDescriptions.size(); ++i)
+        fxMenu.addItem(301 + i, fxDescriptions[i].name);
+    menu.addSubMenu("FX Insert", fxMenu);
+    menu.addSeparator();
+
+    // Theme submenu
+    juce::PopupMenu themeMenu;
+    for (int i = 0; i < ThemeManager::NumThemes; ++i)
+        themeMenu.addItem(50 + i, ThemeManager::getThemeName(static_cast<ThemeManager::Theme>(i)),
+                         true, themeSelector.getSelectedId() == i + 1);
+    menu.addSubMenu("Theme", themeMenu);
+    menu.addSeparator();
+    menu.addItem(11, "Switch to iPad Layout");
+
+    menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&phoneMenuButton),
+        [this](int result) {
+            if (result == 0) return;
+            if (result == 1) saveProject();
+            else if (result == 2) loadProject();
+            else if (result == 3) { if (undoIndex > 0) { undoIndex--; restoreSnapshot(undoHistory[undoIndex]); } }
+            else if (result == 4) { if (undoIndex < undoHistory.size() - 1) { undoIndex++; restoreSnapshot(undoHistory[undoIndex]); } }
+            else if (result == 5) showAudioSettings();
+            else if (result == 6) playTestNote();
+            else if (result == 7) {
+                midiLearnActive = !midiLearnActive;
+                if (midiLearnActive) midiLearnTarget = MidiTarget::None;
+            }
+            else if (result == 8) countInButton.setToggleState(!countInButton.getToggleState(), juce::sendNotification);
+            else if (result == 10) {
+                visualizerFullScreen = true;
+                projectorMode = true;
+                fullscreenButton.setToggleState(true, juce::dontSendNotification);
+                resized();
+                repaint();
+            }
+            else if (result == 11) {
+                forceIPadLayout = true;
+                resized();
+                repaint();
+            }
+            else if (result >= 100 && result <= 104) {
+                currentVisMode = result - 100;
+                visSelector.setSelectedId(currentVisMode + 1, juce::dontSendNotification);
+                resized();
+                repaint();
+            }
+            else if (result >= 200 && result < 216) {
+                selectTrack(result - 200);
+            }
+            else if (result >= 50 && result < 50 + ThemeManager::NumThemes) {
+                themeSelector.setSelectedId(result - 50 + 1, juce::sendNotification);
+            }
+            else if (result >= 301) {
+                int fxIdx = result - 301;
+                if (fxIdx >= 0 && fxIdx < fxDescriptions.size()) {
+                    fxSelectors[0]->setSelectedId(fxIdx + 2, juce::sendNotification);
+                }
+            }
+            else if (result == 300) {
+                fxSelectors[0]->setSelectedId(1, juce::sendNotification);
+            }
+        });
 }
 
 void MainComponent::paint(juce::Graphics& g)
@@ -2202,14 +2377,47 @@ void MainComponent::paint(juce::Graphics& g)
 #else
     int iosStatusBarH = 0;
     int topBarDrawH = 80;
+    bool paintPhone = false;
 #endif
+
+    if (paintPhone)
+    {
+        // iPhone: draw oak/wood top bar if theme supports it, else solid
+        if (auto* lnf = dynamic_cast<DawLookAndFeel*>(&getLookAndFeel()))
+        {
+            if (lnf->getSidePanelWidth() > 0)
+                lnf->drawTopBarBackground(g, 0, 0, getWidth(), topBarDrawH);
+            else
+            {
+                g.setColour(juce::Colour(c.bodyLight));
+                g.fillRect(0, 0, getWidth(), topBarDrawH);
+            }
+        }
+        else
+        {
+            g.setColour(juce::Colour(c.bodyLight));
+            g.fillRect(0, 0, getWidth(), topBarDrawH);
+        }
+
+        g.setColour(juce::Colour(c.accentStripe));
+        g.fillRect(0, 0, getWidth(), 2);
+
+        // Bottom bar background
+        g.setColour(juce::Colour(c.bodyDark));
+        g.fillRect(0, getHeight() - 36, getWidth(), 36);
+        g.setColour(juce::Colour(c.border));
+        g.drawHorizontalLine(getHeight() - 36, 0, static_cast<float>(getWidth()));
+        return;
+    }
+
     if (auto* lnf = dynamic_cast<DawLookAndFeel*>(&getLookAndFeel()))
     {
         if (lnf->getSidePanelWidth() > 0)
         {
-            // Custom top bar (e.g. wood grain) — extended to cover iOS status bar
+            // Custom top bar (e.g. wood grain) — stop before oak strip
             int sidePW = lnf->getSidePanelWidth();
-            lnf->drawTopBarBackground(g, sidePW, 0, getWidth() - sidePW * 2, topBarDrawH);
+            int topBarWidth = getWidth() - sidePW - 180 - sidePW - sidePW;
+            lnf->drawTopBarBackground(g, sidePW, 0, topBarWidth, topBarDrawH);
         }
         else
         {
@@ -2224,13 +2432,53 @@ void MainComponent::paint(juce::Graphics& g)
     }
 
     // Toolbar background
-    g.setColour(juce::Colour(c.bodyDark));
-    g.fillRect(0, topBarDrawH, getWidth(), 65);
+    int oakW = 0;
+    if (auto* dlnf = dynamic_cast<DawLookAndFeel*>(&getLookAndFeel()))
+        if (dlnf->getSidePanelWidth() > 0)
+            oakW = dlnf->getSidePanelWidth();
+    int rightPanelTotal = 180 + oakW + oakW;  // right panel + oak strip + side panel
+    int toolbarRight = getWidth() - rightPanelTotal;
 
-    // Panel dividers (stop at right panel edge)
+    // Paint over right panel area with body color (clear top bar/toolbar bleed)
+    if (oakW > 0)
+    {
+        int rpLeft = getWidth() - oakW - 180;  // left edge of right panel
+        g.setColour(juce::Colour(c.body));
+        g.fillRect(rpLeft, 0, 180, getHeight());
+
+        // Draw OLED info panel background
+        if (beatLabel.isVisible())
+        {
+            auto oledBounds = beatLabel.getBounds().getUnion(statusLabel.getBounds()).getUnion(chordLabel.getBounds()).expanded(4, 4);
+            g.setColour(juce::Colour(c.lcdBg));
+            g.fillRoundedRectangle(oledBounds.toFloat(), 4.0f);
+            g.setColour(juce::Colour(c.border));
+            g.drawRoundedRectangle(oledBounds.toFloat(), 4.0f, 1.0f);
+        }
+    }
+
+    g.setColour(juce::Colour(c.bodyDark));
+    g.fillRect(0, topBarDrawH, toolbarRight, 65);
+
+    // Panel dividers (stop at oak strip)
     g.setColour(juce::Colour(c.border));
-    g.drawHorizontalLine(topBarDrawH, 0, static_cast<float>(getWidth() - 180));
-    g.drawHorizontalLine(topBarDrawH + 65, 0, static_cast<float>(getWidth() - 180));
+    g.drawHorizontalLine(topBarDrawH, 0, static_cast<float>(toolbarRight));
+    g.drawHorizontalLine(topBarDrawH + 65, 0, static_cast<float>(toolbarRight));
+
+    // OLED background behind track tools section in top bar (Track name -> MIX)
+    if (trackNameLabel.isVisible() && mixerButton.isVisible())
+    {
+        auto trackOled = trackNameLabel.getBounds()
+            .getUnion(midiLearnButton.getBounds())
+            .getUnion(countInButton.getBounds())
+            .getUnion(pianoToggleButton.getBounds())
+            .getUnion(mixerButton.getBounds())
+            .expanded(4, 3);
+        g.setColour(juce::Colour(c.lcdBg));
+        g.fillRoundedRectangle(trackOled.toFloat(), 4.0f);
+        g.setColour(juce::Colour(c.border));
+        g.drawRoundedRectangle(trackOled.toFloat(), 4.0f, 1.0f);
+    }
 
     // Accent stripe at top
     g.setColour(juce::Colour(c.accentStripe));
@@ -2245,13 +2493,57 @@ void MainComponent::paint(juce::Graphics& g)
     }
 #endif
 
-    int rightPanelX = getWidth() - 180;
-
     // Draw decorative side panels if the theme provides them
     if (auto* lnf = dynamic_cast<DawLookAndFeel*>(&getLookAndFeel()))
     {
         if (lnf->getSidePanelWidth() > 0)
+        {
             lnf->drawSidePanels(g, getWidth(), getHeight());
+
+#if JUCE_IOS
+            if (!paintPhone)
+#endif
+            {
+                // Draw oak strip to the left of the right panel
+                int sidePW = lnf->getSidePanelWidth();
+                int stripW = sidePW;
+                // Layout order from right: [side panel 18] [right panel 180] [oak strip 18] [arranger]
+                int stripX = getWidth() - sidePW - 180 - stripW;
+
+                // Reuse oak grain drawing style from the side panels
+                juce::Colour oakBase(0xffc8bda8);
+                juce::Colour oakLight(0xffd6ccba);
+                juce::Colour oakGrain(0xffa89880);
+
+                g.setColour(oakBase);
+                g.fillRect(stripX, 0, stripW, getHeight());
+
+                juce::Random rng(99);
+                for (int i = 0; i < 40; ++i)
+                {
+                    float x = stripX + rng.nextFloat() * stripW;
+                    float yStart = rng.nextFloat() * getHeight() * 0.8f;
+                    float len = 30.0f + rng.nextFloat() * (getHeight() * 0.4f);
+                    float thickness = 0.5f + rng.nextFloat() * 1.5f;
+                    g.setColour(oakGrain.withAlpha(0.15f + rng.nextFloat() * 0.2f));
+                    g.drawLine(x, yStart, x + rng.nextFloat() * 2.0f - 1.0f, yStart + len, thickness);
+                }
+
+                for (int i = 0; i < 12; ++i)
+                {
+                    float x = stripX + rng.nextFloat() * stripW;
+                    float yStart = rng.nextFloat() * getHeight();
+                    float len = 10.0f + rng.nextFloat() * 40.0f;
+                    g.setColour(oakLight.withAlpha(0.1f + rng.nextFloat() * 0.15f));
+                    g.drawLine(x, yStart, x, yStart + len, 1.0f);
+                }
+
+                // Subtle border
+                g.setColour(juce::Colour(0x30000000));
+                g.drawVerticalLine(stripX, 0, static_cast<float>(getHeight()));
+                g.drawVerticalLine(stripX + stripW - 1, 0, static_cast<float>(getHeight()));
+            }
+        }
     }
 }
 
@@ -2259,27 +2551,31 @@ void MainComponent::resized()
 {
     auto area = getLocalBounds();
 
-    // Inset for decorative side panels (e.g. Keystage wood cheeks)
-    if (auto* lnf = dynamic_cast<DawLookAndFeel*>(&getLookAndFeel()))
-    {
-        int sidePW = lnf->getSidePanelWidth();
-        if (sidePW > 0)
-        {
-            area.removeFromLeft(sidePW);
-            area.removeFromRight(sidePW);
-        }
-    }
-
 #if JUCE_IOS
     bool isPhone = AUScanner::isIPhone() && !forceIPadLayout;
-    int statusBarPad = isPhone ? 20 : 30;
-    area.removeFromTop(statusBarPad);
-    int topBarH = isPhone ? 44 : 70;
 #else
     bool isPhone = false;
 #endif
 
-#if !JUCE_IOS
+    // Inset for decorative side panels (skip on iPhone)
+    if (!isPhone)
+    {
+        if (auto* lnf = dynamic_cast<DawLookAndFeel*>(&getLookAndFeel()))
+        {
+            int sidePW = lnf->getSidePanelWidth();
+            if (sidePW > 0)
+            {
+                area.removeFromLeft(sidePW);
+                area.removeFromRight(sidePW);
+            }
+        }
+    }
+
+#if JUCE_IOS
+    int statusBarPad = isPhone ? 20 : 30;
+    area.removeFromTop(statusBarPad);
+    int topBarH = isPhone ? 80 : 70;
+#else
     int topBarH = 80;
 #endif
     int bottomBarH = isPhone ? 0 : 45;
@@ -2287,6 +2583,15 @@ void MainComponent::resized()
 
     // ── Top Bar ──
     auto topBar = area.removeFromTop(topBarH).reduced(4, isPhone ? 2 : 10);
+    // Trim top bar so it doesn't extend into right panel + oak strip area
+    if (!isPhone && rightPanelW > 0)
+    {
+        int oakTrim = 0;
+        if (auto* lnf = dynamic_cast<DawLookAndFeel*>(&getLookAndFeel()))
+            if (lnf->getSidePanelWidth() > 0)
+                oakTrim = lnf->getSidePanelWidth();
+        topBar.removeFromRight(rightPanelW + oakTrim);
+    }
 
 #if JUCE_IOS
     zoomOutButton.setVisible(false);
@@ -2294,42 +2599,117 @@ void MainComponent::resized()
 
     if (isPhone)
     {
-        // ── iPhone compact layout ──
-        int bw = 32;
+        // ── iPhone two-row layout ──
+        // Split into top row (transport + utils) and bottom row (clip tools + controls)
+        int rowH = topBar.getHeight() / 2;
+        auto row1 = topBar.removeFromTop(rowH);
+        auto row2 = topBar;
+        int bw = 38;
+        int gap = 2;
 
-        // Right side first (fixed positions)
-        settingsButton.setButtonText("PAD");
-        settingsButton.setBounds(topBar.removeFromRight(30));
-        settingsButton.setVisible(true);
-        settingsButton.onClick = [this] {
-            forceIPadLayout = !forceIPadLayout;
-            resized();
-            repaint();
-        };
-        topBar.removeFromRight(2);
-        pianoToggleButton.setBounds(topBar.removeFromRight(30));
-        topBar.removeFromRight(2);
-        mixerButton.setBounds(topBar.removeFromRight(26));
-        topBar.removeFromRight(2);
-        bpmLabel.setBounds(topBar.removeFromRight(45));
-        topBar.removeFromRight(2);
+        // ── Row 1: Transport, BPM, utilities ──
+        // Right side first so we know remaining width
+        phoneMenuButton.setBounds(row1.removeFromRight(34));
+        phoneMenuButton.setVisible(true);
+        row1.removeFromRight(gap);
+        bpmLabel.setBounds(row1.removeFromRight(58));
+        row1.removeFromRight(gap);
 
-        // Transport from left
-        recordButton.setBounds(topBar.removeFromLeft(bw));
-        topBar.removeFromLeft(1);
-        scrollLeftButton.setBounds(topBar.removeFromLeft(24));
-        topBar.removeFromLeft(1);
-        playButton.setBounds(topBar.removeFromLeft(bw));
-        topBar.removeFromLeft(1);
-        scrollRightButton.setBounds(topBar.removeFromLeft(24));
-        topBar.removeFromLeft(1);
-        stopButton.setBounds(topBar.removeFromLeft(bw));
-        topBar.removeFromLeft(1);
-        loopButton.setBounds(topBar.removeFromLeft(bw));
-        topBar.removeFromLeft(3);
-        metronomeButton.setBounds(topBar.removeFromLeft(28));
-        topBar.removeFromLeft(1);
-        panicButton.setBounds(topBar.removeFromLeft(bw));
+        // Calculate button width to fill remaining space evenly
+        // 10 buttons + scroll arrows in row 1
+        int r1w = row1.getWidth();
+        int numR1Btns = 12;  // REC, <<, PLAY, >>, STOP, LOOP, MET, PANIC, C-In, Tap, Learn, Audio
+        int r1bw = (r1w - (numR1Btns - 1) * gap) / numR1Btns;
+
+        stopButton.setBounds(row1.removeFromLeft(r1bw));
+        row1.removeFromLeft(gap);
+        scrollLeftButton.setBounds(row1.removeFromLeft(r1bw));
+        row1.removeFromLeft(gap);
+        playButton.setBounds(row1.removeFromLeft(r1bw));
+        row1.removeFromLeft(gap);
+        scrollRightButton.setBounds(row1.removeFromLeft(r1bw));
+        row1.removeFromLeft(gap);
+        recordButton.setBounds(row1.removeFromLeft(r1bw));
+        row1.removeFromLeft(gap);
+        loopButton.setBounds(row1.removeFromLeft(r1bw));
+        row1.removeFromLeft(gap);
+        metronomeButton.setBounds(row1.removeFromLeft(r1bw));
+        row1.removeFromLeft(gap);
+        panicButton.setBounds(row1.removeFromLeft(r1bw));
+        row1.removeFromLeft(gap);
+        countInButton.setVisible(true);
+        countInButton.setButtonText("Count-In");
+        countInButton.setBounds(row1.removeFromLeft(r1bw));
+        row1.removeFromLeft(gap);
+        tapTempoButton.setVisible(true);
+        tapTempoButton.setButtonText("Tap");
+        tapTempoButton.setBounds(row1.removeFromLeft(r1bw));
+        row1.removeFromLeft(gap);
+        midiLearnButton.setVisible(true);
+        midiLearnButton.setButtonText("Learn");
+        midiLearnButton.setBounds(row1.removeFromLeft(r1bw));
+        row1.removeFromLeft(gap);
+        audioSettingsButton.setVisible(true);
+        audioSettingsButton.setButtonText("Audio");
+        audioSettingsButton.setBounds(row1.removeFromLeft(row1.getWidth()));  // take whatever's left
+
+        settingsButton.setVisible(false);
+
+        // ── Row 2: Clip tools, save/load, vis/piano/mixer ──
+        // Right side first
+        fullscreenButton.setButtonText("VIS");
+        fullscreenButton.setBounds(row2.removeFromRight(36));
+        fullscreenButton.setVisible(true);
+        row2.removeFromRight(gap);
+        pianoToggleButton.setBounds(row2.removeFromRight(42));
+        row2.removeFromRight(gap);
+        mixerButton.setBounds(row2.removeFromRight(36));
+        row2.removeFromRight(gap);
+
+        // Fill remaining with evenly-spaced buttons
+        int r2w = row2.getWidth();
+        int numR2Btns = 10;  // Save, Load, Undo, Redo, New, Delete, Dupe, Split, Edit, Quant
+        int r2bw = (r2w - (numR2Btns - 1) * gap) / numR2Btns;
+
+        saveButton.setVisible(true);
+        saveButton.setButtonText("Save");
+        saveButton.setBounds(row2.removeFromLeft(r2bw));
+        row2.removeFromLeft(gap);
+        loadButton.setVisible(true);
+        loadButton.setButtonText("Load");
+        loadButton.setBounds(row2.removeFromLeft(r2bw));
+        row2.removeFromLeft(gap);
+        undoButton.setVisible(true);
+        undoButton.setButtonText("Undo");
+        undoButton.setBounds(row2.removeFromLeft(r2bw));
+        row2.removeFromLeft(gap);
+        redoButton.setVisible(true);
+        redoButton.setButtonText("Redo");
+        redoButton.setBounds(row2.removeFromLeft(r2bw));
+        row2.removeFromLeft(gap);
+        newClipButton.setVisible(true);
+        newClipButton.setButtonText("New");
+        newClipButton.setBounds(row2.removeFromLeft(r2bw));
+        row2.removeFromLeft(gap);
+        deleteClipButton.setVisible(true);
+        deleteClipButton.setButtonText("Delete");
+        deleteClipButton.setBounds(row2.removeFromLeft(r2bw));
+        row2.removeFromLeft(gap);
+        duplicateClipButton.setVisible(true);
+        duplicateClipButton.setButtonText("Dupe");
+        duplicateClipButton.setBounds(row2.removeFromLeft(r2bw));
+        row2.removeFromLeft(gap);
+        splitClipButton.setVisible(true);
+        splitClipButton.setButtonText("Split");
+        splitClipButton.setBounds(row2.removeFromLeft(r2bw));
+        row2.removeFromLeft(gap);
+        editClipButton.setVisible(true);
+        editClipButton.setButtonText("Edit");
+        editClipButton.setBounds(row2.removeFromLeft(r2bw));
+        row2.removeFromLeft(gap);
+        quantizeButton.setVisible(true);
+        quantizeButton.setButtonText("Quant");
+        quantizeButton.setBounds(row2.removeFromLeft(row2.getWidth()));  // take the rest
 
         // Hide BPM +/- buttons on iPhone (use label tap instead)
         bpmDownButton.setVisible(false);
@@ -2338,66 +2718,18 @@ void MainComponent::resized()
 
         // Hide items that don't fit on iPhone
         trackNameLabel.setVisible(false);
-        midiLearnButton.setVisible(false);
-        countInButton.setVisible(false);
-        tapTempoButton.setVisible(false);
         statusLabel.setVisible(false);
-        audioSettingsButton.setVisible(false);
+        // audioSettingsButton shown in top bar row 1
         themeSelector.setVisible(false);
-        fullscreenButton.setVisible(false);
         projectorButton.setVisible(false);
     }
     else
     {
         // ── iPad layout ──
-        // Transport group
-        recordButton.setBounds(topBar.removeFromLeft(55));
-        topBar.removeFromLeft(3);
-        scrollLeftButton.setBounds(topBar.removeFromLeft(35));
-        topBar.removeFromLeft(2);
-        playButton.setBounds(topBar.removeFromLeft(55));
-        topBar.removeFromLeft(2);
-        scrollRightButton.setBounds(topBar.removeFromLeft(35));
-        topBar.removeFromLeft(3);
-        stopButton.setBounds(topBar.removeFromLeft(50));
-        topBar.removeFromLeft(3);
-        loopButton.setBounds(topBar.removeFromLeft(50));
+        phoneMenuButton.setVisible(false);
+        beatLabel.setVisible(false);  // moved to OLED panel in right panel
 
-        topBar.removeFromLeft(16);  // gap before met/panic
-
-        metronomeButton.setBounds(topBar.removeFromLeft(45));
-        topBar.removeFromLeft(3);
-        panicButton.setBounds(topBar.removeFromLeft(55));
-
-        topBar.removeFromLeft(16);  // gap before BPM
-
-        // BPM group
-        bpmDownButton.setBounds(topBar.removeFromLeft(28));
-        topBar.removeFromLeft(2);
-        bpmLabel.setBounds(topBar.removeFromLeft(65));
-        topBar.removeFromLeft(2);
-        bpmUpButton.setBounds(topBar.removeFromLeft(28));
-        topBar.removeFromLeft(3);
-        tapTempoButton.setBounds(topBar.removeFromLeft(40));
-
-        topBar.removeFromLeft(12);  // separator gap
-
-        // Track name + tools
-        trackNameLabel.setBounds(topBar.removeFromLeft(140));
-        trackNameLabel.setVisible(true);
-        topBar.removeFromLeft(4);
-        midiLearnButton.setBounds(topBar.removeFromLeft(55));
-        midiLearnButton.setVisible(true);
-        topBar.removeFromLeft(3);
-        countInButton.setBounds(topBar.removeFromLeft(70));
-        countInButton.setVisible(true);
-        topBar.removeFromLeft(3);
-        pianoToggleButton.setBounds(topBar.removeFromLeft(45));
-        topBar.removeFromLeft(3);
-        mixerButton.setBounds(topBar.removeFromLeft(38));
-
-        beatLabel.setBounds(topBar.removeFromRight(80));
-
+        // Right side first: BPM, track tools
         // Show "PHONE" button to switch back if on an iPhone using iPad layout
         if (AUScanner::isIPhone())
         {
@@ -2412,20 +2744,66 @@ void MainComponent::resized()
             topBar.removeFromRight(4);
         }
 
-        statusLabel.setBounds(topBar);
-        statusLabel.setVisible(true);
+        // Left side: BPM group
+        bpmDownButton.setBounds(topBar.removeFromLeft(28));
+        topBar.removeFromLeft(2);
+        bpmLabel.setBounds(topBar.removeFromLeft(65));
+        topBar.removeFromLeft(2);
+        bpmUpButton.setBounds(topBar.removeFromLeft(28));
+        topBar.removeFromLeft(3);
+        tapTempoButton.setBounds(topBar.removeFromLeft(40));
+        topBar.removeFromLeft(12);
+
+        // Right side: track tools
+        mixerButton.setBounds(topBar.removeFromRight(38));
+        topBar.removeFromRight(3);
+        pianoToggleButton.setBounds(topBar.removeFromRight(45));
+        topBar.removeFromRight(3);
+        countInButton.setBounds(topBar.removeFromRight(70));
+        countInButton.setVisible(true);
+        topBar.removeFromRight(3);
+        midiLearnButton.setBounds(topBar.removeFromRight(55));
+        midiLearnButton.setVisible(true);
+        topBar.removeFromRight(4);
+        trackNameLabel.setBounds(topBar.removeFromRight(140));
+        trackNameLabel.setVisible(true);
+        topBar.removeFromRight(12);
+
+        // Center: transport group
+        int transportW = 50+3+35+2+55+2+35+3+55+3+50+16+45+3+55;
+        int leftPad = juce::jmax(0, (topBar.getWidth() - transportW) / 2);
+        topBar.removeFromLeft(leftPad);
+
+        stopButton.setBounds(topBar.removeFromLeft(50));
+        topBar.removeFromLeft(3);
+        scrollLeftButton.setBounds(topBar.removeFromLeft(35));
+        topBar.removeFromLeft(2);
+        playButton.setBounds(topBar.removeFromLeft(55));
+        topBar.removeFromLeft(2);
+        scrollRightButton.setBounds(topBar.removeFromLeft(35));
+        topBar.removeFromLeft(3);
+        recordButton.setBounds(topBar.removeFromLeft(55));
+        topBar.removeFromLeft(3);
+        loopButton.setBounds(topBar.removeFromLeft(50));
+        topBar.removeFromLeft(16);
+        metronomeButton.setBounds(topBar.removeFromLeft(45));
+        topBar.removeFromLeft(3);
+        panicButton.setBounds(topBar.removeFromLeft(55));
+
+        // statusLabel moved to OLED panel in right panel
     }
 #else
+    phoneMenuButton.setVisible(false);
     midiLearnButton.setBounds(topBar.removeFromLeft(65));
     topBar.removeFromLeft(4);
     trackNameLabel.setBounds(topBar.removeFromLeft(180));
     topBar.removeFromLeft(6);
 
-    recordButton.setBounds(topBar.removeFromLeft(65));
+    stopButton.setBounds(topBar.removeFromLeft(60));
     topBar.removeFromLeft(3);
     playButton.setBounds(topBar.removeFromLeft(65));
     topBar.removeFromLeft(3);
-    stopButton.setBounds(topBar.removeFromLeft(60));
+    recordButton.setBounds(topBar.removeFromLeft(65));
     topBar.removeFromLeft(3);
     metronomeButton.setBounds(topBar.removeFromLeft(50));
     topBar.removeFromLeft(3);
@@ -2618,7 +2996,9 @@ void MainComponent::resized()
         return;
     }
 
-    // ── Restore visibility when not in vis mode ──
+    // ── Restore visibility when not in vis mode (skip on iPhone) ──
+    if (!isPhone)
+    {
     newClipButton.setVisible(true);
     deleteClipButton.setVisible(true);
     duplicateClipButton.setVisible(true);
@@ -2658,37 +3038,29 @@ void MainComponent::resized()
     geissDisplay.setVisible(currentVisMode == 3);
     projectMDisplay.setVisible(currentVisMode == 4);
     visExitButton.setVisible(false);
-    projectorButton.setVisible(true);
+    projectorButton.setVisible(false);  // merged with fullscreen
     visSelector.setVisible(true);
     fullscreenButton.setVisible(true);
     midi2Button.setVisible(true);
     setVisControlsVisible();
 
+    } // end if (!isPhone) — iPad layout
+
 #if JUCE_IOS
     if (isPhone)
     {
-        // iPhone: skip edit toolbar and right panel, full-width arranger
-        newClipButton.setVisible(false);
-        deleteClipButton.setVisible(false);
-        duplicateClipButton.setVisible(false);
-        splitClipButton.setVisible(false);
-        editClipButton.setVisible(false);
-        quantizeButton.setVisible(false);
+        // iPhone: hide items not shown in top bar or bottom bar
         gridSelector.setVisible(false);
-        saveButton.setVisible(false);
-        loadButton.setVisible(false);
-        undoButton.setVisible(false);
-        redoButton.setVisible(false);
         openEditorButton.setVisible(false);
         midiInputSelector.setVisible(false);
         midiRefreshButton.setVisible(false);
         midi2Button.setVisible(false);
         visSelector.setVisible(false);
-        fullscreenButton.setVisible(false);
+        // fullscreenButton already positioned in top bar for iPhone
         projectorButton.setVisible(false);
         for (int i = 0; i < NUM_FX_SLOTS; ++i)
         {
-            fxSelectors[i]->setVisible(false);
+            if (i > 0) fxSelectors[i]->setVisible(false);  // slot 0 shown in bottom bar
             fxEditorButtons[i]->setVisible(false);
         }
         for (int i = 0; i < NUM_PARAM_SLIDERS; ++i)
@@ -2696,28 +3068,89 @@ void MainComponent::resized()
             paramSliders[i]->setVisible(false);
             paramLabels[i]->setVisible(false);
         }
-        volumeSlider.setVisible(false);
-        volumeLabel.setVisible(false);
-        panSlider.setVisible(false);
-        panLabel.setVisible(false);
         spectrumDisplay.setVisible(false);
         lissajousDisplay.setVisible(false);
         gforceDisplay.setVisible(false);
         geissDisplay.setVisible(false);
         projectMDisplay.setVisible(false);
+        chordLabel.setVisible(false);
 
-        // Plugin selector as a compact bottom bar
+        // ── Right panel: two columns of knobs ──
+        auto rightPanel = area.removeFromRight(100).reduced(2, 2);
+        auto knobCol1 = rightPanel.removeFromLeft(rightPanel.getWidth() / 2 - 1);
+        rightPanel.removeFromLeft(2);
+        auto knobCol2 = rightPanel;
+
+        int knobH = 44;
+        int labelH = 12;
+        int paramGap = 2;
+
+        // Column 1: Vol, Pan
+        volumeSlider.setVisible(true);
+        volumeLabel.setVisible(true);
+        volumeSlider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
+        volumeLabel.setBounds(knobCol1.removeFromTop(labelH));
+        volumeSlider.setBounds(knobCol1.removeFromTop(knobH));
+        knobCol1.removeFromTop(paramGap);
+
+        panSlider.setVisible(true);
+        panLabel.setVisible(true);
+        panSlider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
+        panLabel.setBounds(knobCol1.removeFromTop(labelH));
+        panSlider.setBounds(knobCol1.removeFromTop(knobH));
+        knobCol1.removeFromTop(paramGap);
+
+        // Fill rest of col1 with odd param knobs (0, 2, 4, 6, 8)
+        for (int i = 0; i < NUM_PARAM_SLIDERS; i += 2)
+        {
+            if (knobCol1.getHeight() >= knobH + labelH)
+            {
+                paramLabels[i]->setVisible(true);
+                paramLabels[i]->setBounds(knobCol1.removeFromTop(labelH));
+                paramSliders[i]->setVisible(true);
+                paramSliders[i]->setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
+                paramSliders[i]->setBounds(knobCol1.removeFromTop(knobH));
+                knobCol1.removeFromTop(paramGap);
+            }
+            else
+            {
+                paramSliders[i]->setVisible(false);
+                paramLabels[i]->setVisible(false);
+            }
+        }
+
+        // Column 2: even param knobs (1, 3, 5, 7)
+        for (int i = 1; i < NUM_PARAM_SLIDERS; i += 2)
+        {
+            if (knobCol2.getHeight() >= knobH + labelH)
+            {
+                paramLabels[i]->setVisible(true);
+                paramLabels[i]->setBounds(knobCol2.removeFromTop(labelH));
+                paramSliders[i]->setVisible(true);
+                paramSliders[i]->setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
+                paramSliders[i]->setBounds(knobCol2.removeFromTop(knobH));
+                knobCol2.removeFromTop(paramGap);
+            }
+            else
+            {
+                paramSliders[i]->setVisible(false);
+                paramLabels[i]->setVisible(false);
+            }
+        }
+
+        // ── Bottom bar: track name | plugin selector | FX selector ──
         auto bottomBar = area.removeFromBottom(36).reduced(2, 2);
+
+        trackNameLabel.setVisible(true);
+        trackNameLabel.setText("T" + juce::String(selectedTrackIndex + 1), juce::dontSendNotification);
+        trackNameLabel.setBounds(bottomBar.removeFromLeft(28));
+        bottomBar.removeFromLeft(2);
+
         pluginSelector.setBounds(bottomBar.removeFromLeft(bottomBar.getWidth() / 2 - 2));
         bottomBar.removeFromLeft(4);
 
-        // Volume/Pan knobs in bottom bar
-        volumeSlider.setVisible(true);
-        volumeSlider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
-        volumeSlider.setBounds(bottomBar.removeFromRight(32));
-        panSlider.setVisible(true);
-        panSlider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
-        panSlider.setBounds(bottomBar.removeFromRight(32));
+        fxSelectors[0]->setVisible(true);
+        fxSelectors[0]->setBounds(bottomBar);
 
         // Touch piano
         if (touchPianoVisible)
@@ -2739,6 +3172,7 @@ void MainComponent::resized()
             mixerComponent->setVisible(false);
             if (timelineComponent)
             {
+                timelineComponent->setVisibleTracks(4);
                 timelineComponent->setVisible(true);
                 timelineComponent->setBounds(area);
             }
@@ -2746,6 +3180,20 @@ void MainComponent::resized()
         return;
     }
 #endif
+    // Reset to default for iPad/desktop
+    if (timelineComponent)
+        timelineComponent->setVisibleTracks(8);
+
+    // ── Right Panel ──
+    // Remove right panel first (it's rightmost, inside the side panels), then oak strip
+    int oakStripW = 0;
+    if (auto* lnf = dynamic_cast<DawLookAndFeel*>(&getLookAndFeel()))
+    {
+        if (lnf->getSidePanelWidth() > 0)
+            oakStripW = lnf->getSidePanelWidth();
+    }
+    auto rightPanel = area.removeFromRight(rightPanelW).reduced(8, 4);
+    area.removeFromRight(oakStripW);  // oak strip between arranger and right panel
 
     // ── Edit Toolbar ──
     auto toolbar = area.removeFromTop(65).reduced(4, 4);
@@ -2786,16 +3234,22 @@ void MainComponent::resized()
     toolbar.removeFromRight(2);
     visSelector.setBounds(toolbar.removeFromRight(72));
     toolbar.removeFromRight(2);
-    projectorButton.setBounds(toolbar.removeFromRight(38));
-    toolbar.removeFromRight(2);
+    projectorButton.setVisible(false);
     fullscreenButton.setBounds(toolbar.removeFromRight(32));
     toolbar.removeFromRight(2);
     audioSettingsButton.setBounds(toolbar.removeFromRight(80));
     toolbar.removeFromRight(2);
     themeSelector.setBounds(toolbar.removeFromRight(82));
 
-    // ── Right Panel ──
-    auto rightPanel = area.removeFromRight(rightPanelW).reduced(8, 4);
+    // OLED info panel — beat counter + status info + chord
+    auto oledArea = rightPanel.removeFromTop(80);
+    beatLabel.setVisible(true);
+    beatLabel.setBounds(oledArea.removeFromTop(18));
+    statusLabel.setVisible(true);
+    statusLabel.setBounds(oledArea.removeFromTop(14));
+    chordLabel.setVisible(true);
+    chordLabel.setBounds(oledArea);
+    rightPanel.removeFromTop(4);
 
     // Visualizer display
     auto visPanelArea = rightPanel.removeFromTop(70);
@@ -2957,39 +3411,21 @@ void MainComponent::resized()
         spectrumDisplay.setAlpha(1.0f);
     }
 
-#if JUCE_IOS
-    // Volume/Pan as knobs at the bottom of right panel
+    // Volume fader on left, pan knob on right
     {
-        int volKnobSize = 80;
-        int panKnobSize = 65;
-        int mixH = volKnobSize + 16;
-        auto mixArea = rightPanel.removeFromBottom(mixH);
+        auto mixArea = rightPanel;
+        auto volArea = mixArea.removeFromLeft(mixArea.getWidth() / 2 - 2);
+        mixArea.removeFromLeft(4);
+        auto panArea = mixArea;
 
-        int totalW = volKnobSize + panKnobSize + 8;
-        int startX = mixArea.getX() + (mixArea.getWidth() - totalW) / 2;
+        volumeLabel.setBounds(volArea.removeFromTop(14));
+        volumeSlider.setSliderStyle(juce::Slider::LinearVertical);
+        volumeSlider.setBounds(volArea.reduced(volArea.getWidth() / 4, 0));
 
-        volumeLabel.setBounds(startX, mixArea.getY(), volKnobSize, 14);
-        volumeSlider.setBounds(startX, mixArea.getY() + 14, volKnobSize, volKnobSize);
-        volumeSlider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
-
-        int panX = startX + volKnobSize + 8;
-        int panY = mixArea.getY() + (volKnobSize - panKnobSize) / 2;
-        panLabel.setBounds(panX, mixArea.getY(), panKnobSize, 14);
-        panSlider.setBounds(panX, panY + 14, panKnobSize, panKnobSize);
+        panLabel.setBounds(panArea.removeFromTop(14));
         panSlider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
+        panSlider.setBounds(panArea.removeFromTop(juce::jmin(panArea.getWidth(), panArea.getHeight())));
     }
-#else
-    // Volume/Pan — fills remaining space (on top of spectrum)
-    auto mixArea = rightPanel;
-    auto volArea = mixArea.removeFromLeft(mixArea.getWidth() / 2);
-    auto panArea = mixArea;
-
-    volumeLabel.setBounds(volArea.removeFromTop(14));
-    volumeSlider.setBounds(volArea);
-
-    panLabel.setBounds(panArea.removeFromTop(14));
-    panSlider.setBounds(panArea.reduced(8, 0));
-#endif
 
     // ── Touch Piano (bottom of main area, when visible) ──
     if (touchPianoVisible)
@@ -3050,6 +3486,7 @@ void MainComponent::sendNoteOn(int note)
     auto msg = juce::MidiMessage::noteOn(1, note, 0.8f);
     msg.setTimeStamp(juce::Time::getMillisecondCounterHiRes() * 0.001);
     pluginHost.getMidiCollector().addMessageToQueue(msg);
+    chordDetector.noteOn(note);
 }
 
 void MainComponent::sendNoteOff(int note)
@@ -3057,6 +3494,7 @@ void MainComponent::sendNoteOff(int note)
     auto msg = juce::MidiMessage::noteOff(1, note);
     msg.setTimeStamp(juce::Time::getMillisecondCounterHiRes() * 0.001);
     pluginHost.getMidiCollector().addMessageToQueue(msg);
+    chordDetector.noteOff(note);
 }
 
 bool MainComponent::keyPressed(const juce::KeyPress& key)
@@ -3192,13 +3630,19 @@ void MainComponent::applyThemeToControls()
 #if JUCE_IOS
     trackNameLabel.setColour(juce::Label::textColourId, juce::Colour(c.textSecondary));
 #else
-    trackNameLabel.setColour(juce::Label::textColourId, juce::Colour(c.amber));
+    trackNameLabel.setColour(juce::Label::textColourId, juce::Colour(c.lcdText));
 #endif
     trackNameLabel.setFont(juce::Font(fontName, 16.0f, juce::Font::bold));
-    beatLabel.setFont(juce::Font(fontName, 16.0f, juce::Font::bold));
+    beatLabel.setFont(juce::Font(fontName, 14.0f, juce::Font::bold));
     beatLabel.setColour(juce::Label::textColourId, juce::Colour(c.lcdText));
-    beatLabel.setColour(juce::Label::backgroundColourId, juce::Colour(c.lcdBg));
-    statusLabel.setColour(juce::Label::textColourId, juce::Colour(c.textSecondary));
+    beatLabel.setColour(juce::Label::backgroundColourId, juce::Colours::transparentBlack);
+    statusLabel.setFont(juce::Font(fontName, 10.0f, juce::Font::plain));
+    statusLabel.setColour(juce::Label::textColourId, juce::Colour(c.lcdText).withAlpha(0.7f));
+    statusLabel.setColour(juce::Label::backgroundColourId, juce::Colours::transparentBlack);
+    chordLabel.setFont(juce::Font(fontName, 26.0f, juce::Font::bold));
+    chordLabel.setColour(juce::Label::textColourId, juce::Colour(c.lcdText));
+    chordLabel.setColour(juce::Label::backgroundColourId, juce::Colours::transparentBlack);
+    chordLabel.setJustificationType(juce::Justification::centred);
     trackInfoLabel.setColour(juce::Label::textColourId, juce::Colour(c.textSecondary));
 
     // BPM controls
@@ -3215,17 +3659,25 @@ void MainComponent::applyThemeToControls()
     stopButton.setColour(juce::TextButton::buttonColourId, juce::Colour(c.btnStop));
     metronomeButton.setColour(juce::TextButton::buttonColourId, juce::Colour(c.btnMetronome));
     metronomeButton.setColour(juce::TextButton::buttonOnColourId, juce::Colour(c.btnMetronomeOn));
-    countInButton.setColour(juce::TextButton::buttonColourId, juce::Colour(c.btnCountIn));
-    countInButton.setColour(juce::TextButton::buttonOnColourId, juce::Colour(c.btnCountInOn));
+    countInButton.setColour(juce::TextButton::buttonColourId, juce::Colour(c.lcdBg).brighter(0.15f));
+    countInButton.setColour(juce::TextButton::buttonOnColourId, juce::Colour(c.lcdText));
+    countInButton.setColour(juce::TextButton::textColourOffId, juce::Colour(c.lcdText));
+    countInButton.setColour(juce::TextButton::textColourOnId, juce::Colour(c.lcdBg));
     loopButton.setColour(juce::TextButton::buttonColourId, juce::Colour(c.btnLoop));
     loopButton.setColour(juce::TextButton::buttonOnColourId, juce::Colour(c.btnLoopOn));
     panicButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xffdd6600));
-    midiLearnButton.setColour(juce::TextButton::buttonColourId, juce::Colour(c.btnNav));
-    midiLearnButton.setColour(juce::TextButton::buttonOnColourId, juce::Colour(c.amber));
-    pianoToggleButton.setColour(juce::TextButton::buttonColourId, juce::Colour(c.btnNav));
+    midiLearnButton.setColour(juce::TextButton::buttonColourId, juce::Colour(c.lcdBg).brighter(0.15f));
+    midiLearnButton.setColour(juce::TextButton::buttonOnColourId, juce::Colour(c.lcdText));
+    midiLearnButton.setColour(juce::TextButton::textColourOffId, juce::Colour(c.lcdText));
+    midiLearnButton.setColour(juce::TextButton::textColourOnId, juce::Colour(c.lcdBg));
+    pianoToggleButton.setColour(juce::TextButton::buttonColourId, juce::Colour(c.lcdBg).brighter(0.15f));
     pianoToggleButton.setColour(juce::TextButton::buttonOnColourId, juce::Colour(c.lcdText));
-    mixerButton.setColour(juce::TextButton::buttonColourId, juce::Colour(c.btnNav));
+    pianoToggleButton.setColour(juce::TextButton::textColourOffId, juce::Colour(c.lcdText));
+    pianoToggleButton.setColour(juce::TextButton::textColourOnId, juce::Colour(c.lcdBg));
+    mixerButton.setColour(juce::TextButton::buttonColourId, juce::Colour(c.lcdBg).brighter(0.15f));
     mixerButton.setColour(juce::TextButton::buttonOnColourId, juce::Colour(c.lcdText));
+    mixerButton.setColour(juce::TextButton::textColourOffId, juce::Colour(c.lcdText));
+    mixerButton.setColour(juce::TextButton::textColourOnId, juce::Colour(c.lcdBg));
 
     // Edit toolbar
     newClipButton.setColour(juce::TextButton::buttonColourId, juce::Colour(c.btnNewClip));
