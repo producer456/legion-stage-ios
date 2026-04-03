@@ -607,7 +607,7 @@ protected:
     // ── Rotary slider ──
     void drawRotarySlider(juce::Graphics& g, int x, int y, int width, int height,
                           float sliderPos, float rotaryStartAngle, float rotaryEndAngle,
-                          juce::Slider&) override
+                          juce::Slider& slider) override
     {
         auto radius = static_cast<float>(juce::jmin(width, height)) / 2.0f - 4.0f;
         auto centreX = static_cast<float>(x) + static_cast<float>(width) * 0.5f;
@@ -624,12 +624,46 @@ protected:
         g.setColour(juce::Colour(theme.border));
         g.strokePath(track, juce::PathStrokeType(3.0f));
 
+        // Use slider's own fill color if set, otherwise theme amber
+        auto arcColor = slider.findColour(juce::Slider::rotarySliderFillColourId);
+        if (arcColor == juce::Colour(theme.amber))
+            arcColor = juce::Colour(theme.amber); // default
         juce::Path valueArc;
         valueArc.addArc(centreX - radius + 2, centreY - radius + 2,
                         (radius - 2) * 2.0f, (radius - 2) * 2.0f,
                         rotaryStartAngle, angle, true);
-        g.setColour(juce::Colour(theme.amber));
+        g.setColour(arcColor);
         g.strokePath(valueArc, juce::PathStrokeType(3.0f));
+
+        // VU meter ring — green/yellow/red arc around the outside
+        auto* vuProp = slider.getProperties().getVarPointer("vuLevel");
+        if (vuProp != nullptr)
+        {
+            float vuLevel = juce::jlimit(0.0f, 1.0f, static_cast<float>(*vuProp));
+            float vuRadius = radius + 4.0f;
+            float vuAngle = rotaryStartAngle + vuLevel * (rotaryEndAngle - rotaryStartAngle);
+
+            // Draw segmented arc: green (0-0.6), yellow (0.6-0.8), red (0.8-1.0)
+            auto drawVuSegment = [&](float from, float to, juce::Colour color)
+            {
+                float segStart = rotaryStartAngle + from * (rotaryEndAngle - rotaryStartAngle);
+                float segEnd   = rotaryStartAngle + to   * (rotaryEndAngle - rotaryStartAngle);
+                // Only draw up to the current VU level
+                segEnd = juce::jmin(segEnd, vuAngle);
+                if (segEnd <= segStart) return;
+
+                juce::Path seg;
+                seg.addArc(centreX - vuRadius, centreY - vuRadius,
+                           vuRadius * 2.0f, vuRadius * 2.0f,
+                           segStart, segEnd, true);
+                g.setColour(color);
+                g.strokePath(seg, juce::PathStrokeType(3.0f));
+            };
+
+            drawVuSegment(0.0f, 0.6f,  juce::Colour(0xff00cc44)); // green
+            drawVuSegment(0.6f, 0.8f,  juce::Colour(0xffddcc00)); // yellow
+            drawVuSegment(0.8f, 1.0f,  juce::Colour(0xffee2222)); // red
+        }
 
         juce::Path pointer;
         auto pointerLength = radius * 0.6f;

@@ -237,6 +237,13 @@ private:
 #endif
     juce::OwnedArray<juce::Slider> paramSliders;
     juce::OwnedArray<juce::Label> paramLabels;
+
+    // ── Preset Browser ──
+    juce::ComboBox presetSelector;
+    juce::TextButton presetPrevButton { "<" };
+    juce::TextButton presetNextButton { ">" };
+    void updatePresetList();
+    void loadPreset(int index);
     int paramPageOffset = 0;
     juce::TextButton paramPageLeft { "<" };
     juce::TextButton paramPageRight { ">" };

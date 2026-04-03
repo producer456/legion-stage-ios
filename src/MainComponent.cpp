@@ -281,6 +281,29 @@ MainComponent::MainComponent()
     openEditorButton.onClick = [this] { openPluginEditor(); };
     openEditorButton.setEnabled(false);
 
+    // Preset browser
+    addAndMakeVisible(presetSelector);
+    presetSelector.addItem("-- Preset --", 1);
+    presetSelector.setSelectedId(1, juce::dontSendNotification);
+    presetSelector.onChange = [this] {
+        int id = presetSelector.getSelectedId();
+        if (id > 1) loadPreset(id - 2);
+    };
+    addAndMakeVisible(presetPrevButton);
+    presetPrevButton.onClick = [this] {
+        auto& track = pluginHost.getTrack(selectedTrackIndex);
+        if (track.plugin == nullptr) return;
+        int cur = track.plugin->getCurrentProgram();
+        if (cur > 0) loadPreset(cur - 1);
+    };
+    addAndMakeVisible(presetNextButton);
+    presetNextButton.onClick = [this] {
+        auto& track = pluginHost.getTrack(selectedTrackIndex);
+        if (track.plugin == nullptr) return;
+        int cur = track.plugin->getCurrentProgram();
+        if (cur < track.plugin->getNumPrograms() - 1) loadPreset(cur + 1);
+    };
+
     addAndMakeVisible(midiInputSelector);
     midiInputSelector.onChange = [this] { selectMidiDevice(); };
 
@@ -731,7 +754,7 @@ MainComponent::MainComponent()
         auto* slider = new juce::Slider();
         slider->setRange(0.0, 1.0, 0.001);
         slider->setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
-        slider->setTextBoxStyle(juce::Slider::TextBoxBelow, true, 60, 14);
+        slider->setTextBoxStyle(juce::Slider::NoTextBox, true, 0, 0);
         slider->setColour(juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
         slider->setEnabled(false);
 
@@ -860,6 +883,19 @@ void MainComponent::timerCallback()
     // Update chord detector display
     auto chordName = chordDetector.getChordName();
     chordLabel.setText(chordName.isEmpty() ? "---" : chordName, juce::dontSendNotification);
+
+    // Feed peak level to volume slider for VU ring
+    {
+        auto& track = pluginHost.getTrack(selectedTrackIndex);
+        if (track.gainProcessor)
+        {
+            float peakL = track.gainProcessor->peakLevelL.load();
+            float peakR = track.gainProcessor->peakLevelR.load();
+            float peak = juce::jmax(peakL, peakR);
+            volumeSlider.getProperties().set("vuLevel", peak);
+            volumeSlider.repaint();
+        }
+    }
 
     // Flash record button hazard orange when armed
     if (recordButton.getToggleState())
@@ -1071,6 +1107,7 @@ void MainComponent::updateTrackDisplay()
 
     paramPageOffset = 0;
     updateParamSliders();
+    updatePresetList();
 
     // Update MIDI 2.0 handler
     if (midi2Enabled)
@@ -1198,7 +1235,7 @@ void MainComponent::loadSelectedPlugin()
 #if JUCE_IOS
         juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::InfoIcon, "Plugin Loaded",
             "OK: " + pluginDescriptions[idx].name + "\nID: " + pluginDescriptions[idx].fileOrIdentifier);
-        juce::Timer::callAfterDelay(500, [this] { updateParamSliders(); updateFxDisplay(); });
+        juce::Timer::callAfterDelay(500, [this] { updateParamSliders(); updateFxDisplay(); updatePresetList(); });
 #endif
     }
     else
@@ -3413,10 +3450,19 @@ void MainComponent::resized()
     }
     setVisControlsVisible();
 
-    pluginSelector.setBounds(rightPanel.removeFromTop(36));
-    rightPanel.removeFromTop(4);
-    openEditorButton.setBounds(rightPanel.removeFromTop(36));
-    rightPanel.removeFromTop(4);
+    pluginSelector.setBounds(rightPanel.removeFromTop(32));
+    rightPanel.removeFromTop(2);
+    {
+        auto presetRow = rightPanel.removeFromTop(28);
+        presetPrevButton.setBounds(presetRow.removeFromLeft(24));
+        presetRow.removeFromLeft(2);
+        presetNextButton.setBounds(presetRow.removeFromRight(24));
+        presetRow.removeFromRight(2);
+        presetSelector.setBounds(presetRow);
+    }
+    rightPanel.removeFromTop(2);
+    openEditorButton.setBounds(rightPanel.removeFromTop(30));
+    rightPanel.removeFromTop(3);
     auto midiRow = rightPanel.removeFromTop(34);
     midiRefreshButton.setBounds(midiRow.removeFromRight(65));
     midiRow.removeFromRight(4);
@@ -3438,7 +3484,8 @@ void MainComponent::resized()
     {
         int knobSize = juce::jmin(44, (rightPanel.getWidth() - 8) / 3);
         int numRows = (NUM_PARAM_SLIDERS + 2) / 3;
-        int knobRowH = knobSize + 14 + 2;  // knob + label + gap
+        int labelH = 18;
+        int knobRowH = knobSize + labelH + 2;  // knob + label + gap
         int knobAreaH = numRows * knobRowH + 4;
         auto knobArea = rightPanel.removeFromTop(knobAreaH);
         rightPanel.removeFromTop(4);
@@ -3453,8 +3500,9 @@ void MainComponent::resized()
             int kx = knobArea.getX() + gridOffsetX + col * (knobSize + 4);
             int ky = knobArea.getY() + row * knobRowH;
 
-            paramLabels[i]->setBounds(kx, ky, knobSize, 14);
-            paramSliders[i]->setBounds(kx, ky + 14, knobSize, knobSize);
+            paramLabels[i]->setBounds(kx, ky, knobSize, labelH);
+            paramLabels[i]->setFont(juce::Font(11.0f));
+            paramSliders[i]->setBounds(kx, ky + labelH, knobSize, knobSize);
         }
     }
 
@@ -3482,13 +3530,13 @@ void MainComponent::resized()
         spectrumDisplay.setAlpha(1.0f);
     }
 
-    // Volume knob — full width, no pan knob
+    // Volume knob — full remaining space, no label or text
     {
         auto mixArea = rightPanel;
         panSlider.setVisible(false);
         panLabel.setVisible(false);
-
-        volumeLabel.setBounds(mixArea.removeFromTop(14));
+        volumeLabel.setVisible(false);
+        volumeSlider.setTextBoxStyle(juce::Slider::NoTextBox, true, 0, 0);
         volumeSlider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
         int volSz = juce::jmin(mixArea.getWidth(), mixArea.getHeight());
         volumeSlider.setBounds(mixArea.withSizeKeepingCentre(volSz, volSz));
@@ -3812,6 +3860,46 @@ void MainComponent::updateFxDisplay()
             selector->setSelectedId(1, juce::dontSendNotification);
         }
     }
+}
+
+void MainComponent::updatePresetList()
+{
+    presetSelector.clear(juce::dontSendNotification);
+    presetSelector.addItem("-- Preset --", 1);
+
+    auto& track = pluginHost.getTrack(selectedTrackIndex);
+    if (track.plugin == nullptr)
+    {
+        presetSelector.setSelectedId(1, juce::dontSendNotification);
+        return;
+    }
+
+    int numPresets = track.plugin->getNumPrograms();
+    for (int i = 0; i < numPresets; ++i)
+    {
+        juce::String name = track.plugin->getProgramName(i);
+        if (name.isEmpty()) name = "Preset " + juce::String(i + 1);
+        presetSelector.addItem(name, i + 2);
+    }
+
+    int current = track.plugin->getCurrentProgram();
+    presetSelector.setSelectedId(current + 2, juce::dontSendNotification);
+}
+
+void MainComponent::loadPreset(int index)
+{
+    auto& track = pluginHost.getTrack(selectedTrackIndex);
+    if (track.plugin == nullptr) return;
+
+    track.plugin->setCurrentProgram(index);
+    presetSelector.setSelectedId(index + 2, juce::dontSendNotification);
+
+    juce::String name = track.plugin->getProgramName(index);
+    statusLabel.setText("Preset: " + name, juce::dontSendNotification);
+
+    // Refresh param knobs with new preset values
+    paramPageOffset = 0;
+    updateParamSliders();
 }
 
 void MainComponent::loadFxPlugin(int slotIndex)
