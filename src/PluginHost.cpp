@@ -336,8 +336,29 @@ bool PluginHost::loadFx(int trackIndex, int slotIndex, const juce::PluginDescrip
 
     unloadFx(trackIndex, slotIndex);
 
+#if JUCE_IOS
+    // AUv3 plugins on iOS REQUIRE async instantiation
+    std::unique_ptr<juce::AudioPluginInstance> instance;
+    bool finished = false;
+
+    formatManager.createPluginInstanceAsync(desc, storedSampleRate, storedBlockSize,
+        [&](std::unique_ptr<juce::AudioPluginInstance> result, const juce::String& err)
+        {
+            instance = std::move(result);
+            if (err.isNotEmpty()) errorMsg = err;
+            finished = true;
+        });
+
+    auto deadline = juce::Time::getMillisecondCounter() + 15000;
+    while (!finished && juce::Time::getMillisecondCounter() < deadline)
+        AUScanner::pumpRunLoop(100);
+
+    if (!finished) { errorMsg = "FX instantiation timed out"; return false; }
+    if (instance == nullptr) { if (errorMsg.isEmpty()) errorMsg = "FX instance is null"; return false; }
+#else
     auto instance = formatManager.createPluginInstance(desc, storedSampleRate, storedBlockSize, errorMsg);
     if (instance == nullptr) return false;
+#endif
 
     auto& track = tracks[static_cast<size_t>(trackIndex)];
     track.fxSlots[slotIndex].processor = instance.get();
