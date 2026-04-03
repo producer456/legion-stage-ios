@@ -233,6 +233,10 @@ private:
 #endif
     juce::OwnedArray<juce::Slider> paramSliders;
     juce::OwnedArray<juce::Label> paramLabels;
+    int paramPageOffset = 0;
+    juce::TextButton paramPageLeft { "<" };
+    juce::TextButton paramPageRight { ">" };
+    juce::Label paramPageLabel;
     void updateParamSliders();
 
     // ── Right Panel — Mix + Info ──

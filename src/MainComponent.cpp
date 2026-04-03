@@ -276,6 +276,26 @@ MainComponent::MainComponent()
     addAndMakeVisible(midiRefreshButton);
     midiRefreshButton.onClick = [this] { scanMidiDevices(); };
 
+    // Param page navigation
+    addAndMakeVisible(paramPageLeft);
+    addAndMakeVisible(paramPageRight);
+    addAndMakeVisible(paramPageLabel);
+    paramPageLabel.setJustificationType(juce::Justification::centred);
+    paramPageLeft.onClick = [this] {
+        paramPageOffset = juce::jmax(0, paramPageOffset - NUM_PARAM_SLIDERS);
+        updateParamSliders();
+    };
+    paramPageRight.onClick = [this] {
+        auto& track = pluginHost.getTrack(selectedTrackIndex);
+        if (track.plugin != nullptr)
+        {
+            int total = track.plugin->getParameters().size();
+            if (paramPageOffset + NUM_PARAM_SLIDERS < total)
+                paramPageOffset += NUM_PARAM_SLIDERS;
+            updateParamSliders();
+        }
+    };
+
     // FX insert slots
     for (int i = 0; i < NUM_FX_SLOTS; ++i)
     {
@@ -1053,6 +1073,7 @@ void MainComponent::updateTrackDisplay()
     info += "Armed: " + juce::String(track.clipPlayer && track.clipPlayer->armed.load() ? "Yes" : "No");
     trackInfoLabel.setText(info, juce::dontSendNotification);
 
+    paramPageOffset = 0;
     updateParamSliders();
 
     // Update MIDI 2.0 handler
@@ -1657,125 +1678,125 @@ void MainComponent::updateParamSliders()
             paramSliders[i]->setValue(0.0, juce::dontSendNotification);
             paramLabels[i]->setText("", juce::dontSendNotification);
         }
+        paramPageLabel.setText("", juce::dontSendNotification);
         return;
     }
 
     auto& allParams = track.plugin->getParameters();
+    int total = allParams.size();
     juce::String pluginName = track.plugin->getName().toLowerCase();
 
-    juce::Array<juce::AudioProcessorParameter*> selectedParams;
+    // Clamp page offset
+    if (paramPageOffset >= total) paramPageOffset = juce::jmax(0, total - NUM_PARAM_SLIDERS);
+    if (paramPageOffset < 0) paramPageOffset = 0;
 
-    // ── Plugin-specific parameter mappings ──
+    // Update page label
+    int totalPages = juce::jmax(1, (total + NUM_PARAM_SLIDERS - 1) / NUM_PARAM_SLIDERS);
+    int page = (paramPageOffset / NUM_PARAM_SLIDERS) + 1;
+    paramPageLabel.setText(juce::String(page) + "/" + juce::String(totalPages), juce::dontSendNotification);
 
-    // u-he Diva: filter, oscillators, envelope
-    if (pluginName.contains("diva"))
+    // ── Page 1: smart selection (plugin-specific + macros + common names) ──
+    if (paramPageOffset == 0)
     {
-        juce::StringArray wanted = { "cutoff", "resonance", "hpf", "vco mix",
-                                      "env2 att", "env2 dec" };
-        for (auto& w : wanted)
+        juce::Array<juce::AudioProcessorParameter*> selectedParams;
+
+        // Plugin-specific mappings
+        if (pluginName.contains("diva"))
+        {
+            juce::StringArray wanted = { "cutoff", "resonance", "hpf", "vco mix", "env2 att", "env2 dec" };
+            for (auto& w : wanted)
+                for (auto* param : allParams)
+                    if (param->getName(30).toLowerCase().contains(w))
+                    { selectedParams.add(param); break; }
+        }
+        else if (pluginName.contains("hive"))
+        {
+            juce::StringArray wanted = { "macro 1", "macro 2", "macro 3", "macro 4", "cutoff", "resonance" };
+            for (auto& w : wanted)
+                for (auto* param : allParams)
+                    if (param->getName(30).toLowerCase().contains(w))
+                    { selectedParams.add(param); break; }
+        }
+        else if (pluginName.contains("pigments"))
+        {
+            juce::StringArray wanted = { "macro 1", "macro 2", "macro 3", "macro 4", "macro 5", "macro 6" };
+            for (auto& w : wanted)
+                for (auto* param : allParams)
+                    if (param->getName(30).toLowerCase().contains(w))
+                    { selectedParams.add(param); break; }
+        }
+        else if (pluginName.contains("analog lab") || pluginName.contains("arturia") ||
+                 pluginName.contains("jun-6") || pluginName.contains("jup-8") ||
+                 pluginName.contains("mini v") || pluginName.contains("cs-80"))
         {
             for (auto* param : allParams)
             {
-                if (param->getName(30).toLowerCase().contains(w))
-                { selectedParams.add(param); break; }
+                juce::String name = param->getName(30).toLowerCase();
+                if (name.contains("macro") || name.contains("mcr") || name.contains("assign"))
+                    selectedParams.add(param);
+                if (selectedParams.size() >= NUM_PARAM_SLIDERS) break;
             }
-            if (selectedParams.size() >= NUM_PARAM_SLIDERS) break;
         }
-    }
-    // u-he Hive: macros then filter
-    else if (pluginName.contains("hive"))
-    {
-        juce::StringArray wanted = { "macro 1", "macro 2", "macro 3", "macro 4",
-                                      "cutoff", "resonance" };
-        for (auto& w : wanted)
-        {
+
+        // Generic: macros
+        if (selectedParams.isEmpty())
             for (auto* param : allParams)
             {
-                if (param->getName(30).toLowerCase().contains(w))
-                { selectedParams.add(param); break; }
+                juce::String name = param->getName(30).toLowerCase();
+                if (name.contains("macro") || name.contains("mcr") || name.contains("assign"))
+                    selectedParams.add(param);
+                if (selectedParams.size() >= NUM_PARAM_SLIDERS) break;
             }
-            if (selectedParams.size() >= NUM_PARAM_SLIDERS) break;
-        }
-    }
-    // Arturia Pigments: macros
-    else if (pluginName.contains("pigments"))
-    {
-        juce::StringArray wanted = { "macro 1", "macro 2", "macro 3",
-                                      "macro 4", "macro 5", "macro 6" };
-        for (auto& w : wanted)
-        {
-            for (auto* param : allParams)
-            {
-                if (param->getName(30).toLowerCase().contains(w))
-                { selectedParams.add(param); break; }
-            }
-            if (selectedParams.size() >= NUM_PARAM_SLIDERS) break;
-        }
-    }
-    // Arturia Analog Lab / any Arturia — look for macros first
-    else if (pluginName.contains("analog lab") || pluginName.contains("arturia") ||
-             pluginName.contains("jun-6") || pluginName.contains("jup-8") ||
-             pluginName.contains("mini v") || pluginName.contains("cs-80"))
-    {
-        for (auto* param : allParams)
-        {
-            juce::String name = param->getName(30).toLowerCase();
-            if (name.contains("macro") || name.contains("mcr") || name.contains("assign"))
-                selectedParams.add(param);
-            if (selectedParams.size() >= NUM_PARAM_SLIDERS) break;
-        }
-    }
 
-    // Generic: try macros, then common synth params
-    if (selectedParams.isEmpty())
-    {
-        for (auto* param : allParams)
+        // Generic: common synth params
+        if (selectedParams.isEmpty())
         {
-            juce::String name = param->getName(30).toLowerCase();
-            if (name.contains("macro") || name.contains("mcr") || name.contains("assign"))
-                selectedParams.add(param);
-            if (selectedParams.size() >= NUM_PARAM_SLIDERS) break;
+            juce::StringArray commonNames = { "cutoff", "filter", "resonance",
+                "attack", "decay", "sustain", "release",
+                "drive", "mix", "volume", "level", "gain", "osc", "detune", "lfo" };
+            for (auto& cn : commonNames)
+                for (auto* param : allParams)
+                    if (param->getName(30).toLowerCase().contains(cn))
+                    { selectedParams.add(param); break; }
         }
-    }
 
-    if (selectedParams.isEmpty())
-    {
-        juce::StringArray commonNames = { "cutoff", "filter", "resonance",
-                                           "attack", "decay", "sustain", "release",
-                                           "drive", "mix", "volume", "level", "gain",
-                                           "osc", "detune", "lfo" };
-        for (auto& cn : commonNames)
-        {
-            for (auto* param : allParams)
-            {
-                if (param->getName(30).toLowerCase().contains(cn))
-                { selectedParams.add(param); break; }
-            }
-            if (selectedParams.size() >= NUM_PARAM_SLIDERS) break;
-        }
-    }
-
-    // Fallback: fill remaining slots with first available parameters
-    if (selectedParams.size() < NUM_PARAM_SLIDERS)
-    {
+        // Fill remaining with first available
         for (int i = 0; i < allParams.size() && selectedParams.size() < NUM_PARAM_SLIDERS; ++i)
-        {
             if (!selectedParams.contains(allParams[i]))
                 selectedParams.add(allParams[i]);
+
+        for (int i = 0; i < NUM_PARAM_SLIDERS; ++i)
+        {
+            if (i < selectedParams.size())
+            {
+                auto* param = selectedParams[i];
+                paramSliders[i]->setEnabled(true);
+                paramSliders[i]->setValue(param->getValue(), juce::dontSendNotification);
+                paramLabels[i]->setText(param->getName(12), juce::dontSendNotification);
+                paramSliders[i]->getProperties().set("paramIndex", allParams.indexOf(param));
+            }
+            else
+            {
+                paramSliders[i]->setEnabled(false);
+                paramSliders[i]->setValue(0.0, juce::dontSendNotification);
+                paramLabels[i]->setText("", juce::dontSendNotification);
+                paramSliders[i]->getProperties().set("paramIndex", -1);
+            }
         }
+        return;
     }
 
+    // ── Page 2+: sequential params from offset ──
     for (int i = 0; i < NUM_PARAM_SLIDERS; ++i)
     {
-        if (i < selectedParams.size())
+        int paramIdx = paramPageOffset + i;
+        if (paramIdx < total)
         {
-            auto* param = selectedParams[i];
+            auto* param = allParams[paramIdx];
             paramSliders[i]->setEnabled(true);
             paramSliders[i]->setValue(param->getValue(), juce::dontSendNotification);
             paramLabels[i]->setText(param->getName(12), juce::dontSendNotification);
-
-            // Store the actual parameter index for the slider callback
-            paramSliders[i]->getProperties().set("paramIndex", allParams.indexOf(param));
+            paramSliders[i]->getProperties().set("paramIndex", paramIdx);
         }
         else
         {
@@ -3383,7 +3404,16 @@ void MainComponent::resized()
     rightPanel.removeFromTop(4);
 
     // FX insert slots
-    // Plugin parameter knobs — 3x3 grid on iOS, 3x2 on desktop
+    // Param page navigation buttons
+    {
+        auto pageRow = rightPanel.removeFromTop(22);
+        paramPageLeft.setBounds(pageRow.removeFromLeft(28));
+        paramPageRight.setBounds(pageRow.removeFromRight(28));
+        paramPageLabel.setBounds(pageRow);
+        rightPanel.removeFromTop(2);
+    }
+
+    // Plugin parameter knobs — paged grid
     if (paramSliders.size() > 0)
     {
         int knobSize = juce::jmin(44, (rightPanel.getWidth() - 8) / 3);
