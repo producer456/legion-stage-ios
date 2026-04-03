@@ -641,7 +641,7 @@ MainComponent::MainComponent()
     addAndMakeVisible(volumeSlider);
     volumeSlider.setRange(0.0, 1.0, 0.01);
     volumeSlider.setValue(0.8, juce::dontSendNotification);
-    volumeSlider.setSliderStyle(juce::Slider::LinearVertical);
+    volumeSlider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
     volumeSlider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 50, 18);
     volumeSlider.onValueChange = [this] {
         if (midiLearnActive) { startMidiLearn(MidiTarget::Volume); return; }
@@ -3075,24 +3075,29 @@ void MainComponent::resized()
         projectMDisplay.setVisible(false);
         chordLabel.setVisible(false);
 
-        // ── Right panel: two columns of knobs ──
+        // ── Right panel: volume knob on top (full width), then two columns ──
         auto rightPanel = area.removeFromRight(100).reduced(2, 2);
-        auto knobCol1 = rightPanel.removeFromLeft(rightPanel.getWidth() / 2 - 1);
-        rightPanel.removeFromLeft(2);
-        auto knobCol2 = rightPanel;
 
         int knobH = 44;
         int labelH = 12;
         int paramGap = 2;
 
-        // Column 1: Vol, Pan
+        // Volume — full panel width, large knob
         volumeSlider.setVisible(true);
         volumeLabel.setVisible(true);
         volumeSlider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
-        volumeLabel.setBounds(knobCol1.removeFromTop(labelH));
-        volumeSlider.setBounds(knobCol1.removeFromTop(knobH));
-        knobCol1.removeFromTop(paramGap);
+        volumeLabel.setBounds(rightPanel.removeFromTop(labelH));
+        auto volArea = rightPanel.removeFromTop(80);
+        int volSz = juce::jmin(volArea.getWidth(), volArea.getHeight());
+        volumeSlider.setBounds(volArea.withSizeKeepingCentre(volSz, volSz));
+        rightPanel.removeFromTop(paramGap);
 
+        // Split remaining into two columns
+        auto knobCol1 = rightPanel.removeFromLeft(rightPanel.getWidth() / 2 - 1);
+        rightPanel.removeFromLeft(2);
+        auto knobCol2 = rightPanel;
+
+        // Pan — smaller, in col1
         panSlider.setVisible(true);
         panLabel.setVisible(true);
         panSlider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
@@ -3184,16 +3189,28 @@ void MainComponent::resized()
     if (timelineComponent)
         timelineComponent->setVisibleTracks(8);
 
-    // ── Right Panel ──
-    // Remove right panel first (it's rightmost, inside the side panels), then oak strip
+    // ── Right Panel — starts from top of screen (not below top bar) ──
     int oakStripW = 0;
     if (auto* lnf = dynamic_cast<DawLookAndFeel*>(&getLookAndFeel()))
     {
         if (lnf->getSidePanelWidth() > 0)
             oakStripW = lnf->getSidePanelWidth();
     }
-    auto rightPanel = area.removeFromRight(rightPanelW).reduced(8, 4);
-    area.removeFromRight(oakStripW);  // oak strip between arranger and right panel
+    // Build right panel from full bounds so it extends to the top
+    auto fullArea = getLocalBounds();
+#if JUCE_IOS
+    fullArea.removeFromTop(30); // status bar
+#endif
+    if (auto* lnf = dynamic_cast<DawLookAndFeel*>(&getLookAndFeel()))
+    {
+        int sidePW = lnf->getSidePanelWidth();
+        if (sidePW > 0)
+            fullArea.removeFromRight(sidePW);
+    }
+    auto rightPanel = fullArea.removeFromRight(rightPanelW).reduced(8, 4);
+    // Still remove from area so the timeline/toolbar don't overlap
+    area.removeFromRight(rightPanelW);
+    area.removeFromRight(oakStripW);
 
     // ── Edit Toolbar ──
     auto toolbar = area.removeFromTop(65).reduced(4, 4);
@@ -3369,18 +3386,22 @@ void MainComponent::resized()
     // Plugin parameter knobs — 3x3 grid on iOS, 3x2 on desktop
     if (paramSliders.size() > 0)
     {
-        int knobSize = juce::jmin(58, (rightPanel.getWidth() - 8) / 3);
+        int knobSize = juce::jmin(44, (rightPanel.getWidth() - 8) / 3);
         int numRows = (NUM_PARAM_SLIDERS + 2) / 3;
-        int knobAreaH = numRows * (knobSize + 16) + 4;
+        int knobRowH = knobSize + 14 + 2;  // knob + label + gap
+        int knobAreaH = numRows * knobRowH + 4;
         auto knobArea = rightPanel.removeFromTop(knobAreaH);
         rightPanel.removeFromTop(4);
+
+        int gridW = 3 * knobSize + 2 * 4; // 3 knobs + 2 gaps
+        int gridOffsetX = (knobArea.getWidth() - gridW) / 2;
 
         for (int i = 0; i < NUM_PARAM_SLIDERS; ++i)
         {
             int col = i % 3;
             int row = i / 3;
-            int kx = knobArea.getX() + col * (knobSize + 4);
-            int ky = knobArea.getY() + row * (knobSize + 16 + 2);
+            int kx = knobArea.getX() + gridOffsetX + col * (knobSize + 4);
+            int ky = knobArea.getY() + row * knobRowH;
 
             paramLabels[i]->setBounds(kx, ky, knobSize, 14);
             paramSliders[i]->setBounds(kx, ky + 14, knobSize, knobSize);
@@ -3411,20 +3432,22 @@ void MainComponent::resized()
         spectrumDisplay.setAlpha(1.0f);
     }
 
-    // Volume fader on left, pan knob on right
+    // Volume knob (bigger) + Pan knob (smaller)
     {
         auto mixArea = rightPanel;
-        auto volArea = mixArea.removeFromLeft(mixArea.getWidth() / 2 - 2);
-        mixArea.removeFromLeft(4);
+        auto volArea = mixArea.removeFromLeft(mixArea.getWidth() * 3 / 5);
+        mixArea.removeFromLeft(2);
         auto panArea = mixArea;
 
         volumeLabel.setBounds(volArea.removeFromTop(14));
-        volumeSlider.setSliderStyle(juce::Slider::LinearVertical);
-        volumeSlider.setBounds(volArea.reduced(volArea.getWidth() / 4, 0));
+        volumeSlider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
+        int volSz = juce::jmin(volArea.getWidth(), volArea.getHeight());
+        volumeSlider.setBounds(volArea.removeFromTop(volSz));
 
         panLabel.setBounds(panArea.removeFromTop(14));
         panSlider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
-        panSlider.setBounds(panArea.removeFromTop(juce::jmin(panArea.getWidth(), panArea.getHeight())));
+        int panSz = juce::jmin(panArea.getWidth(), panArea.getHeight());
+        panSlider.setBounds(panArea.removeFromTop(panSz));
     }
 
     // ── Touch Piano (bottom of main area, when visible) ──

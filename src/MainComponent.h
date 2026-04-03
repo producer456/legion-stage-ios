@@ -227,7 +227,7 @@ private:
 
     // ── Plugin Parameters ──
 #if JUCE_IOS
-    static constexpr int NUM_PARAM_SLIDERS = 9;
+    static constexpr int NUM_PARAM_SLIDERS = 12;
 #else
     static constexpr int NUM_PARAM_SLIDERS = 6;
 #endif
