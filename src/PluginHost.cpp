@@ -2,7 +2,9 @@
 #include "AUScanner.h"
 #include "SpectrumComponent.h"
 #include "LissajousComponent.h"
-#include "GForceComponent.h"
+#include "WaveTerrainComponent.h"
+#include "ShaderToyComponent.h"
+#include "AnalyzerComponent.h"
 #include "GeissComponent.h"
 #include "ProjectMComponent.h"
 
@@ -566,8 +568,12 @@ void PluginHost::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer
 
         spectrumDisplay->pushSamples(mono, count);
 
-        if (gforceDisplay != nullptr)
-            gforceDisplay->pushSamples(mono, count);
+        if (waveTerrainDisplay != nullptr)
+            waveTerrainDisplay->pushSamples(mono, count);
+        if (shaderToyDisplay != nullptr)
+            shaderToyDisplay->pushSamples(mono, count);
+        if (analyzerDisplay != nullptr)
+            analyzerDisplay->pushSamples(mono, count);
         if (geissDisplay != nullptr)
             geissDisplay->pushSamples(mono, count);
         if (projectMDisplay != nullptr)

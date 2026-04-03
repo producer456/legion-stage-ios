@@ -19,9 +19,18 @@ MainComponent::MainComponent()
 
     addAndMakeVisible(lissajousDisplay);
 
-    addAndMakeVisible(gforceDisplay);
-    gforceDisplay.setVisible(false);
-    pluginHost.gforceDisplay = &gforceDisplay;
+    addAndMakeVisible(waveTerrainDisplay);
+    waveTerrainDisplay.setVisible(false);
+    pluginHost.waveTerrainDisplay = &waveTerrainDisplay;
+
+    addAndMakeVisible(shaderToyDisplay);
+    shaderToyDisplay.setVisible(false);
+            analyzerDisplay.setVisible(false);
+    pluginHost.shaderToyDisplay = &shaderToyDisplay;
+
+    addAndMakeVisible(analyzerDisplay);
+    analyzerDisplay.setVisible(false);
+    pluginHost.analyzerDisplay = &analyzerDisplay;
 
     addAndMakeVisible(geissDisplay);
     geissDisplay.setVisible(false);
@@ -29,6 +38,8 @@ MainComponent::MainComponent()
 
     addAndMakeVisible(projectMDisplay);
     projectMDisplay.setVisible(false);
+            shaderToyDisplay.setVisible(false);
+            analyzerDisplay.setVisible(false);
     pluginHost.projectMDisplay = &projectMDisplay;
 
     if (auto* device = deviceManager.getCurrentAudioDevice())
@@ -343,9 +354,11 @@ MainComponent::MainComponent()
     addAndMakeVisible(visSelector);
     visSelector.addItem("Spectrum", 1);
     visSelector.addItem("Lissajous", 2);
-    visSelector.addItem("G-Force", 3);
+    visSelector.addItem("Terrain", 3);
     visSelector.addItem("Geiss", 4);
     visSelector.addItem("MilkDrop", 5);
+    visSelector.addItem("Shader", 6);
+    visSelector.addItem("Analyzer", 7);
     visSelector.setSelectedId(2, juce::dontSendNotification);  // Lissajous
     currentVisMode = 1;
     visSelector.onChange = [this] {
@@ -462,34 +475,17 @@ MainComponent::MainComponent()
     pmBgBtn.setClickingTogglesState(true);
     pmBgBtn.onClick = [this] { projectMDisplay.setBlackBg(pmBgBtn.getToggleState()); };
 
-    // ── G-Force control buttons ──
+    // ── Terrain/Shader control buttons (reuse G-Force button slots) ──
     addAndMakeVisible(gfRibbonUpBtn);
-    gfRibbonUpBtn.onClick = [this] {
-        if (midiLearnActive) { startMidiLearn(MidiTarget::GForceRibbons); return; }
-        gforceDisplay.moreRibbons();
-    };
+    gfRibbonUpBtn.setButtonText("Next");
+    gfRibbonUpBtn.onClick = [this] { shaderToyDisplay.nextPreset(); };
     addAndMakeVisible(gfRibbonDownBtn);
-    gfRibbonDownBtn.onClick = [this] {
-        if (midiLearnActive) { startMidiLearn(MidiTarget::GForceRibbons); return; }
-        gforceDisplay.fewerRibbons();
-    };
+    gfRibbonDownBtn.setButtonText("Prev");
+    gfRibbonDownBtn.onClick = [this] { shaderToyDisplay.prevPreset(); };
     addAndMakeVisible(gfTrailBtn);
-    gfTrailBtn.onClick = [this] {
-        if (midiLearnActive) { startMidiLearn(MidiTarget::GForceTrail); return; }
-        gforceDisplay.cycleTrail();
-    };
+    gfTrailBtn.setVisible(false);
     addAndMakeVisible(gfSpeedSelector);
-    gfSpeedSelector.addItem("0.25x", 1);
-    gfSpeedSelector.addItem("0.5x", 2);
-    gfSpeedSelector.addItem("1x", 3);
-    gfSpeedSelector.addItem("2x", 4);
-    gfSpeedSelector.addItem("4x", 5);
-    gfSpeedSelector.setSelectedId(3, juce::dontSendNotification);
-    gfSpeedSelector.onChange = [this] {
-        float speeds[] = { 0.25f, 0.5f, 1.0f, 2.0f, 4.0f };
-        int idx = gfSpeedSelector.getSelectedId() - 1;
-        if (idx >= 0 && idx < 5) gforceDisplay.setSpeed(speeds[idx]);
-    };
+    gfSpeedSelector.setVisible(false);
 
     // ── Spectrum control buttons ──
     addAndMakeVisible(specDecayBtn);
@@ -827,7 +823,7 @@ MainComponent::MainComponent()
 MainComponent::~MainComponent()
 {
     pluginHost.spectrumDisplay = nullptr;
-    pluginHost.gforceDisplay = nullptr;
+    pluginHost.waveTerrainDisplay = nullptr;
     pluginHost.geissDisplay = nullptr;
     pluginHost.projectMDisplay = nullptr;
     // Clear Lissajous pointer from all tracks
@@ -2310,9 +2306,11 @@ void MainComponent::showPhoneMenu()
     juce::PopupMenu visMenu;
     visMenu.addItem(100, "Spectrum", true, currentVisMode == 0);
     visMenu.addItem(101, "Lissajous", true, currentVisMode == 1);
-    visMenu.addItem(102, "G-Force", true, currentVisMode == 2);
+    visMenu.addItem(102, "Terrain", true, currentVisMode == 2);
     visMenu.addItem(103, "Geiss", true, currentVisMode == 3);
     visMenu.addItem(104, "MilkDrop", true, currentVisMode == 4);
+    visMenu.addItem(105, "Shader", true, currentVisMode == 5);
+    visMenu.addItem(106, "Analyzer", true, currentVisMode == 6);
     menu.addSubMenu("Visualizer", visMenu);
     menu.addItem(10, "Fullscreen Vis");
     menu.addSeparator();
@@ -2862,9 +2860,11 @@ void MainComponent::resized()
 
             spectrumDisplay.setVisible(false);
             lissajousDisplay.setVisible(false);
-            gforceDisplay.setVisible(false);
+            waveTerrainDisplay.setVisible(false);
             geissDisplay.setVisible(false);
             projectMDisplay.setVisible(false);
+            shaderToyDisplay.setVisible(false);
+            analyzerDisplay.setVisible(false);
             visSelector.setVisible(false);
             setVisControlsVisible();
             projectorButton.setVisible(false);
@@ -2880,9 +2880,11 @@ void MainComponent::resized()
 
             if (currentVisMode == 0) { spectrumDisplay.setBounds(visArea); spectrumDisplay.setAlpha(1.0f); spectrumDisplay.setVisible(true); }
             else if (currentVisMode == 1) { lissajousDisplay.setBounds(visArea); lissajousDisplay.setVisible(true); }
-            else if (currentVisMode == 2) { gforceDisplay.setBounds(visArea); gforceDisplay.setVisible(true); }
+            else if (currentVisMode == 2) { waveTerrainDisplay.setBounds(visArea); waveTerrainDisplay.setVisible(true); }
             else if (currentVisMode == 3) { geissDisplay.setBounds(visArea); geissDisplay.setVisible(true); }
             else if (currentVisMode == 4) { projectMDisplay.setBounds(visArea); projectMDisplay.setVisible(true); }
+            else if (currentVisMode == 5) { shaderToyDisplay.setBounds(visArea); shaderToyDisplay.setVisible(true); }
+            else if (currentVisMode == 6) { analyzerDisplay.setBounds(visArea); analyzerDisplay.setVisible(true); }
 
 #if JUCE_IOS
             visExitButton.toFront(false);
@@ -2969,15 +2971,19 @@ void MainComponent::resized()
 
             spectrumDisplay.setVisible(false);
             lissajousDisplay.setVisible(false);
-            gforceDisplay.setVisible(false);
+            waveTerrainDisplay.setVisible(false);
             geissDisplay.setVisible(false);
             projectMDisplay.setVisible(false);
+            shaderToyDisplay.setVisible(false);
+            analyzerDisplay.setVisible(false);
 
             if (currentVisMode == 0) { spectrumDisplay.setBounds(visArea); spectrumDisplay.setAlpha(1.0f); spectrumDisplay.setVisible(true); }
             else if (currentVisMode == 1) { lissajousDisplay.setBounds(visArea); lissajousDisplay.setVisible(true); }
-            else if (currentVisMode == 2) { gforceDisplay.setBounds(visArea); gforceDisplay.setVisible(true); }
+            else if (currentVisMode == 2) { waveTerrainDisplay.setBounds(visArea); waveTerrainDisplay.setVisible(true); }
             else if (currentVisMode == 3) { geissDisplay.setBounds(visArea); geissDisplay.setVisible(true); }
             else if (currentVisMode == 4) { projectMDisplay.setBounds(visArea); projectMDisplay.setVisible(true); }
+            else if (currentVisMode == 5) { shaderToyDisplay.setBounds(visArea); shaderToyDisplay.setVisible(true); }
+            else if (currentVisMode == 6) { analyzerDisplay.setBounds(visArea); analyzerDisplay.setVisible(true); }
         }
 
         // Hide everything else
@@ -3055,9 +3061,11 @@ void MainComponent::resized()
     if (timelineComponent) timelineComponent->setVisible(true);
     spectrumDisplay.setVisible(currentVisMode == 0);
     lissajousDisplay.setVisible(currentVisMode == 1);
-    gforceDisplay.setVisible(currentVisMode == 2);
+    waveTerrainDisplay.setVisible(currentVisMode == 2);
     geissDisplay.setVisible(currentVisMode == 3);
     projectMDisplay.setVisible(currentVisMode == 4);
+    shaderToyDisplay.setVisible(currentVisMode == 5);
+    analyzerDisplay.setVisible(currentVisMode == 6);
     visExitButton.setVisible(false);
     projectorButton.setVisible(false);  // merged with fullscreen
     visSelector.setVisible(true);
@@ -3091,9 +3099,11 @@ void MainComponent::resized()
         }
         spectrumDisplay.setVisible(false);
         lissajousDisplay.setVisible(false);
-        gforceDisplay.setVisible(false);
+        waveTerrainDisplay.setVisible(false);
         geissDisplay.setVisible(false);
         projectMDisplay.setVisible(false);
+            shaderToyDisplay.setVisible(false);
+            analyzerDisplay.setVisible(false);
         chordLabel.setVisible(false);
 
         // ── Right panel: volume knob on top (full width), then two columns ──
@@ -3304,8 +3314,8 @@ void MainComponent::resized()
     }
     else if (currentVisMode == 2)  // G-Force
     {
-        gforceDisplay.setBounds(visPanelArea);
-        gforceDisplay.setVisible(true);
+        waveTerrainDisplay.setBounds(visPanelArea);
+        waveTerrainDisplay.setVisible(true);
     }
     else if (currentVisMode == 3)  // Geiss
     {
@@ -3316,6 +3326,16 @@ void MainComponent::resized()
     {
         projectMDisplay.setBounds(visPanelArea);
         projectMDisplay.setVisible(true);
+    }
+    else if (currentVisMode == 5)  // ShaderToy
+    {
+        shaderToyDisplay.setBounds(visPanelArea);
+        shaderToyDisplay.setVisible(true);
+    }
+    else if (currentVisMode == 6)  // Analyzer
+    {
+        analyzerDisplay.setBounds(visPanelArea);
+        analyzerDisplay.setVisible(true);
     }
     rightPanel.removeFromTop(4);
 
@@ -3462,22 +3482,16 @@ void MainComponent::resized()
         spectrumDisplay.setAlpha(1.0f);
     }
 
-    // Volume knob (bigger) + Pan knob (smaller)
+    // Volume knob — full width, no pan knob
     {
         auto mixArea = rightPanel;
-        auto volArea = mixArea.removeFromLeft(mixArea.getWidth() * 3 / 5);
-        mixArea.removeFromLeft(2);
-        auto panArea = mixArea;
+        panSlider.setVisible(false);
+        panLabel.setVisible(false);
 
-        volumeLabel.setBounds(volArea.removeFromTop(14));
+        volumeLabel.setBounds(mixArea.removeFromTop(14));
         volumeSlider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
-        int volSz = juce::jmin(volArea.getWidth(), volArea.getHeight());
-        volumeSlider.setBounds(volArea.removeFromTop(volSz));
-
-        panLabel.setBounds(panArea.removeFromTop(14));
-        panSlider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
-        int panSz = juce::jmin(panArea.getWidth(), panArea.getHeight());
-        panSlider.setBounds(panArea.removeFromTop(panSz));
+        int volSz = juce::jmin(mixArea.getWidth(), mixArea.getHeight());
+        volumeSlider.setBounds(mixArea.withSizeKeepingCentre(volSz, volSz));
     }
 
     // ── Touch Piano (bottom of main area, when visible) ──
@@ -4059,14 +4073,9 @@ void MainComponent::applyMidiCC(const MidiMapping& mapping, int value)
             geissDisplay.setSpeed(0.25f + norm * 3.75f);
             break;
         case MidiTarget::GForceRibbons:
-            gforceDisplay.setRibbonCount(1 + static_cast<int>(norm * 7.0f));
-            break;
         case MidiTarget::GForceTrail:
-            gforceDisplay.setTrailIntensity(norm);
-            break;
         case MidiTarget::GForceSpeed:
-            gforceDisplay.setSpeed(0.25f + norm * 3.75f);
-            break;
+            break; // G-Force removed, these targets are unused
         case MidiTarget::SpecDecay:
             spectrumDisplay.setDecaySpeed(0.5f + norm * 0.49f);
             break;

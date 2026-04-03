@@ -9,7 +9,9 @@
 
 class SpectrumComponent;
 class LissajousComponent;
-class GForceComponent;
+class WaveTerrainComponent;
+class ShaderToyComponent;
+class AnalyzerComponent;
 class GeissComponent;
 class ProjectMComponent;
 
@@ -74,7 +76,9 @@ public:
 
     // Spectrum analyzer — set from UI, read from audio thread
     SpectrumComponent* spectrumDisplay = nullptr;
-    GForceComponent* gforceDisplay = nullptr;
+    WaveTerrainComponent* waveTerrainDisplay = nullptr;
+    ShaderToyComponent* shaderToyDisplay = nullptr;
+    AnalyzerComponent* analyzerDisplay = nullptr;
     GeissComponent* geissDisplay = nullptr;
     ProjectMComponent* projectMDisplay = nullptr;
 

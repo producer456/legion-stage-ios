@@ -76,7 +76,9 @@ target_sources(Sequencer PRIVATE
     src/BlueprintLookAndFeel.h
     src/SpectrumComponent.h
     src/LissajousComponent.h
-    src/GForceComponent.h
+    src/WaveTerrainComponent.h
+    src/ShaderToyComponent.h
+    src/AnalyzerComponent.h
     src/GeissComponent.h
     src/ProjectMComponent.h
     src/TouchPianoComponent.h

@@ -9,7 +9,9 @@
 #include "ThemeManager.h"
 #include "SpectrumComponent.h"
 #include "LissajousComponent.h"
-#include "GForceComponent.h"
+#include "WaveTerrainComponent.h"
+#include "ShaderToyComponent.h"
+#include "AnalyzerComponent.h"
 #include "GeissComponent.h"
 #include "ProjectMComponent.h"
 #include "TouchPianoComponent.h"
@@ -58,7 +60,9 @@ private:
     bool forceIPadLayout = false;
     SpectrumComponent spectrumDisplay;
     LissajousComponent lissajousDisplay;
-    GForceComponent gforceDisplay;
+    WaveTerrainComponent waveTerrainDisplay;
+    ShaderToyComponent shaderToyDisplay;
+    AnalyzerComponent analyzerDisplay;
     GeissComponent geissDisplay;
     ProjectMComponent projectMDisplay;
     juce::AudioDeviceManager deviceManager;
