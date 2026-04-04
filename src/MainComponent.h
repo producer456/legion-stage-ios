@@ -18,6 +18,7 @@
 #include "MixerComponent.h"
 #include "UpdateDialog.h"
 #include "ChordDetector.h"
+#include "ArrangerMinimapComponent.h"
 
 class PluginEditorWindow : public juce::DocumentWindow
 {
@@ -274,6 +275,9 @@ private:
     float recHighlightAlpha = 0.4f;
     bool recHighlightOn = false;
     int recFlashCounter = 0;
+
+    // ── Arranger Minimap ──
+    std::unique_ptr<ArrangerMinimapComponent> arrangerMinimap;
 
     // ── Right Panel — Mix + Info ──
     juce::Slider volumeSlider;

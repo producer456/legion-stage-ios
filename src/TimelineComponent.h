@@ -56,6 +56,12 @@ public:
     double snapToGrid(double beat) const;
     void quantizeSelectedClip();
 
+    // View state accessors for minimap
+    double getScrollX() const { return scrollX; }
+    double getPixelsPerBeat() const { return pixelsPerBeat; }
+    double getVisibleBeats() const { return (getWidth() - trackLabelWidth) / pixelsPerBeat; }
+    void setScrollX(double x) { scrollX = juce::jmax(0.0, x); suppressAutoFollow(); repaint(); }
+
     // Navigation
     void suppressAutoFollow() { userScrollActive = true; userScrollExpireTime = juce::Time::getMillisecondCounterHiRes() * 0.001 + 3.0; }
     void zoomIn() { pixelsPerBeat = juce::jmin(200.0, pixelsPerBeat * 1.3); suppressAutoFollow(); repaint(); }

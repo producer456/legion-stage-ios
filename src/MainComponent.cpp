@@ -879,6 +879,13 @@ MainComponent::MainComponent()
     timelineComponent->onBeforeEdit = [this] { takeSnapshot(); };
     addAndMakeVisible(*timelineComponent);
 
+    arrangerMinimap = std::make_unique<ArrangerMinimapComponent>(pluginHost);
+    arrangerMinimap->onScroll = [this](double newScrollX) {
+        if (timelineComponent)
+            timelineComponent->setScrollX(newScrollX);
+    };
+    addAndMakeVisible(*arrangerMinimap);
+
     setSize(1280, 800);
     setWantsKeyboardFocus(true);
 
@@ -1009,6 +1016,28 @@ void MainComponent::timerCallback()
             recFlashCounter = 0;
             repaint(recordButton.getBounds().expanded(6));
         }
+    }
+
+    // Update arranger minimap
+    if (arrangerMinimap && timelineComponent && timelineComponent->isVisible())
+    {
+        double totalBeats = 0.0;
+        for (int t = 0; t < PluginHost::NUM_TRACKS; ++t)
+        {
+            auto& track = pluginHost.getTrack(t);
+            if (track.clipPlayer)
+                for (int s = 0; s < ClipPlayerNode::NUM_SLOTS; ++s)
+                {
+                    auto& slot = track.clipPlayer->getSlot(s);
+                    if (slot.clip)
+                        totalBeats = juce::jmax(totalBeats, slot.clip->timelinePosition + slot.clip->lengthInBeats);
+                    if (slot.audioClip)
+                        totalBeats = juce::jmax(totalBeats, slot.audioClip->timelinePosition + slot.audioClip->lengthInBeats);
+                }
+        }
+        arrangerMinimap->setViewRange(timelineComponent->getScrollX(),
+                                       timelineComponent->getVisibleBeats(),
+                                       totalBeats);
     }
 
     // Feed peak level to volume slider for VU ring
@@ -3068,32 +3097,14 @@ void MainComponent::resized()
         topBar.removeFromRight(3);
         midiLearnButton.setBounds(topBar.removeFromRight(55));
         midiLearnButton.setVisible(true);
-        topBar.removeFromRight(4);
-        {
-            // OLED display — status + chord (beat merged into BPM label)
-            auto oledOuter = topBar.removeFromRight(120);
-            auto infoArea = oledOuter.reduced(3, 2);
-            int rowH = infoArea.getHeight() / 2;
-            statusLabel.setBounds(infoArea.removeFromTop(rowH));
-            statusLabel.setVisible(true);
-            beatLabel.setVisible(false);
-            chordLabel.setBounds(infoArea);
-            chordLabel.setVisible(true);
-        }
-        topBar.removeFromRight(4);
 
-        // Center: transport group
-        int transportW = 50+3+35+2+55+2+35+3+55+3+50+16+45+3+55;
-        int leftPad = juce::jmax(0, (topBar.getWidth() - transportW) / 2);
-        topBar.removeFromLeft(leftPad);
+        // Transport buttons from left
+        scrollLeftButton.setVisible(false);
+        scrollRightButton.setVisible(false);
 
         stopButton.setBounds(topBar.removeFromLeft(50));
         topBar.removeFromLeft(3);
-        scrollLeftButton.setBounds(topBar.removeFromLeft(35));
-        topBar.removeFromLeft(2);
         playButton.setBounds(topBar.removeFromLeft(55));
-        topBar.removeFromLeft(2);
-        scrollRightButton.setBounds(topBar.removeFromLeft(35));
         topBar.removeFromLeft(3);
         recordButton.setBounds(topBar.removeFromLeft(55));
         topBar.removeFromLeft(3);
@@ -3102,8 +3113,21 @@ void MainComponent::resized()
         metronomeButton.setBounds(topBar.removeFromLeft(45));
         topBar.removeFromLeft(3);
         panicButton.setBounds(topBar.removeFromLeft(55));
+        topBar.removeFromLeft(3);
 
-        // statusLabel moved to OLED panel in right panel
+        // OLED info display — centered in remaining space between panic and learn
+        {
+            int oledW = juce::jmin(120, topBar.getWidth());
+            int oledX = topBar.getX() + (topBar.getWidth() - oledW) / 2;
+            auto oledOuter = juce::Rectangle<int>(oledX, topBar.getY(), oledW, topBar.getHeight());
+            auto infoArea = oledOuter.reduced(3, 2);
+            int rowH = infoArea.getHeight() / 2;
+            statusLabel.setBounds(infoArea.removeFromTop(rowH));
+            statusLabel.setVisible(true);
+            beatLabel.setVisible(false);
+            chordLabel.setBounds(infoArea);
+            chordLabel.setVisible(true);
+        }
     }
 #else
     phoneMenuButton.setVisible(false);
@@ -3130,10 +3154,8 @@ void MainComponent::resized()
     topBar.removeFromLeft(3);
     mixerButton.setBounds(topBar.removeFromLeft(42));
     topBar.removeFromLeft(4);
-    scrollLeftButton.setBounds(topBar.removeFromLeft(40));
-    topBar.removeFromLeft(2);
-    scrollRightButton.setBounds(topBar.removeFromLeft(40));
-    topBar.removeFromLeft(3);
+    scrollLeftButton.setVisible(false);
+    scrollRightButton.setVisible(false);
     zoomOutButton.setBounds(topBar.removeFromLeft(50));
     topBar.removeFromLeft(2);
     zoomInButton.setBounds(topBar.removeFromLeft(50));
@@ -3369,6 +3391,7 @@ void MainComponent::resized()
         panSlider.setVisible(false);
         panLabel.setVisible(false);
         if (timelineComponent) timelineComponent->setVisible(false);
+        if (arrangerMinimap) arrangerMinimap->setVisible(false);
         return;
     }
 
@@ -3900,10 +3923,20 @@ void MainComponent::resized()
         mixerComponent->setVisible(false);
         if (timelineComponent)
         {
+            // Minimap at bottom
+            if (arrangerMinimap)
+            {
+                arrangerMinimap->setBounds(area.removeFromBottom(20));
+                arrangerMinimap->setVisible(true);
+            }
             timelineComponent->setVisible(true);
             timelineComponent->setBounds(area);
         }
     }
+
+    // Hide minimap when mixer is visible or timeline is hidden
+    if (mixerVisible && arrangerMinimap)
+        arrangerMinimap->setVisible(false);
 }
 
 // ── Keyboard ─────────────────────────────────────────────────────────────────

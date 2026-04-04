@@ -248,8 +248,8 @@ public:
     mutable juce::Image topBarCache;
     mutable int topBarCacheW = 0, topBarCacheH = 0;
 
-    static constexpr int OLED_W = 32;
-    static constexpr int OLED_H = 12;
+    static constexpr int OLED_W = 48;
+    static constexpr int OLED_H = 18;
 
     // Keystage: OLED screen buttons with pixelated animated icons
     void drawButtonBackground(juce::Graphics& g, juce::Button& button,

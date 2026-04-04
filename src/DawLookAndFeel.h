@@ -65,8 +65,8 @@ protected:
     }
 
     // ── OLED pixel animation constants & helpers ──
-    static constexpr int OLED_W = 32;
-    static constexpr int OLED_H = 12;
+    static constexpr int OLED_W = 48;
+    static constexpr int OLED_H = 18;
 
     static void oledPlot(juce::Image& img, int x, int y, juce::Colour col)
     {
@@ -120,23 +120,21 @@ protected:
         if (text == "PLAY")
         {
             // Triangle play icon
-            for (int row = -3; row <= 3; ++row)
+            for (int row = -5; row <= 5; ++row)
             {
-                int pw = 3 - std::abs(row);
+                int pw = 5 - std::abs(row);
                 for (int c = 0; c <= pw; ++c)
-                    oledPlot(oled, icx - 1 + c, icy + row, col);
+                    oledPlot(oled, icx - 2 + c, icy + row, col);
             }
             if (on)
             {
-                // Bouncing EQ bars behind
-                for (int i = 0; i < 4; ++i)
+                for (int i = 0; i < 5; ++i)
                 {
-                    int bx = 3 + i * 3;
-                    int bh = 2 + static_cast<int>((std::sin(t * 6.0f + i * 1.8f) + 1.0f) * 2.5f);
+                    int bx = 4 + i * 4;
+                    int bh = 3 + static_cast<int>((std::sin(t * 6.0f + i * 1.8f) + 1.0f) * 3.5f);
                     for (int by = OLED_H - 2; by >= OLED_H - 2 - bh && by >= 1; --by)
                         oledPlot(oled, bx, by, bright.withAlpha(0.35f));
                 }
-                // Scanline sweep
                 int sweep = static_cast<int>(t * 14.0f) % OLED_W;
                 for (int py = 2; py < OLED_H - 1; ++py)
                     oledPlot(oled, sweep, py, bright.withAlpha(0.15f));
@@ -144,34 +142,27 @@ protected:
         }
         else if (text == "STOP")
         {
-            // Square stop icon
-            for (int dy = -2; dy <= 2; ++dy)
-                for (int dx = -2; dx <= 2; ++dx)
+            for (int dy = -3; dy <= 3; ++dy)
+                for (int dx = -3; dx <= 3; ++dx)
                     oledPlot(oled, icx + dx, icy + dy, col);
         }
         else if (text == "MET")
         {
-            // Pendulum metronome
-            float swing = on ? std::sin(t * 4.0f) * 5.0f : 0.0f;
+            float swing = on ? std::sin(t * 4.0f) * 7.0f : 0.0f;
             int px = icx + static_cast<int>(swing);
-            oledLine(oled, icx, 2, px, OLED_H - 3, col);
-            // Bob at end
-            oledPlot(oled, px - 1, OLED_H - 3, col);
-            oledPlot(oled, px, OLED_H - 3, col);
-            oledPlot(oled, px + 1, OLED_H - 3, col);
-            // Pivot at top
-            oledPlot(oled, icx - 1, 2, col);
-            oledPlot(oled, icx, 2, col);
-            oledPlot(oled, icx + 1, 2, col);
+            oledLine(oled, icx, 2, px, OLED_H - 4, col);
+            for (int d = -2; d <= 2; ++d)
+                oledPlot(oled, px + d, OLED_H - 4, col);
+            for (int d = -1; d <= 1; ++d)
+                oledPlot(oled, icx + d, 2, col);
             if (on)
             {
-                // Tick trail dots
-                for (int i = 0; i < 3; ++i)
+                for (int i = 0; i < 4; ++i)
                 {
                     float pastT = t - i * 0.15f;
-                    float pastSwing = std::sin(pastT * 4.0f) * 5.0f;
+                    float pastSwing = std::sin(pastT * 4.0f) * 7.0f;
                     int dotX = icx + static_cast<int>(pastSwing);
-                    oledPlot(oled, dotX, OLED_H - 2, bright.withAlpha(0.2f - i * 0.06f));
+                    oledPlot(oled, dotX, OLED_H - 2, bright.withAlpha(0.2f - i * 0.05f));
                 }
             }
         }
@@ -179,29 +170,26 @@ protected:
         {
             if (on)
             {
-                // Rotating dots chasing around an elliptical path
-                for (int i = 0; i < 12; ++i)
+                for (int i = 0; i < 16; ++i)
                 {
-                    float a = t * 3.0f + i * 0.52f;
-                    float alpha = 0.3f + 0.7f * (static_cast<float>(i) / 12.0f);
-                    oledPlot(oled, icx + static_cast<int>(std::cos(a) * 5),
-                             icy + static_cast<int>(std::sin(a) * 3), bright.withAlpha(alpha));
+                    float a = t * 3.0f + i * 0.39f;
+                    float alpha = 0.3f + 0.7f * (static_cast<float>(i) / 16.0f);
+                    oledPlot(oled, icx + static_cast<int>(std::cos(a) * 8),
+                             icy + static_cast<int>(std::sin(a) * 5), bright.withAlpha(alpha));
                 }
-                // Arrow head at the lead dot
                 float ha = t * 3.0f;
-                int ax = icx + static_cast<int>(std::cos(ha) * 5);
-                int ay = icy + static_cast<int>(std::sin(ha) * 3);
+                int ax = icx + static_cast<int>(std::cos(ha) * 8);
+                int ay = icy + static_cast<int>(std::sin(ha) * 5);
                 oledPlot(oled, ax + 1, ay, bright);
                 oledPlot(oled, ax, ay + 1, bright);
             }
             else
             {
-                // Static infinity/figure-8
-                for (int i = 0; i < 20; ++i)
+                for (int i = 0; i < 30; ++i)
                 {
-                    float a = i * 0.314f;
-                    float ix = std::sin(a) * 5.0f;
-                    float iy = std::sin(a * 2.0f) * 3.0f;
+                    float a = i * 0.21f;
+                    float ix = std::sin(a) * 8.0f;
+                    float iy = std::sin(a * 2.0f) * 5.0f;
                     oledPlot(oled, icx + static_cast<int>(ix), icy + static_cast<int>(iy), dim);
                 }
             }
@@ -210,74 +198,73 @@ protected:
         {
             if (on)
             {
-                // Cycling countdown digits
                 int digit = 3 - (static_cast<int>(t * 4.0f) % 4);
                 if (digit <= 0) digit = 4;
-                // Draw digit as pixels (simple 3x5 font)
                 auto drawDigit = [&](int d, int ox, int oy, juce::Colour c)
                 {
-                    // Minimal pixel digits
                     const uint8_t digits[5][5] = {
-                        { 0b111, 0b101, 0b101, 0b101, 0b111 }, // 0
-                        { 0b010, 0b110, 0b010, 0b010, 0b111 }, // 1
-                        { 0b111, 0b001, 0b111, 0b100, 0b111 }, // 2
-                        { 0b111, 0b001, 0b111, 0b001, 0b111 }, // 3
-                        { 0b101, 0b101, 0b111, 0b001, 0b001 }, // 4
+                        { 0b111, 0b101, 0b101, 0b101, 0b111 },
+                        { 0b010, 0b110, 0b010, 0b010, 0b111 },
+                        { 0b111, 0b001, 0b111, 0b100, 0b111 },
+                        { 0b111, 0b001, 0b111, 0b001, 0b111 },
+                        { 0b101, 0b101, 0b111, 0b001, 0b001 },
                     };
                     if (d < 0 || d > 4) return;
                     for (int row = 0; row < 5; ++row)
                         for (int bit = 0; bit < 3; ++bit)
                             if (digits[d][row] & (1 << (2 - bit)))
-                                oledPlot(oled, ox + bit, oy + row, c);
+                            {
+                                oledPlot(oled, ox + bit * 2, oy + row * 2, c);
+                                oledPlot(oled, ox + bit * 2 + 1, oy + row * 2, c);
+                                oledPlot(oled, ox + bit * 2, oy + row * 2 + 1, c);
+                                oledPlot(oled, ox + bit * 2 + 1, oy + row * 2 + 1, c);
+                            }
                 };
-                drawDigit(digit, icx - 1, icy - 2, bright);
+                drawDigit(digit, icx - 3, icy - 5, bright);
             }
             else
             {
-                // Static "3 2 1"
-                oledPlot(oled, icx - 4, icy, dim);
+                oledPlot(oled, icx - 6, icy, dim);
                 oledPlot(oled, icx, icy, dim);
-                oledPlot(oled, icx + 4, icy, dim);
+                oledPlot(oled, icx + 6, icy, dim);
             }
         }
         else if (text == "LEARN")
         {
-            // Crosshair/target
-            oledCircle(oled, icx, icy, 4, col);
+            oledCircle(oled, icx, icy, 6, col);
             oledPlot(oled, icx, icy, col);
             if (on)
             {
-                // Radar sweep beam
                 float sweepA = t * 6.0f;
-                for (int r = 1; r <= 4; ++r)
+                for (int r = 1; r <= 6; ++r)
                     oledPlot(oled, icx + static_cast<int>(std::cos(sweepA) * r),
                              icy + static_cast<int>(std::sin(sweepA) * r), bright);
-                // Trailing beam
                 float trailA = sweepA - 0.5f;
-                for (int r = 1; r <= 3; ++r)
+                for (int r = 1; r <= 5; ++r)
                     oledPlot(oled, icx + static_cast<int>(std::cos(trailA) * r),
                              icy + static_cast<int>(std::sin(trailA) * r), bright.withAlpha(0.3f));
             }
         }
         else if (text == "MIX")
         {
-            // Fader bars
             for (int i = 0; i < 5; ++i)
             {
-                int fx = icx - 6 + i * 3;
-                int thumbY = icy + static_cast<int>(std::sin(i * 1.5f + (on ? t * 3.0f : 0)) * 2);
+                int fx = icx - 8 + i * 4;
+                int thumbY = icy + static_cast<int>(std::sin(i * 1.5f + (on ? t * 3.0f : 0)) * 3);
                 oledLine(oled, fx, 2, fx, OLED_H - 3, dim);
-                oledPlot(oled, fx - 1, thumbY, col);
-                oledPlot(oled, fx, thumbY, col);
-                oledPlot(oled, fx + 1, thumbY, col);
+                for (int d = -1; d <= 1; ++d)
+                {
+                    oledPlot(oled, fx + d, thumbY - 1, col);
+                    oledPlot(oled, fx + d, thumbY, col);
+                    oledPlot(oled, fx + d, thumbY + 1, col);
+                }
             }
             if (on)
             {
-                // Subtle VU glow at top of each fader
                 for (int i = 0; i < 5; ++i)
                 {
-                    int fx = icx - 6 + i * 3;
-                    int level = 2 + static_cast<int>((std::sin(t * 3.0f + i * 1.2f) + 1.0f) * 2);
+                    int fx = icx - 8 + i * 4;
+                    int level = 3 + static_cast<int>((std::sin(t * 3.0f + i * 1.2f) + 1.0f) * 3);
                     for (int ly = OLED_H - 3; ly >= OLED_H - 3 - level && ly >= 2; --ly)
                         oledPlot(oled, fx, ly, bright.withAlpha(0.2f));
                 }
@@ -285,29 +272,37 @@ protected:
         }
         else if (text == "KEYS")
         {
-            // Horizontal piano keys (viewed from above)
-            int keyTop = icy - 5;
-            for (int i = 0; i < 7; ++i)
+            int kx0 = icx - 10;
+            int kBot = icy + 6;
+            int kTop = icy - 6;
+            int bkBot = icy + 1;
+
+            for (int i = 0; i < 8; ++i)
             {
-                int ky = keyTop + i * 2;
-                for (int kx = icx - 5; kx <= icx + 5; ++kx)
-                    oledPlot(oled, kx, ky, col);
+                int x = kx0 + i * 3;
+                for (int y = kTop; y <= kBot; ++y)
+                {
+                    oledPlot(oled, x, y, col);
+                    oledPlot(oled, x + 1, y, col);
+                }
             }
-            // Black keys (shorter, from left side)
-            int bk[] = { 0, 1, 3, 4, 5 };
-            for (int b : bk)
+
+            int blackPos[] = { 1, 2, 4, 5, 6 };
+            for (int b : blackPos)
             {
-                int ky = keyTop + b * 2 + 1;
-                for (int kx = icx - 5; kx <= icx; ++kx)
-                    oledPlot(oled, kx, ky, juce::Colour(0xff000000));
+                int x = kx0 + b * 3 + 2;
+                for (int y = kTop; y <= bkBot; ++y)
+                    oledPlot(oled, x, y, dim.withAlpha(0.8f));
             }
+
             if (on)
             {
-                // Animated key press glow
-                int pressIdx = static_cast<int>(t * 5.0f) % 7;
-                int ky = keyTop + pressIdx * 2;
-                oledPlot(oled, icx + 5, ky, bright);
-                oledPlot(oled, icx + 4, ky, bright.withAlpha(0.5f));
+                int pressIdx = static_cast<int>(t * 4.0f) % 8;
+                int x = kx0 + pressIdx * 3;
+                oledPlot(oled, x, kBot, bright);
+                oledPlot(oled, x + 1, kBot, bright);
+                oledPlot(oled, x, kBot - 1, bright.withAlpha(0.6f));
+                oledPlot(oled, x + 1, kBot - 1, bright.withAlpha(0.6f));
             }
         }
         else if (text == "VIS")
@@ -316,16 +311,16 @@ protected:
             for (int i = 0; i < OLED_W - 4; ++i)
             {
                 float phase = on ? t * 5.0f : 0.0f;
-                float wave = std::sin(i * 0.5f + phase) * 3.0f;
+                float wave = std::sin(i * 0.35f + phase) * 5.0f;
                 int py = icy + static_cast<int>(wave);
                 oledPlot(oled, 2 + i, py, col);
+                oledPlot(oled, 2 + i, py + 1, col.withAlpha(0.5f));
             }
             if (on)
             {
-                // Second harmonic overlay
                 for (int i = 0; i < OLED_W - 4; i += 2)
                 {
-                    float wave2 = std::sin(i * 0.8f + t * 7.0f) * 2.0f;
+                    float wave2 = std::sin(i * 0.6f + t * 7.0f) * 3.0f;
                     int py = icy + static_cast<int>(wave2);
                     oledPlot(oled, 2 + i, py, bright.withAlpha(0.3f));
                 }
