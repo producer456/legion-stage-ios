@@ -46,6 +46,7 @@ public:
     ~MainComponent() override;
 
     void paint(juce::Graphics& g) override;
+    void paintOverChildren(juce::Graphics& g) override;
     void resized() override;
     void timerCallback() override;
     void mouseDown(const juce::MouseEvent& e) override;
@@ -260,6 +261,14 @@ private:
     bool paramHighlightFadingIn = false;
     void updateParamSliders();
     void highlightParamKnob(int index);
+
+    // ── Play / Record pulsing border highlights ──
+    float playHighlightAlpha = 0.4f;
+    bool playHighlightOn = false;
+    int playFlashCounter = 0;
+    float recHighlightAlpha = 0.4f;
+    bool recHighlightOn = false;
+    int recFlashCounter = 0;
 
     // ── Right Panel — Mix + Info ──
     juce::Slider volumeSlider;

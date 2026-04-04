@@ -42,6 +42,15 @@ MainComponent::MainComponent()
             analyzerDisplay.setVisible(false);
     pluginHost.projectMDisplay = &projectMDisplay;
 
+    // Tap on small visualizer to go fullscreen
+    spectrumDisplay.addMouseListener(this, false);
+    lissajousDisplay.addMouseListener(this, false);
+    waveTerrainDisplay.addMouseListener(this, false);
+    shaderToyDisplay.addMouseListener(this, false);
+    analyzerDisplay.addMouseListener(this, false);
+    geissDisplay.addMouseListener(this, false);
+    projectMDisplay.addMouseListener(this, false);
+
     if (auto* device = deviceManager.getCurrentAudioDevice())
     {
         pluginHost.setAudioParams(device->getCurrentSampleRate(),
@@ -960,6 +969,47 @@ void MainComponent::timerCallback()
             if (paramHighlightAlpha <= 0.3f) { paramHighlightAlpha = 0.3f; paramHighlightFadingIn = true; }
         }
         repaint(paramSliders[activeParamIndex]->getBounds().expanded(6));
+    }
+
+    // Animate play button green border — always visible, flashes when playing
+    {
+        auto& eng = pluginHost.getEngine();
+        if (eng.isPlaying())
+        {
+            if (++playFlashCounter >= 8) // ~500ms at 15Hz
+            {
+                playHighlightOn = !playHighlightOn;
+                playFlashCounter = 0;
+            }
+            playHighlightAlpha = playHighlightOn ? 1.0f : 0.15f;
+            repaint(playButton.getBounds().expanded(6));
+        }
+        else if (playHighlightAlpha != 0.4f)
+        {
+            playHighlightAlpha = 0.4f;
+            playHighlightOn = false;
+            playFlashCounter = 0;
+            repaint(playButton.getBounds().expanded(6));
+        }
+
+        // Animate record button red border — always visible, flashes when recording
+        if (eng.isRecording())
+        {
+            if (++recFlashCounter >= 8) // ~500ms at 15Hz
+            {
+                recHighlightOn = !recHighlightOn;
+                recFlashCounter = 0;
+            }
+            recHighlightAlpha = recHighlightOn ? 1.0f : 0.15f;
+            repaint(recordButton.getBounds().expanded(6));
+        }
+        else if (recHighlightAlpha != 0.4f)
+        {
+            recHighlightAlpha = 0.4f;
+            recHighlightOn = false;
+            recFlashCounter = 0;
+            repaint(recordButton.getBounds().expanded(6));
+        }
     }
 
     // Feed peak level to volume slider for VU ring
@@ -2405,6 +2455,23 @@ void MainComponent::mouseDown(const juce::MouseEvent& e)
 {
     grabKeyboardFocus();
 
+    // Tap on small visualizer to go fullscreen
+    if (!visualizerFullScreen)
+    {
+        auto* src = e.eventComponent;
+        if (src == &spectrumDisplay || src == &lissajousDisplay || src == &waveTerrainDisplay
+            || src == &shaderToyDisplay || src == &analyzerDisplay || src == &geissDisplay
+            || src == &projectMDisplay)
+        {
+            visualizerFullScreen = true;
+            projectorMode = true;
+            fullscreenButton.setToggleState(true, juce::dontSendNotification);
+            resized();
+            repaint();
+            return;
+        }
+    }
+
 #if JUCE_IOS
     bool isPhone = AUScanner::isIPhone() && !forceIPadLayout;
     if (isPhone)
@@ -2779,6 +2846,29 @@ void MainComponent::paint(juce::Graphics& g)
     }
 }
 
+void MainComponent::paintOverChildren(juce::Graphics& g)
+{
+    // Draw green border outside play button (pulses when playing)
+    if (playButton.isVisible())
+    {
+        auto btnBounds = playButton.getBounds().toFloat().expanded(3.0f);
+        g.setColour(juce::Colours::green.withAlpha(playHighlightAlpha * 0.8f));
+        g.drawRect(btnBounds, 2.0f);
+        g.setColour(juce::Colours::green.withAlpha(playHighlightAlpha * 0.25f));
+        g.drawRect(btnBounds.expanded(2.0f), 3.0f);
+    }
+
+    // Draw red border outside record button (pulses when recording)
+    if (recordButton.isVisible())
+    {
+        auto btnBounds = recordButton.getBounds().toFloat().expanded(3.0f);
+        g.setColour(juce::Colours::red.withAlpha(recHighlightAlpha * 0.8f));
+        g.drawRect(btnBounds, 2.0f);
+        g.setColour(juce::Colours::red.withAlpha(recHighlightAlpha * 0.25f));
+        g.drawRect(btnBounds.expanded(2.0f), 3.0f);
+    }
+}
+
 void MainComponent::resized()
 {
     auto area = getLocalBounds();
@@ -3076,10 +3166,54 @@ void MainComponent::resized()
     // ── Fullscreen Visualizer Mode ──
     if (visualizerFullScreen)
     {
+        // Hide all top bar controls
+        playButton.setVisible(false);
+        stopButton.setVisible(false);
+        recordButton.setVisible(false);
+        metronomeButton.setVisible(false);
+        loopButton.setVisible(false);
+        bpmDownButton.setVisible(false);
+        bpmLabel.setVisible(false);
+        bpmUpButton.setVisible(false);
+        tapTempoButton.setVisible(false);
+        beatLabel.setVisible(false);
+        statusLabel.setVisible(false);
+        chordLabel.setVisible(false);
+        trackNameLabel.setVisible(false);
+        midiLearnButton.setVisible(false);
+        mixerButton.setVisible(false);
+        pianoToggleButton.setVisible(false);
+        countInButton.setVisible(false);
+        settingsButton.setVisible(false);
+        scrollLeftButton.setVisible(false);
+        scrollRightButton.setVisible(false);
+        zoomInButton.setVisible(false);
+        zoomOutButton.setVisible(false);
+        panicButton.setVisible(false);
+        phoneMenuButton.setVisible(false);
+        clearAutoButton.setVisible(false);
+        presetSelector.setVisible(false);
+        presetPrevButton.setVisible(false);
+        presetNextButton.setVisible(false);
+        presetUpButton.setVisible(false);
+        presetDownButton.setVisible(false);
+        paramPageLeft.setVisible(false);
+        paramPageRight.setVisible(false);
+        paramPageLabel.setVisible(false);
+        paramPageNameLabel.setVisible(false);
+        trackInputSelector.setVisible(false);
+        trackInfoLabel.setVisible(false);
+        testNoteButton.setVisible(false);
+        fullscreenButton.setVisible(false);
+        pianoOctUpButton.setVisible(false);
+        pianoOctDownButton.setVisible(false);
+        touchPiano.setVisible(false);
+        if (mixerComponent) mixerComponent->setVisible(false);
+
         if (projectorMode)
         {
             // Projector mode — zero UI chrome, just the visualizer
-            auto visArea = area;
+            auto visArea = getLocalBounds();
 
             spectrumDisplay.setVisible(false);
             lissajousDisplay.setVisible(false);
@@ -3094,7 +3228,7 @@ void MainComponent::resized()
 
 #if JUCE_IOS
             // On iOS, always show EXIT button since there's no Escape key
-            visExitButton.setBounds(visArea.getRight() - 60, visArea.getY() + 5, 55, 35);
+            visExitButton.setBounds(visArea.getRight() - 60, visArea.getY() + 50, 55, 35);
             visExitButton.setVisible(true);
             visExitButton.toFront(false);
 #else
@@ -3116,7 +3250,8 @@ void MainComponent::resized()
         else
         {
             // Fullscreen with control bar
-            auto controlBar = area.removeFromTop(36).reduced(4, 2);
+            auto fsArea = getLocalBounds();
+            auto controlBar = fsArea.removeFromTop(36).reduced(4, 2);
             visExitButton.setBounds(controlBar.removeFromLeft(55));
             visExitButton.setVisible(true);
             controlBar.removeFromLeft(6);
@@ -3190,7 +3325,7 @@ void MainComponent::resized()
             }
             setVisControlsVisible();
 
-            auto visArea = area.reduced(2, 2);
+            auto visArea = fsArea.reduced(2, 2);
 
             spectrumDisplay.setVisible(false);
             lissajousDisplay.setVisible(false);
@@ -3207,6 +3342,16 @@ void MainComponent::resized()
             else if (currentVisMode == 4) { projectMDisplay.setBounds(visArea); projectMDisplay.setVisible(true); }
             else if (currentVisMode == 5) { shaderToyDisplay.setBounds(visArea); shaderToyDisplay.setVisible(true); }
             else if (currentVisMode == 6) { analyzerDisplay.setBounds(visArea); analyzerDisplay.setVisible(true); }
+
+            // Bring control bar widgets to front so they're not hidden behind the visualizer
+            visExitButton.toFront(false);
+            visSelector.toFront(false);
+            projectorButton.toFront(false);
+            if (currentVisMode == 0) { specDecayBtn.toFront(false); specSensDownBtn.toFront(false); specSensUpBtn.toFront(false); }
+            else if (currentVisMode == 1) { lissZoomOutBtn.toFront(false); lissZoomInBtn.toFront(false); lissDotsBtn.toFront(false); }
+            else if (currentVisMode == 2) { gfRibbonDownBtn.toFront(false); gfRibbonUpBtn.toFront(false); gfTrailBtn.toFront(false); gfSpeedSelector.toFront(false); }
+            else if (currentVisMode == 3) { geissWaveBtn.toFront(false); geissPaletteBtn.toFront(false); geissSceneBtn.toFront(false); geissWaveDownBtn.toFront(false); geissWaveUpBtn.toFront(false); geissWarpLockBtn.toFront(false); geissPalLockBtn.toFront(false); geissSpeedSelector.toFront(false); geissAutoPilotBtn.toFront(false); geissBgBtn.toFront(false); }
+            else if (currentVisMode == 4) { pmPrevBtn.toFront(false); pmNextBtn.toFront(false); pmRandBtn.toFront(false); pmLockBtn.toFront(false); pmBgBtn.toFront(false); }
         }
 
         // Hide everything else
@@ -3249,6 +3394,41 @@ void MainComponent::resized()
     // ── Restore visibility when not in vis mode (skip on iPhone) ──
     if (!isPhone)
     {
+    // Restore top bar controls
+    playButton.setVisible(true);
+    stopButton.setVisible(true);
+    recordButton.setVisible(true);
+    metronomeButton.setVisible(true);
+    loopButton.setVisible(true);
+    bpmDownButton.setVisible(true);
+    bpmLabel.setVisible(true);
+    bpmUpButton.setVisible(true);
+    tapTempoButton.setVisible(true);
+    statusLabel.setVisible(true);
+    chordLabel.setVisible(true);
+    midiLearnButton.setVisible(true);
+    mixerButton.setVisible(true);
+    pianoToggleButton.setVisible(true);
+    countInButton.setVisible(true);
+    scrollLeftButton.setVisible(true);
+    scrollRightButton.setVisible(true);
+    zoomInButton.setVisible(true);
+    zoomOutButton.setVisible(true);
+    panicButton.setVisible(true);
+    clearAutoButton.setVisible(true);
+    fullscreenButton.setVisible(true);
+    trackInputSelector.setVisible(true);
+    presetSelector.setVisible(true);
+    presetPrevButton.setVisible(true);
+    presetNextButton.setVisible(true);
+    presetUpButton.setVisible(true);
+    presetDownButton.setVisible(true);
+    paramPageLeft.setVisible(true);
+    paramPageRight.setVisible(true);
+    paramPageLabel.setVisible(true);
+    paramPageNameLabel.setVisible(true);
+    trackInfoLabel.setVisible(true);
+    testNoteButton.setVisible(true);
     newClipButton.setVisible(true);
     deleteClipButton.setVisible(true);
     duplicateClipButton.setVisible(true);
@@ -3701,7 +3881,7 @@ void MainComponent::resized()
         volumeLabel.setVisible(false);
         volumeSlider.setTextBoxStyle(juce::Slider::NoTextBox, true, 0, 0);
         volumeSlider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
-        int volSz = juce::jmin(mixArea.getWidth(), mixArea.getHeight(), 100);
+        int volSz = juce::jmin(mixArea.getWidth(), mixArea.getHeight(), 110);
         volumeSlider.setBounds(mixArea.withSizeKeepingCentre(volSz, volSz));
     }
 
