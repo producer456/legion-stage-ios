@@ -315,6 +315,9 @@ MainComponent::MainComponent()
     addAndMakeVisible(paramPageRight);
     addAndMakeVisible(paramPageLabel);
     paramPageLabel.setJustificationType(juce::Justification::centred);
+    addAndMakeVisible(paramPageNameLabel);
+    paramPageNameLabel.setJustificationType(juce::Justification::centredLeft);
+    paramPageNameLabel.setFont(juce::Font(13.0f));
     paramPageLeft.onClick = [this] {
         paramPageOffset = juce::jmax(0, paramPageOffset - NUM_PARAM_SLIDERS);
         updateParamSliders();
@@ -776,6 +779,10 @@ MainComponent::MainComponent()
 
             params[realIdx]->setValue(static_cast<float>(slider->getValue()));
 
+            // Show full param name and highlight this knob
+            paramPageNameLabel.setText(params[realIdx]->getName(50), juce::dontSendNotification);
+            highlightParamKnob(paramIdx);
+
             // Record automation if transport is playing + recording
             auto& eng = pluginHost.getEngine();
             if (eng.isPlaying() && eng.isRecording() && !eng.isInCountIn())
@@ -886,6 +893,22 @@ void MainComponent::timerCallback()
     // Update chord detector display
     auto chordName = chordDetector.getChordName();
     chordLabel.setText(chordName.isEmpty() ? "---" : chordName, juce::dontSendNotification);
+
+    // Animate active param knob glow ring
+    if (activeParamIndex >= 0 && activeParamIndex < NUM_PARAM_SLIDERS)
+    {
+        if (paramHighlightFadingIn)
+        {
+            paramHighlightAlpha += 0.06f;
+            if (paramHighlightAlpha >= 1.0f) { paramHighlightAlpha = 1.0f; paramHighlightFadingIn = false; }
+        }
+        else
+        {
+            paramHighlightAlpha -= 0.03f;
+            if (paramHighlightAlpha <= 0.3f) { paramHighlightAlpha = 0.3f; paramHighlightFadingIn = true; }
+        }
+        repaint(paramSliders[activeParamIndex]->getBounds().expanded(6));
+    }
 
     // Feed peak level to volume slider for VU ring
     {
@@ -1239,18 +1262,31 @@ void MainComponent::loadSelectedPlugin()
     {
         updateTrackDisplay();
 #if JUCE_IOS
-        juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::InfoIcon, "Plugin Loaded",
-            "OK: " + pluginDescriptions[idx].name + "\nID: " + pluginDescriptions[idx].fileOrIdentifier);
+        // Show plugin info in the beat OLED briefly
+        {
+            juce::String plugName = pluginDescriptions[idx].name;
+            beatLabel.setText("Loaded:", juce::dontSendNotification);
+            statusLabel.setText(plugName, juce::dontSendNotification);
+            chordLabel.setText("OK", juce::dontSendNotification);
+            // Restore normal display after 3 seconds
+            juce::Timer::callAfterDelay(3000, [this] {
+                // Beat label will auto-update from timerCallback
+                statusLabel.setText("", juce::dontSendNotification);
+                chordLabel.setText("---", juce::dontSendNotification);
+            });
+        }
         juce::Timer::callAfterDelay(500, [this] { updateParamSliders(); updateFxDisplay(); updatePresetList(); });
 #endif
     }
     else
     {
-#if JUCE_IOS
-        juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon, "Plugin Load Failed",
-            "Error: " + err + "\nID: " + pluginDescriptions[idx].fileOrIdentifier);
-#endif
-        statusLabel.setText("FAIL: " + err, juce::dontSendNotification);
+        beatLabel.setText("FAILED:", juce::dontSendNotification);
+        statusLabel.setText(err, juce::dontSendNotification);
+        chordLabel.setText("ERR", juce::dontSendNotification);
+        juce::Timer::callAfterDelay(3000, [this] {
+            statusLabel.setText("", juce::dontSendNotification);
+            chordLabel.setText("---", juce::dontSendNotification);
+        });
     }
 
     updateStatusLabel();
@@ -1705,6 +1741,19 @@ void MainComponent::updateStatusLabel()
 
 // ── Plugin Parameters ─────────────────────────────────────────────────────────
 
+void MainComponent::highlightParamKnob(int index)
+{
+    // Reset all knobs to default color
+    auto& c = themeManager.getColors();
+    for (int i = 0; i < NUM_PARAM_SLIDERS; ++i)
+        paramSliders[i]->setColour(juce::Slider::rotarySliderFillColourId, juce::Colour(c.amber));
+
+    activeParamIndex = index;
+    paramHighlightAlpha = 1.0f;
+    paramHighlightFadingIn = false;
+    repaint(); // trigger glow ring repaint
+}
+
 void MainComponent::updateParamSliders()
 {
     auto& track = pluginHost.getTrack(selectedTrackIndex);
@@ -1718,6 +1767,7 @@ void MainComponent::updateParamSliders()
             paramLabels[i]->setText("", juce::dontSendNotification);
         }
         paramPageLabel.setText("", juce::dontSendNotification);
+        paramPageNameLabel.setText("", juce::dontSendNotification);
         return;
     }
 
@@ -1733,6 +1783,10 @@ void MainComponent::updateParamSliders()
     int totalPages = juce::jmax(1, (total + NUM_PARAM_SLIDERS - 1) / NUM_PARAM_SLIDERS);
     int page = (paramPageOffset / NUM_PARAM_SLIDERS) + 1;
     paramPageLabel.setText(juce::String(page) + "/" + juce::String(totalPages), juce::dontSendNotification);
+
+    // Show plugin name in the page name label
+    juce::String plugName = track.plugin->getName();
+    paramPageNameLabel.setText(plugName, juce::dontSendNotification);
 
     // ── Page 1: smart selection (plugin-specific + macros + common names) ──
     if (paramPageOffset == 0)
@@ -1811,7 +1865,7 @@ void MainComponent::updateParamSliders()
                 auto* param = selectedParams[i];
                 paramSliders[i]->setEnabled(true);
                 paramSliders[i]->setValue(param->getValue(), juce::dontSendNotification);
-                paramLabels[i]->setText(param->getName(12), juce::dontSendNotification);
+                paramLabels[i]->setText(param->getName(30), juce::dontSendNotification);
                 paramSliders[i]->getProperties().set("paramIndex", allParams.indexOf(param));
             }
             else
@@ -1834,7 +1888,7 @@ void MainComponent::updateParamSliders()
             auto* param = allParams[paramIdx];
             paramSliders[i]->setEnabled(true);
             paramSliders[i]->setValue(param->getValue(), juce::dontSendNotification);
-            paramLabels[i]->setText(param->getName(12), juce::dontSendNotification);
+            paramLabels[i]->setText(param->getName(30), juce::dontSendNotification);
             paramSliders[i]->getProperties().set("paramIndex", paramIdx);
         }
         else
@@ -2619,6 +2673,25 @@ void MainComponent::paint(juce::Graphics& g)
                 g.drawVerticalLine(stripX + stripW - 1, 0, static_cast<float>(getHeight()));
             }
         }
+    }
+
+    // Draw pulsing glow ring around active param knob
+    if (activeParamIndex >= 0 && activeParamIndex < NUM_PARAM_SLIDERS
+        && paramSliders[activeParamIndex]->isVisible())
+    {
+        auto knobBounds = paramSliders[activeParamIndex]->getBounds().toFloat();
+        float cx = knobBounds.getCentreX();
+        float cy = knobBounds.getCentreY();
+        float r = juce::jmin(knobBounds.getWidth(), knobBounds.getHeight()) / 2.0f + 3.0f;
+
+        auto glowColor = juce::Colour(c.lcdText).withAlpha(paramHighlightAlpha * 0.8f);
+        g.setColour(glowColor);
+        g.drawEllipse(cx - r, cy - r, r * 2.0f, r * 2.0f, 2.0f);
+
+        // Outer soft glow
+        auto outerGlow = juce::Colour(c.lcdText).withAlpha(paramHighlightAlpha * 0.25f);
+        g.setColour(outerGlow);
+        g.drawEllipse(cx - r - 2, cy - r - 2, (r + 2) * 2.0f, (r + 2) * 2.0f, 3.0f);
     }
 }
 
@@ -3547,12 +3620,18 @@ void MainComponent::resized()
         }
     }
 
-    // Param page navigation buttons
+    // Param page navigation — full param name + page number on right
     {
-        auto pageRow = rightPanel.removeFromTop(22);
-        paramPageLeft.setBounds(pageRow.removeFromLeft(28));
-        paramPageRight.setBounds(pageRow.removeFromRight(28));
-        paramPageLabel.setBounds(pageRow);
+        auto pageRow = rightPanel.removeFromTop(30);
+        paramPageLeft.setBounds(pageRow.removeFromLeft(22));
+        pageRow.removeFromLeft(2);
+        paramPageRight.setBounds(pageRow.removeFromRight(22));
+        pageRow.removeFromRight(2);
+        // Page number on the right
+        paramPageLabel.setBounds(pageRow.removeFromRight(32));
+        paramPageLabel.setJustificationType(juce::Justification::centredRight);
+        // Param name on the left
+        paramPageNameLabel.setBounds(pageRow);
         rightPanel.removeFromTop(2);
     }
 

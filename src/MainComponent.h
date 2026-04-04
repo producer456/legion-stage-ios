@@ -251,7 +251,12 @@ private:
     juce::TextButton paramPageLeft { "<" };
     juce::TextButton paramPageRight { ">" };
     juce::Label paramPageLabel;
+    juce::Label paramPageNameLabel;
+    int activeParamIndex = -1;
+    float paramHighlightAlpha = 0.0f;
+    bool paramHighlightFadingIn = false;
     void updateParamSliders();
+    void highlightParamKnob(int index);
 
     // ── Right Panel — Mix + Info ──
     juce::Slider volumeSlider;
