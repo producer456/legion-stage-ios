@@ -21,9 +21,13 @@ struct FxSlot {
     bool bypassed = false;
 };
 
+enum class TrackType { MIDI, Audio };
+
 struct Track {
     int index = 0;
     juce::String name;
+    TrackType type = TrackType::MIDI;
+
     juce::AudioProcessorGraph::Node::Ptr pluginNode;
     juce::AudioProcessorGraph::Node::Ptr gainNode;
     juce::AudioProcessorGraph::Node::Ptr clipPlayerNode;
@@ -49,6 +53,7 @@ public:
 
     bool loadPlugin(int trackIndex, const juce::PluginDescription& desc, juce::String& errorMsg);
     void unloadPlugin(int trackIndex);
+    void setTrackType(int trackIndex, TrackType type);
 
     // FX inserts
     bool loadFx(int trackIndex, int slotIndex, const juce::PluginDescription& desc, juce::String& errorMsg);
@@ -91,6 +96,7 @@ private:
     std::array<Track, NUM_TRACKS> tracks;
 
     Node::Ptr midiInputNode;
+    Node::Ptr audioInputNode;
     Node::Ptr audioOutputNode;
 
     int selectedTrack = 0;

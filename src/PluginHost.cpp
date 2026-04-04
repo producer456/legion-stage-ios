@@ -34,11 +34,15 @@ PluginHost::~PluginHost()
 
 void PluginHost::setupGraph()
 {
-    setPlayConfigDetails(0, 2, storedSampleRate, storedBlockSize);
+    setPlayConfigDetails(2, 2, storedSampleRate, storedBlockSize); // 2 in (mic), 2 out
 
     midiInputNode = addNode(
         std::make_unique<AudioProcessorGraph::AudioGraphIOProcessor>(
             AudioProcessorGraph::AudioGraphIOProcessor::midiInputNode));
+
+    audioInputNode = addNode(
+        std::make_unique<AudioProcessorGraph::AudioGraphIOProcessor>(
+            AudioProcessorGraph::AudioGraphIOProcessor::audioInputNode));
 
     audioOutputNode = addNode(
         std::make_unique<AudioProcessorGraph::AudioGraphIOProcessor>(
@@ -266,6 +270,26 @@ void PluginHost::unloadPlugin(int trackIndex)
     track.plugin = nullptr;
 }
 
+void PluginHost::setTrackType(int trackIndex, TrackType type)
+{
+    if (trackIndex < 0 || trackIndex >= NUM_TRACKS) return;
+    auto& track = tracks[static_cast<size_t>(trackIndex)];
+
+    if (track.type == type) return;
+    track.type = type;
+
+    // Set audio mode on the clip player
+    if (track.clipPlayer)
+        track.clipPlayer->audioMode = (type == TrackType::Audio);
+
+    // If switching to audio, unload any instrument plugin
+    if (type == TrackType::Audio && track.pluginNode != nullptr)
+        unloadPlugin(trackIndex);
+
+    // Rewire the track for the new type
+    rewireTrack(trackIndex);
+}
+
 void PluginHost::rewireTrack(int trackIndex)
 {
     auto& track = tracks[static_cast<size_t>(trackIndex)];
@@ -297,8 +321,8 @@ void PluginHost::rewireTrack(int trackIndex)
     for (int ch = 0; ch < 2; ++ch)
         addConnection({ { track.gainNode->nodeID, ch }, { audioOutputNode->nodeID, ch } });
 
-    // Reconnect the instrument + FX chain if plugin is loaded
-    if (track.pluginNode != nullptr)
+    // Reconnect the audio chain
+    if (track.type == TrackType::Audio || track.pluginNode != nullptr)
         connectTrackAudio(trackIndex);
 
     updateMidiRouting();
@@ -307,14 +331,27 @@ void PluginHost::rewireTrack(int trackIndex)
 void PluginHost::connectTrackAudio(int trackIndex)
 {
     auto& track = tracks[static_cast<size_t>(trackIndex)];
-    if (track.pluginNode == nullptr) return;
 
-    // ClipPlayer MIDI -> Plugin MIDI
-    addConnection({ { track.clipPlayerNode->nodeID, AudioProcessorGraph::midiChannelIndex },
-                    { track.pluginNode->nodeID, AudioProcessorGraph::midiChannelIndex } });
+    juce::AudioProcessorGraph::NodeID lastNodeID;
 
-    // Build the audio chain: Plugin -> [FX1] -> [FX2] -> [FX3] -> Gain
-    auto lastNodeID = track.pluginNode->nodeID;
+    if (track.type == TrackType::Audio)
+    {
+        // Audio track: audio input → clip player → FX → gain
+        // Route audio input to clip player so it can record
+        for (int ch = 0; ch < 2; ++ch)
+            addConnection({ { audioInputNode->nodeID, ch },
+                            { track.clipPlayerNode->nodeID, ch } });
+        lastNodeID = track.clipPlayerNode->nodeID;
+    }
+    else
+    {
+        // MIDI track: clip player MIDI → plugin → FX → gain
+        if (track.pluginNode == nullptr) return;
+
+        addConnection({ { track.clipPlayerNode->nodeID, AudioProcessorGraph::midiChannelIndex },
+                        { track.pluginNode->nodeID, AudioProcessorGraph::midiChannelIndex } });
+        lastNodeID = track.pluginNode->nodeID;
+    }
 
     for (int fx = 0; fx < Track::NUM_FX_SLOTS; ++fx)
     {

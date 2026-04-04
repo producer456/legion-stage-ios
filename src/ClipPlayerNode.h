@@ -48,6 +48,9 @@ public:
     // Flag to send all-notes-off on next processBlock
     std::atomic<bool> sendAllNotesOff { false };
 
+    // Audio track mode — set by PluginHost when track type changes
+    bool audioMode = false;
+
 private:
     SequencerEngine& engine;
     std::array<ClipSlot, NUM_SLOTS> slots;
@@ -66,7 +69,9 @@ private:
     void killActiveNotes(juce::MidiBuffer& midi, int sampleOffset, bool hard = false);
 
     void processClipPlayback(int slotIndex, juce::MidiBuffer& midi, int numSamples);
+    void processAudioClipPlayback(int slotIndex, juce::AudioBuffer<float>& buffer, int numSamples);
     void processRecording(const juce::MidiBuffer& incomingMidi, int numSamples);
+    void processAudioRecording(const juce::AudioBuffer<float>& inputBuffer, int numSamples);
     void closeOpenNotes(MidiClip& clip);
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ClipPlayerNode)

@@ -134,6 +134,9 @@ private:
     // ── Mixer ──
     std::unique_ptr<MixerComponent> mixerComponent;
     juce::TextButton mixerButton { "MIX" };
+    juce::ComboBox trackInputSelector;
+    void updateTrackInputSelector();
+    void applyTrackInput(int id);
     bool mixerVisible = false;
 
     // ── Touch Piano ──

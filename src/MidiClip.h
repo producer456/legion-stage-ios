@@ -45,12 +45,27 @@ struct AutomationLane
     }
 };
 
+// Audio clip — stores recorded audio samples
+struct AudioClip
+{
+    juce::AudioBuffer<float> samples;   // stereo audio data at recording sample rate
+    double sampleRate = 44100.0;
+    double lengthInBeats = 4.0;
+    double timelinePosition = 0.0;
+};
+
 struct ClipSlot
 {
     enum State { Empty, Stopped, Playing, Recording, Armed };
 
     std::unique_ptr<MidiClip> clip;
+    std::unique_ptr<AudioClip> audioClip;
     std::atomic<State> state { Empty };
 
-    bool hasContent() const { return clip != nullptr && clip->events.getNumEvents() > 0; }
+    bool hasContent() const
+    {
+        if (clip != nullptr && clip->events.getNumEvents() > 0) return true;
+        if (audioClip != nullptr && audioClip->samples.getNumSamples() > 0) return true;
+        return false;
+    }
 };

@@ -652,6 +652,9 @@ MainComponent::MainComponent()
     mixerComponent->onTrackSelected = [this](int track) { selectTrack(track); };
     addChildComponent(*mixerComponent);  // hidden by default
 
+    addAndMakeVisible(trackInputSelector);
+    trackInputSelector.onChange = [this] { applyTrackInput(trackInputSelector.getSelectedId()); };
+
     addAndMakeVisible(mixerButton);
     mixerButton.setClickingTogglesState(true);
     mixerButton.onClick = [this] {
@@ -1027,6 +1030,9 @@ void MainComponent::selectTrack(int index)
     closePluginEditor();
     updateTrackDisplay();
     updateStatusLabel();
+
+    // Update track input selector
+    updateTrackInputSelector();
 
     // Show the currently loaded plugin in the selector, or reset to default
     auto& track = pluginHost.getTrack(selectedTrackIndex);
@@ -2502,14 +2508,27 @@ void MainComponent::paint(juce::Graphics& g)
         g.setColour(juce::Colour(c.body));
         g.fillRect(rpLeft, 0, 180, getHeight());
 
-        // Draw OLED info panel background
+        // Draw OLED info panel background — track input selector
+        if (trackInputSelector.isVisible())
+        {
+            auto oledBounds = trackInputSelector.getBounds().expanded(6, 6);
+            g.setColour(juce::Colour(c.lcdBg));
+            g.fillRoundedRectangle(oledBounds.toFloat(), 5.0f);
+            g.setColour(juce::Colour(0xffc8bda8).withAlpha(0.6f));
+            g.drawRoundedRectangle(oledBounds.toFloat(), 5.0f, 2.5f);
+        }
+
+        // Draw OLED background behind beat/status/chord in top bar with oak border
         if (beatLabel.isVisible())
         {
-            auto oledBounds = beatLabel.getBounds().getUnion(statusLabel.getBounds()).getUnion(chordLabel.getBounds()).expanded(4, 4);
+            auto beatOled = beatLabel.getBounds().getUnion(statusLabel.getBounds()).getUnion(chordLabel.getBounds());
+            // Oak border
+            auto oakBorder = beatOled.expanded(3, 2);
+            g.setColour(juce::Colour(0xffc8bda8));
+            g.fillRoundedRectangle(oakBorder.toFloat(), 4.0f);
+            // LCD background
             g.setColour(juce::Colour(c.lcdBg));
-            g.fillRoundedRectangle(oledBounds.toFloat(), 4.0f);
-            g.setColour(juce::Colour(c.border));
-            g.drawRoundedRectangle(oledBounds.toFloat(), 4.0f, 1.0f);
+            g.fillRoundedRectangle(beatOled.toFloat(), 3.0f);
         }
     }
 
@@ -2821,9 +2840,19 @@ void MainComponent::resized()
         midiLearnButton.setBounds(topBar.removeFromRight(55));
         midiLearnButton.setVisible(true);
         topBar.removeFromRight(4);
-        trackNameLabel.setBounds(topBar.removeFromRight(140));
-        trackNameLabel.setVisible(true);
-        topBar.removeFromRight(12);
+        {
+            // OLED display — wider to fit text, with oak border padding
+            auto oledOuter = topBar.removeFromRight(120);
+            auto infoArea = oledOuter.reduced(3, 2); // oak border inset
+            int rowH = infoArea.getHeight() / 3;
+            beatLabel.setBounds(infoArea.removeFromTop(rowH));
+            beatLabel.setVisible(true);
+            statusLabel.setBounds(infoArea.removeFromTop(rowH));
+            statusLabel.setVisible(true);
+            chordLabel.setBounds(infoArea);
+            chordLabel.setVisible(true);
+        }
+        topBar.removeFromRight(4);
 
         // Center: transport group
         int transportW = 50+3+35+2+55+2+35+3+55+3+50+16+45+3+55;
@@ -3326,14 +3355,9 @@ void MainComponent::resized()
     toolbar.removeFromRight(2);
     themeSelector.setBounds(toolbar.removeFromRight(82));
 
-    // OLED info panel — beat counter + status info + chord
-    auto oledArea = rightPanel.removeFromTop(80);
-    beatLabel.setVisible(true);
-    beatLabel.setBounds(oledArea.removeFromTop(18));
-    statusLabel.setVisible(true);
-    statusLabel.setBounds(oledArea.removeFromTop(14));
-    chordLabel.setVisible(true);
-    chordLabel.setBounds(oledArea);
+    // Track input selector
+    trackNameLabel.setVisible(false);
+    trackInputSelector.setBounds(rightPanel.removeFromTop(30));
     rightPanel.removeFromTop(4);
 
     // Visualizer display
@@ -3451,38 +3475,77 @@ void MainComponent::resized()
     setVisControlsVisible();
 
     {
-        auto pluginRow = rightPanel.removeFromTop(32);
-        openEditorButton.setBounds(pluginRow.removeFromRight(32));
-        openEditorButton.setButtonText("E");
-        pluginRow.removeFromRight(2);
-        pluginSelector.setBounds(pluginRow);
-    }
-    rightPanel.removeFromTop(2);
-    {
-        auto presetRow = rightPanel.removeFromTop(28);
-        presetPrevButton.setBounds(presetRow.removeFromLeft(24));
-        presetRow.removeFromLeft(2);
-        presetNextButton.setBounds(presetRow.removeFromRight(24));
-        presetRow.removeFromRight(2);
-        presetSelector.setBounds(presetRow);
-    }
-    rightPanel.removeFromTop(3);
-    auto midiRow = rightPanel.removeFromTop(34);
-    midiRefreshButton.setBounds(midiRow.removeFromRight(65));
-    midiRow.removeFromRight(4);
-    midiInputSelector.setBounds(midiRow);
-    rightPanel.removeFromTop(3);
+        auto& currentTrack = pluginHost.getTrack(selectedTrackIndex);
+        bool isAudioTrack = (currentTrack.type == TrackType::Audio);
 
-    // FX slots — right after MIDI
-    for (int i = 0; i < NUM_FX_SLOTS; ++i)
-    {
-        auto fxRow = rightPanel.removeFromTop(30);
-        fxEditorButtons[i]->setBounds(fxRow.removeFromRight(32));
-        fxRow.removeFromRight(2);
-        fxSelectors[i]->setBounds(fxRow);
-        rightPanel.removeFromTop(2);
+        if (isAudioTrack)
+        {
+            // Audio track: FX selector + preset + no MIDI/plugin selector
+            pluginSelector.setVisible(false);
+            openEditorButton.setVisible(false);
+            midiInputSelector.setVisible(false);
+            midiRefreshButton.setVisible(false);
+
+            // FX slots with preset browser for first FX
+            for (int i = 0; i < NUM_FX_SLOTS; ++i)
+            {
+                auto fxRow = rightPanel.removeFromTop(30);
+                fxEditorButtons[i]->setBounds(fxRow.removeFromRight(32));
+                fxRow.removeFromRight(2);
+                fxSelectors[i]->setBounds(fxRow);
+                rightPanel.removeFromTop(2);
+            }
+            rightPanel.removeFromTop(2);
+
+            // Preset browser for FX
+            {
+                auto presetRow = rightPanel.removeFromTop(28);
+                presetPrevButton.setBounds(presetRow.removeFromLeft(24));
+                presetRow.removeFromLeft(2);
+                presetNextButton.setBounds(presetRow.removeFromRight(24));
+                presetRow.removeFromRight(2);
+                presetSelector.setBounds(presetRow);
+            }
+            rightPanel.removeFromTop(3);
+        }
+        else
+        {
+            // MIDI track: plugin selector + preset + MIDI input + FX
+            pluginSelector.setVisible(true);
+            openEditorButton.setVisible(true);
+            midiInputSelector.setVisible(false);  // moved to OLED input selector
+            midiRefreshButton.setVisible(false);
+
+            {
+                auto pluginRow = rightPanel.removeFromTop(32);
+                openEditorButton.setBounds(pluginRow.removeFromRight(32));
+                openEditorButton.setButtonText("E");
+                pluginRow.removeFromRight(2);
+                pluginSelector.setBounds(pluginRow);
+            }
+            rightPanel.removeFromTop(2);
+            {
+                auto presetRow = rightPanel.removeFromTop(28);
+                presetPrevButton.setBounds(presetRow.removeFromLeft(24));
+                presetRow.removeFromLeft(2);
+                presetNextButton.setBounds(presetRow.removeFromRight(24));
+                presetRow.removeFromRight(2);
+                presetSelector.setBounds(presetRow);
+            }
+            rightPanel.removeFromTop(3);
+
+            // FX slots
+            for (int i = 0; i < NUM_FX_SLOTS; ++i)
+            {
+                auto fxRow = rightPanel.removeFromTop(30);
+                fxEditorButtons[i]->setBounds(fxRow.removeFromRight(32));
+                fxRow.removeFromRight(2);
+                fxSelectors[i]->setBounds(fxRow);
+                rightPanel.removeFromTop(2);
+            }
+            rightPanel.removeFromTop(2);
+        }
     }
-    rightPanel.removeFromTop(2);
 
     // Param page navigation buttons
     {
@@ -3543,7 +3606,7 @@ void MainComponent::resized()
         volumeLabel.setVisible(false);
         volumeSlider.setTextBoxStyle(juce::Slider::NoTextBox, true, 0, 0);
         volumeSlider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
-        int volSz = juce::jmin(mixArea.getWidth(), mixArea.getHeight());
+        int volSz = juce::jmin(mixArea.getWidth(), mixArea.getHeight(), 80);
         volumeSlider.setBounds(mixArea.withSizeKeepingCentre(volSz, volSz));
     }
 
@@ -3865,6 +3928,42 @@ void MainComponent::updateFxDisplay()
             selector->setSelectedId(1, juce::dontSendNotification);
         }
     }
+}
+
+void MainComponent::updateTrackInputSelector()
+{
+    trackInputSelector.clear(juce::dontSendNotification);
+
+    // Audio option
+    trackInputSelector.addItem("Audio: Mic", 1);
+
+    // MIDI options
+    auto devices = juce::MidiInput::getAvailableDevices();
+    for (int i = 0; i < devices.size(); ++i)
+        trackInputSelector.addItem("MIDI: " + devices[i].name, 100 + i);
+
+    if (devices.isEmpty())
+        trackInputSelector.addItem("MIDI (no device)", 99);
+
+    // Select current
+    auto& track = pluginHost.getTrack(selectedTrackIndex);
+    if (track.type == TrackType::Audio)
+        trackInputSelector.setSelectedId(1, juce::dontSendNotification);
+    else if (devices.size() > 0)
+        trackInputSelector.setSelectedId(100, juce::dontSendNotification);
+    else
+        trackInputSelector.setSelectedId(99, juce::dontSendNotification);
+}
+
+void MainComponent::applyTrackInput(int id)
+{
+    if (id == 1)
+        pluginHost.setTrackType(selectedTrackIndex, TrackType::Audio);
+    else if (id >= 100)
+        pluginHost.setTrackType(selectedTrackIndex, TrackType::MIDI);
+
+    resized();
+    repaint();
 }
 
 void MainComponent::updatePresetList()

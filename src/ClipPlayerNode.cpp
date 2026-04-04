@@ -59,25 +59,50 @@ void ClipPlayerNode::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBu
         if (targetSlot >= 0)
         {
             auto& slot = slots[static_cast<size_t>(targetSlot)];
-            if (slot.clip == nullptr)
-                slot.clip = std::make_unique<MidiClip>();
             double beatsPerSample = (engine.getBpm() / 60.0) / currentSampleRate;
             double blockStartPos = engine.getPositionInBeats() - (beatsPerSample * numSamples);
 
-            // When looping, anchor to loop start so the full loop region is covered.
-            // Notes played after the loop wraps back will land at their correct position
-            // rather than being clamped to the clip start.
-            if (engine.isLoopEnabled() && engine.hasLoopRegion())
+            if (audioMode)
             {
-                double ls = engine.getLoopStart();
-                slot.clip->timelinePosition = ls;
-                slot.clip->lengthInBeats = engine.getLoopEnd() - ls;
-                recordStartBeat = ls;
+                // Audio recording — create AudioClip
+                slot.audioClip = std::make_unique<AudioClip>();
+                slot.audioClip->sampleRate = currentSampleRate;
+                if (engine.isLoopEnabled() && engine.hasLoopRegion())
+                {
+                    double ls = engine.getLoopStart();
+                    slot.audioClip->timelinePosition = ls;
+                    slot.audioClip->lengthInBeats = engine.getLoopEnd() - ls;
+                    recordStartBeat = ls;
+                    // Pre-allocate buffer for the loop length
+                    int loopSamples = static_cast<int>((slot.audioClip->lengthInBeats / (engine.getBpm() / 60.0)) * currentSampleRate);
+                    slot.audioClip->samples.setSize(2, loopSamples, false, true);
+                }
+                else
+                {
+                    slot.audioClip->timelinePosition = blockStartPos;
+                    recordStartBeat = blockStartPos;
+                    // Start with 10 seconds buffer, will grow if needed
+                    slot.audioClip->samples.setSize(2, static_cast<int>(currentSampleRate * 10), false, true);
+                }
             }
             else
             {
-                slot.clip->timelinePosition = blockStartPos;
-                recordStartBeat = blockStartPos;
+                // MIDI recording
+                if (slot.clip == nullptr)
+                    slot.clip = std::make_unique<MidiClip>();
+
+                if (engine.isLoopEnabled() && engine.hasLoopRegion())
+                {
+                    double ls = engine.getLoopStart();
+                    slot.clip->timelinePosition = ls;
+                    slot.clip->lengthInBeats = engine.getLoopEnd() - ls;
+                    recordStartBeat = ls;
+                }
+                else
+                {
+                    slot.clip->timelinePosition = blockStartPos;
+                    recordStartBeat = blockStartPos;
+                }
             }
 
             slot.state.store(ClipSlot::Recording);
@@ -85,10 +110,13 @@ void ClipPlayerNode::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBu
         }
     }
 
-    // Handle recording — capture incoming MIDI before we add clip playback
+    // Handle recording
     if (recordingSlot >= 0 && engine.isPlaying())
     {
-        processRecording(midi, numSamples);
+        if (audioMode)
+            processAudioRecording(buffer, numSamples);
+        else
+            processRecording(midi, numSamples);
     }
 
     // Handle playback for all playing clips (skip during count-in)
@@ -104,13 +132,15 @@ void ClipPlayerNode::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBu
             wasInsideClip.fill(false);
         }
 
-        // Always run clip playback — note-offs were added first in the buffer
-        // so synths process them before any new note-ons
+        // Run clip playback for all playing slots
         for (int i = 0; i < NUM_SLOTS; ++i)
         {
             if (slots[static_cast<size_t>(i)].state.load() == ClipSlot::Playing)
             {
-                processClipPlayback(i, midi, numSamples);
+                if (audioMode && slots[static_cast<size_t>(i)].audioClip != nullptr)
+                    processAudioClipPlayback(i, buffer, numSamples);
+                else
+                    processClipPlayback(i, midi, numSamples);
             }
         }
 
@@ -394,6 +424,93 @@ void ClipPlayerNode::killActiveNotes(juce::MidiBuffer& midi, int sampleOffset, b
         {
             midi.addEvent(juce::MidiMessage::allNotesOff(ch), sampleOffset);
             midi.addEvent(juce::MidiMessage::allSoundOff(ch), sampleOffset);
+        }
+    }
+}
+
+// ── Audio clip recording ──
+void ClipPlayerNode::processAudioRecording(const juce::AudioBuffer<float>& inputBuffer, int numSamples)
+{
+    if (recordingSlot < 0 || recordingSlot >= NUM_SLOTS) return;
+    auto& slot = slots[static_cast<size_t>(recordingSlot)];
+    if (slot.audioClip == nullptr) { recordingSlot = -1; return; }
+
+    auto& clip = *slot.audioClip;
+    double bpm = engine.getBpm();
+    double beatsPerSample = (bpm / 60.0) / currentSampleRate;
+    double beatsThisBlock = beatsPerSample * numSamples;
+    double pos = engine.getPositionInBeats() - beatsThisBlock;
+
+    double beatOffset = pos - recordStartBeat;
+    if (beatOffset < 0.0) beatOffset = 0.0;
+
+    int sampleOffset = static_cast<int>(beatOffset / beatsPerSample);
+
+    // Check if we need to grow the buffer
+    int needed = sampleOffset + numSamples;
+    if (needed > clip.samples.getNumSamples())
+    {
+        // In loop mode, don't grow beyond the loop
+        bool loopMode = engine.isLoopEnabled() && engine.hasLoopRegion();
+        if (loopMode) return; // beyond loop — skip
+
+        int newSize = juce::jmax(needed + static_cast<int>(currentSampleRate), clip.samples.getNumSamples() * 2);
+        clip.samples.setSize(2, newSize, true);
+    }
+
+    // Copy input audio into the clip buffer
+    int numCh = juce::jmin(inputBuffer.getNumChannels(), clip.samples.getNumChannels());
+    for (int ch = 0; ch < numCh; ++ch)
+    {
+        int copyLen = juce::jmin(numSamples, clip.samples.getNumSamples() - sampleOffset);
+        if (copyLen > 0)
+            clip.samples.copyFrom(ch, sampleOffset, inputBuffer, ch, 0, copyLen);
+    }
+
+    // Update clip length
+    double endBeat = beatOffset + beatsThisBlock;
+    if (endBeat > clip.lengthInBeats)
+    {
+        bool loopMode = engine.isLoopEnabled() && engine.hasLoopRegion();
+        if (!loopMode)
+            clip.lengthInBeats = std::ceil(endBeat / 4.0) * 4.0;
+    }
+}
+
+// ── Audio clip playback ──
+void ClipPlayerNode::processAudioClipPlayback(int slotIndex, juce::AudioBuffer<float>& buffer, int numSamples)
+{
+    auto& slot = slots[static_cast<size_t>(slotIndex)];
+    if (slot.audioClip == nullptr) return;
+
+    auto& clip = *slot.audioClip;
+    double bpm = engine.getBpm();
+    double beatsPerSample = (bpm / 60.0) / currentSampleRate;
+    double beatsThisBlock = beatsPerSample * numSamples;
+    double blockStart = engine.getPositionInBeats() - beatsThisBlock;
+    if (blockStart < 0.0) blockStart = 0.0;
+
+    double clipStart = clip.timelinePosition;
+    double clipEnd = clipStart + clip.lengthInBeats;
+    if (clip.lengthInBeats <= 0.0) return;
+
+    double blockEnd = blockStart + beatsThisBlock;
+    bool isInside = (blockEnd > clipStart && blockStart < clipEnd);
+    if (!isInside) return;
+
+    // Calculate sample range in the clip buffer
+    double relStart = juce::jmax(0.0, blockStart - clipStart);
+    int clipSampleStart = static_cast<int>(relStart / beatsPerSample);
+    int clipTotalSamples = clip.samples.getNumSamples();
+
+    int numCh = juce::jmin(buffer.getNumChannels(), clip.samples.getNumChannels());
+    for (int s = 0; s < numSamples; ++s)
+    {
+        int clipSample = clipSampleStart + s;
+        if (clipSample >= 0 && clipSample < clipTotalSamples)
+        {
+            for (int ch = 0; ch < numCh; ++ch)
+                buffer.addSample(ch, s, clip.samples.getSample(ch, clipSample));
         }
     }
 }
