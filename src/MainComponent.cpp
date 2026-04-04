@@ -304,6 +304,49 @@ MainComponent::MainComponent()
         if (cur < track.plugin->getNumPrograms() - 1) loadPreset(cur + 1);
     };
 
+    addAndMakeVisible(presetUpButton);
+    presetUpButton.setComponentID("pill");
+    presetUpButton.onClick = [this] {
+        auto& track = pluginHost.getTrack(selectedTrackIndex);
+        if (track.plugin == nullptr) return;
+        int cur = track.plugin->getCurrentProgram();
+        if (cur < track.plugin->getNumPrograms() - 1)
+        {
+            loadPreset(cur + 1);
+            juce::String name = track.plugin->getProgramName(cur + 1);
+            int num = cur + 2;
+            int total = track.plugin->getNumPrograms();
+            beatLabel.setText(juce::String(num) + "/" + juce::String(total), juce::dontSendNotification);
+            statusLabel.setText(name, juce::dontSendNotification);
+            chordLabel.setText("Preset", juce::dontSendNotification);
+            juce::Timer::callAfterDelay(2000, [this] {
+                statusLabel.setText("", juce::dontSendNotification);
+                chordLabel.setText("---", juce::dontSendNotification);
+            });
+        }
+    };
+    addAndMakeVisible(presetDownButton);
+    presetDownButton.setComponentID("pill");
+    presetDownButton.onClick = [this] {
+        auto& track = pluginHost.getTrack(selectedTrackIndex);
+        if (track.plugin == nullptr) return;
+        int cur = track.plugin->getCurrentProgram();
+        if (cur > 0)
+        {
+            loadPreset(cur - 1);
+            juce::String name = track.plugin->getProgramName(cur - 1);
+            int num = cur;
+            int total = track.plugin->getNumPrograms();
+            beatLabel.setText(juce::String(num) + "/" + juce::String(total), juce::dontSendNotification);
+            statusLabel.setText(name, juce::dontSendNotification);
+            chordLabel.setText("Preset", juce::dontSendNotification);
+            juce::Timer::callAfterDelay(2000, [this] {
+                statusLabel.setText("", juce::dontSendNotification);
+                chordLabel.setText("---", juce::dontSendNotification);
+            });
+        }
+    };
+
     addAndMakeVisible(midiInputSelector);
     midiInputSelector.onChange = [this] { selectMidiDevice(); };
 
@@ -2918,10 +2961,10 @@ void MainComponent::resized()
             auto oledOuter = topBar.removeFromRight(120);
             auto infoArea = oledOuter.reduced(3, 2); // oak border inset
             int rowH = infoArea.getHeight() / 3;
-            beatLabel.setBounds(infoArea.removeFromTop(rowH));
-            beatLabel.setVisible(true);
             statusLabel.setBounds(infoArea.removeFromTop(rowH));
             statusLabel.setVisible(true);
+            beatLabel.setBounds(infoArea.removeFromTop(rowH));
+            beatLabel.setVisible(true);
             chordLabel.setBounds(infoArea);
             chordLabel.setVisible(true);
         }
@@ -3330,7 +3373,7 @@ void MainComponent::resized()
         // Touch piano
         if (touchPianoVisible)
         {
-            auto pianoArea = area.removeFromBottom(80);
+            auto pianoArea = area.removeFromBottom(140);
             touchPiano.setBounds(pianoArea);
         }
 
@@ -3473,78 +3516,7 @@ void MainComponent::resized()
     }
     rightPanel.removeFromTop(4);
 
-    // Visualizer controls below the vis panel
-    if (currentVisMode == 0) // Spectrum
-    {
-        auto row = rightPanel.removeFromTop(28);
-        specDecayBtn.setBounds(row.removeFromLeft(50));
-        row.removeFromLeft(3);
-        specSensDownBtn.setBounds(row.removeFromLeft(28));
-        row.removeFromLeft(2);
-        specSensUpBtn.setBounds(row.removeFromLeft(28));
-        rightPanel.removeFromTop(4);
-    }
-    else if (currentVisMode == 1) // Lissajous
-    {
-        auto row = rightPanel.removeFromTop(28);
-        lissZoomOutBtn.setBounds(row.removeFromLeft(28));
-        row.removeFromLeft(2);
-        lissZoomInBtn.setBounds(row.removeFromLeft(28));
-        row.removeFromLeft(3);
-        lissDotsBtn.setBounds(row.removeFromLeft(50));
-        rightPanel.removeFromTop(4);
-    }
-    else if (currentVisMode == 2) // G-Force
-    {
-        auto row = rightPanel.removeFromTop(28);
-        gfRibbonDownBtn.setBounds(row.removeFromLeft(28));
-        row.removeFromLeft(2);
-        gfRibbonUpBtn.setBounds(row.removeFromLeft(28));
-        row.removeFromLeft(3);
-        gfTrailBtn.setBounds(row.removeFromLeft(50));
-        row.removeFromLeft(3);
-        gfSpeedSelector.setBounds(row.removeFromLeft(55));
-        rightPanel.removeFromTop(4);
-    }
-    else if (currentVisMode == 3) // Geiss
-    {
-        auto geissRow1 = rightPanel.removeFromTop(28);
-        geissWaveBtn.setBounds(geissRow1.removeFromLeft(50));
-        geissRow1.removeFromLeft(3);
-        geissPaletteBtn.setBounds(geissRow1.removeFromLeft(50));
-        geissRow1.removeFromLeft(3);
-        geissSceneBtn.setBounds(geissRow1.removeFromLeft(55));
-        geissRow1.removeFromLeft(3);
-        geissWaveDownBtn.setBounds(geissRow1.removeFromLeft(28));
-        geissRow1.removeFromLeft(2);
-        geissWaveUpBtn.setBounds(geissRow1.removeFromLeft(28));
-        rightPanel.removeFromTop(3);
-        auto geissRow2 = rightPanel.removeFromTop(28);
-        geissWarpLockBtn.setBounds(geissRow2.removeFromLeft(50));
-        geissRow2.removeFromLeft(3);
-        geissPalLockBtn.setBounds(geissRow2.removeFromLeft(50));
-        geissRow2.removeFromLeft(3);
-        geissSpeedSelector.setBounds(geissRow2.removeFromLeft(60));
-        geissRow2.removeFromLeft(3);
-        geissAutoPilotBtn.setBounds(geissRow2.removeFromLeft(50));
-        geissRow2.removeFromLeft(3);
-        geissBgBtn.setBounds(geissRow2.removeFromLeft(28));
-        rightPanel.removeFromTop(4);
-    }
-    else if (currentVisMode == 4) // MilkDrop
-    {
-        auto pmRow = rightPanel.removeFromTop(28);
-        pmPrevBtn.setBounds(pmRow.removeFromLeft(45));
-        pmRow.removeFromLeft(3);
-        pmNextBtn.setBounds(pmRow.removeFromLeft(45));
-        pmRow.removeFromLeft(3);
-        pmRandBtn.setBounds(pmRow.removeFromLeft(45));
-        pmRow.removeFromLeft(3);
-        pmLockBtn.setBounds(pmRow.removeFromLeft(45));
-        pmRow.removeFromLeft(3);
-        pmBgBtn.setBounds(pmRow.removeFromLeft(28));
-        rightPanel.removeFromTop(4);
-    }
+    // Vis controls only show in fullscreen mode — hide them in right panel
     setVisControlsVisible();
 
     {
@@ -3570,15 +3542,7 @@ void MainComponent::resized()
             }
             rightPanel.removeFromTop(2);
 
-            // Preset browser for FX
-            {
-                auto presetRow = rightPanel.removeFromTop(28);
-                presetPrevButton.setBounds(presetRow.removeFromLeft(24));
-                presetRow.removeFromLeft(2);
-                presetNextButton.setBounds(presetRow.removeFromRight(24));
-                presetRow.removeFromRight(2);
-                presetSelector.setBounds(presetRow);
-            }
+            // Preset row moved below param knobs
             rightPanel.removeFromTop(3);
         }
         else
@@ -3597,14 +3561,7 @@ void MainComponent::resized()
                 pluginSelector.setBounds(pluginRow);
             }
             rightPanel.removeFromTop(2);
-            {
-                auto presetRow = rightPanel.removeFromTop(28);
-                presetPrevButton.setBounds(presetRow.removeFromLeft(24));
-                presetRow.removeFromLeft(2);
-                presetNextButton.setBounds(presetRow.removeFromRight(24));
-                presetRow.removeFromRight(2);
-                presetSelector.setBounds(presetRow);
-            }
+            // Preset row moved below param knobs
             rightPanel.removeFromTop(3);
 
             // FX slots
@@ -3677,6 +3634,22 @@ void MainComponent::resized()
         spectrumDisplay.setAlpha(1.0f);
     }
 
+    // Preset dropdown + big up/down buttons
+    presetPrevButton.setVisible(false);
+    presetNextButton.setVisible(false);
+    presetSelector.setBounds(rightPanel.removeFromTop(28));
+    rightPanel.removeFromTop(12);
+    {
+        auto btnArea = rightPanel.removeFromTop(44);
+        int btnH = btnArea.getHeight();
+        int btnW = (btnArea.getWidth() - 8) / 2; // two wide pills with gap
+        int gap = 8;
+        int leftPad = (btnArea.getWidth() - btnW * 2 - gap) / 2;
+        presetDownButton.setBounds(btnArea.getX() + leftPad, btnArea.getY(), btnW, btnH);
+        presetUpButton.setBounds(btnArea.getX() + leftPad + btnW + gap, btnArea.getY(), btnW, btnH);
+    }
+    rightPanel.removeFromTop(4);
+
     // Volume knob — full remaining space, no label or text
     {
         auto mixArea = rightPanel;
@@ -3685,7 +3658,7 @@ void MainComponent::resized()
         volumeLabel.setVisible(false);
         volumeSlider.setTextBoxStyle(juce::Slider::NoTextBox, true, 0, 0);
         volumeSlider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
-        int volSz = juce::jmin(mixArea.getWidth(), mixArea.getHeight(), 80);
+        int volSz = juce::jmin(mixArea.getWidth(), mixArea.getHeight(), 100);
         volumeSlider.setBounds(mixArea.withSizeKeepingCentre(volSz, volSz));
     }
 
@@ -3701,7 +3674,7 @@ void MainComponent::resized()
         pianoOctDownButton.setVisible(true);
         pianoOctUpButton.setVisible(true);
 
-        auto pianoArea = area.removeFromBottom(100);
+        auto pianoArea = area.removeFromBottom(160);
         touchPiano.setBounds(pianoArea);
     }
     else
@@ -3895,10 +3868,11 @@ void MainComponent::applyThemeToControls()
     trackNameLabel.setColour(juce::Label::textColourId, juce::Colour(c.lcdText));
 #endif
     trackNameLabel.setFont(juce::Font(fontName, 16.0f, juce::Font::bold));
-    beatLabel.setFont(juce::Font(fontName, 14.0f, juce::Font::bold));
+    beatLabel.setFont(juce::Font(fontName, 10.0f, juce::Font::plain));
+    beatLabel.setJustificationType(juce::Justification::centred);
     beatLabel.setColour(juce::Label::textColourId, juce::Colour(c.lcdText));
     beatLabel.setColour(juce::Label::backgroundColourId, juce::Colours::transparentBlack);
-    statusLabel.setFont(juce::Font(fontName, 10.0f, juce::Font::plain));
+    statusLabel.setFont(juce::Font(fontName, 14.0f, juce::Font::bold));
     statusLabel.setColour(juce::Label::textColourId, juce::Colour(c.lcdText).withAlpha(0.7f));
     statusLabel.setColour(juce::Label::backgroundColourId, juce::Colours::transparentBlack);
     chordLabel.setFont(juce::Font(fontName, 26.0f, juce::Font::bold));

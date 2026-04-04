@@ -245,6 +245,8 @@ private:
     juce::ComboBox presetSelector;
     juce::TextButton presetPrevButton { "<" };
     juce::TextButton presetNextButton { ">" };
+    juce::TextButton presetUpButton { juce::String::charToString(0x25B2) };
+    juce::TextButton presetDownButton { juce::String::charToString(0x25BC) };
     void updatePresetList();
     void loadPreset(int index);
     int paramPageOffset = 0;

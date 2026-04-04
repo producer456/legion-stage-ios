@@ -536,6 +536,12 @@ protected:
                               bool shouldDrawButtonAsHighlighted,
                               bool shouldDrawButtonAsDown) override
     {
+        if (button.getComponentID() == "pill")
+        {
+            drawButtonBackground(g, button, backgroundColour, shouldDrawButtonAsHighlighted, shouldDrawButtonAsDown, true);
+            return;
+        }
+
         auto bounds = button.getLocalBounds().toFloat().reduced(0.5f);
         auto baseColour = backgroundColour;
 
@@ -559,6 +565,44 @@ protected:
     }
 
     virtual float getButtonRadius() const { return 3.0f; }
+
+    void drawButtonBackground(juce::Graphics& g, juce::Button& button,
+                              const juce::Colour& backgroundColour,
+                              bool shouldDrawButtonAsHighlighted,
+                              bool shouldDrawButtonAsDown,
+                              bool isPill)
+    {
+        if (!isPill)
+        {
+            drawButtonBackground(g, button, backgroundColour, shouldDrawButtonAsHighlighted, shouldDrawButtonAsDown);
+            return;
+        }
+
+        auto bounds = button.getLocalBounds().toFloat().reduced(1.0f);
+        float radius = bounds.getHeight() / 2.0f; // full pill radius
+        auto baseColour = backgroundColour;
+
+        if (shouldDrawButtonAsDown)
+            baseColour = baseColour.darker(0.3f);
+        else if (shouldDrawButtonAsHighlighted)
+            baseColour = baseColour.brighter(0.15f);
+
+        // Pill body
+        g.setColour(baseColour);
+        g.fillRoundedRectangle(bounds, radius);
+
+        // Subtle highlight on top
+        if (!shouldDrawButtonAsDown)
+        {
+            g.setColour(baseColour.brighter(0.2f));
+            g.drawLine(bounds.getX() + radius, bounds.getY() + 1,
+                       bounds.getRight() - radius, bounds.getY() + 1, 1.0f);
+        }
+
+        // Border
+        g.setColour(juce::Colour(theme.border).brighter(0.2f));
+        g.drawRoundedRectangle(bounds, radius, 1.5f);
+    }
 
     void drawButtonText(juce::Graphics& g, juce::TextButton& button,
                         bool, bool) override
