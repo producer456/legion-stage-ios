@@ -3450,7 +3450,13 @@ void MainComponent::resized()
     }
     setVisControlsVisible();
 
-    pluginSelector.setBounds(rightPanel.removeFromTop(32));
+    {
+        auto pluginRow = rightPanel.removeFromTop(32);
+        openEditorButton.setBounds(pluginRow.removeFromRight(32));
+        openEditorButton.setButtonText("E");
+        pluginRow.removeFromRight(2);
+        pluginSelector.setBounds(pluginRow);
+    }
     rightPanel.removeFromTop(2);
     {
         auto presetRow = rightPanel.removeFromTop(28);
@@ -3460,16 +3466,24 @@ void MainComponent::resized()
         presetRow.removeFromRight(2);
         presetSelector.setBounds(presetRow);
     }
-    rightPanel.removeFromTop(2);
-    openEditorButton.setBounds(rightPanel.removeFromTop(30));
     rightPanel.removeFromTop(3);
     auto midiRow = rightPanel.removeFromTop(34);
     midiRefreshButton.setBounds(midiRow.removeFromRight(65));
     midiRow.removeFromRight(4);
     midiInputSelector.setBounds(midiRow);
-    rightPanel.removeFromTop(4);
+    rightPanel.removeFromTop(3);
 
-    // FX insert slots
+    // FX slots — right after MIDI
+    for (int i = 0; i < NUM_FX_SLOTS; ++i)
+    {
+        auto fxRow = rightPanel.removeFromTop(30);
+        fxEditorButtons[i]->setBounds(fxRow.removeFromRight(32));
+        fxRow.removeFromRight(2);
+        fxSelectors[i]->setBounds(fxRow);
+        rightPanel.removeFromTop(2);
+    }
+    rightPanel.removeFromTop(2);
+
     // Param page navigation buttons
     {
         auto pageRow = rightPanel.removeFromTop(22);
@@ -3506,16 +3520,7 @@ void MainComponent::resized()
         }
     }
 
-    // FX slots — below the knobs
-    for (int i = 0; i < NUM_FX_SLOTS; ++i)
-    {
-        auto fxRow = rightPanel.removeFromTop(32);
-        fxEditorButtons[i]->setBounds(fxRow.removeFromRight(32));
-        fxRow.removeFromRight(2);
-        fxSelectors[i]->setBounds(fxRow);
-        rightPanel.removeFromTop(3);
-    }
-    rightPanel.removeFromTop(4);
+    // (FX slots moved above param knobs)
 
     // Spectrum ghosted behind volume/pan area (only when not the active visualizer)
     if (currentVisMode != 0)
