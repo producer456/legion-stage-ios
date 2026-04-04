@@ -146,22 +146,13 @@ MainComponent::MainComponent()
     };
 
     addAndMakeVisible(bpmDownButton);
-    bpmDownButton.onClick = [this] {
-        double bpm = juce::jmax(20.0, pluginHost.getEngine().getBpm() - 1.0);
-        pluginHost.getEngine().setBpm(bpm);
-        bpmLabel.setText(juce::String(static_cast<int>(bpm)) + " BPM", juce::dontSendNotification);
-    };
+    bpmDownButton.setVisible(false);
+    bpmUpButton.setVisible(false);
 
     addAndMakeVisible(bpmLabel);
     bpmLabel.setText("120 BPM", juce::dontSendNotification);
     bpmLabel.setJustificationType(juce::Justification::centred);
-
-    addAndMakeVisible(bpmUpButton);
-    bpmUpButton.onClick = [this] {
-        double bpm = juce::jmin(300.0, pluginHost.getEngine().getBpm() + 1.0);
-        pluginHost.getEngine().setBpm(bpm);
-        bpmLabel.setText(juce::String(static_cast<int>(bpm)) + " BPM", juce::dontSendNotification);
-    };
+    bpmLabel.addMouseListener(this, false);
 
     addAndMakeVisible(beatLabel);
 
@@ -2480,6 +2471,15 @@ void MainComponent::mouseDown(const juce::MouseEvent& e)
         }
     }
 
+    // BPM drag start
+    if (e.eventComponent == &bpmLabel)
+    {
+        bpmDragging = true;
+        bpmDragStart = e.getScreenPosition().toFloat();
+        bpmDragStartValue = pluginHost.getEngine().getBpm();
+        return;
+    }
+
 #if JUCE_IOS
     bool isPhone = AUScanner::isIPhone() && !forceIPadLayout;
     if (isPhone)
@@ -2492,11 +2492,26 @@ void MainComponent::mouseDown(const juce::MouseEvent& e)
 
 void MainComponent::mouseDrag(const juce::MouseEvent& e)
 {
-    (void)e;
+    // BPM drag — up/right increases, down/left decreases
+    if (bpmDragging && e.eventComponent == &bpmLabel)
+    {
+        auto current = e.getScreenPosition().toFloat();
+        float dx = current.x - bpmDragStart.x;
+        float dy = -(current.y - bpmDragStart.y);  // invert Y so up = positive
+        float delta = (dx + dy) * 0.3f;  // combine both axes
+        double newBpm = juce::jlimit(20.0, 300.0, bpmDragStartValue + static_cast<double>(delta));
+        pluginHost.getEngine().setBpm(newBpm);
+    }
 }
 
 void MainComponent::mouseUp(const juce::MouseEvent& e)
 {
+    if (bpmDragging)
+    {
+        bpmDragging = false;
+        return;
+    }
+
 #if JUCE_IOS
     if (swipeActive)
     {
@@ -3035,12 +3050,10 @@ void MainComponent::resized()
             topBar.removeFromRight(4);
         }
 
-        // Left side: BPM group (includes beat position)
-        bpmDownButton.setBounds(topBar.removeFromLeft(28));
-        topBar.removeFromLeft(2);
+        // Left side: BPM (draggable) + tap tempo
+        bpmDownButton.setVisible(false);
+        bpmUpButton.setVisible(false);
         bpmLabel.setBounds(topBar.removeFromLeft(110));
-        topBar.removeFromLeft(2);
-        bpmUpButton.setBounds(topBar.removeFromLeft(28));
         topBar.removeFromLeft(3);
         tapTempoButton.setBounds(topBar.removeFromLeft(40));
         topBar.removeFromLeft(12);
@@ -3645,12 +3658,10 @@ void MainComponent::resized()
 #if !JUCE_IOS
     tapTempoButton.setBounds(toolbar.removeFromRight(50));
     toolbar.removeFromRight(3);
-    bpmUpButton.setBounds(toolbar.removeFromRight(32));
-    toolbar.removeFromRight(2);
-    bpmLabel.setBounds(toolbar.removeFromRight(70));
-    toolbar.removeFromRight(2);
-    bpmDownButton.setBounds(toolbar.removeFromRight(32));
+    bpmLabel.setBounds(toolbar.removeFromRight(100));
     toolbar.removeFromRight(6);
+    bpmDownButton.setVisible(false);
+    bpmUpButton.setVisible(false);
 #endif
     visSelector.setBounds(toolbar.removeFromRight(72));
     toolbar.removeFromRight(2);

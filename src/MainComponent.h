@@ -76,6 +76,11 @@ private:
     // Transport
     double lastSpaceStopTime = 0.0;
 
+    // BPM drag
+    bool bpmDragging = false;
+    juce::Point<float> bpmDragStart;
+    double bpmDragStartValue = 120.0;
+
     // ── Top Bar ──
     juce::TextButton midiLearnButton { "LEARN" };
     juce::Label trackNameLabel;
