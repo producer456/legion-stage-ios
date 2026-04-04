@@ -6,6 +6,7 @@
 #include "AlcantaraLookAndFeel.h"
 #include "IoniqLookAndFeel.h"
 #include "IoniqDarkLookAndFeel.h"
+#include "IoniqForestLookAndFeel.h"
 
 class ThemeManager
 {
@@ -16,6 +17,7 @@ public:
         Alcantara,
         Ioniq,
         IoniqDark,
+        IoniqForest,
         NumThemes
     };
 
@@ -24,7 +26,8 @@ public:
         themes[Keystage]  = std::make_unique<KeystageLookAndFeel>();
         themes[Alcantara] = std::make_unique<AlcantaraLookAndFeel>();
         themes[Ioniq]     = std::make_unique<IoniqLookAndFeel>();
-        themes[IoniqDark] = std::make_unique<IoniqDarkLookAndFeel>();
+        themes[IoniqDark]   = std::make_unique<IoniqDarkLookAndFeel>();
+        themes[IoniqForest] = std::make_unique<IoniqForestLookAndFeel>();
     }
 
     // Apply the given theme to a component tree
@@ -52,8 +55,9 @@ public:
             case Keystage:  return "Keystage";
             case Alcantara: return "Alcantara";
             case Ioniq:     return "Ioniq";
-            case IoniqDark: return "Ioniq Dark";
-            default:        return "Unknown";
+            case IoniqDark:   return "Ioniq Dark";
+            case IoniqForest: return "Ioniq Forest";
+            default:          return "Unknown";
         }
     }
 

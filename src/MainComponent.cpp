@@ -2721,10 +2721,13 @@ void MainComponent::paint(juce::Graphics& g)
         g.setColour(juce::Colour(c.body));
         g.fillRect(rpLeft, 0, 180, getHeight());
 
-        // Draw OLED info panel background — track input selector
+        // Draw OLED background behind input selector + M2 row
         if (trackInputSelector.isVisible())
         {
-            auto oledBounds = trackInputSelector.getBounds().expanded(6, 6);
+            auto inputBounds = trackInputSelector.getBounds();
+            if (midi2Button.isVisible())
+                inputBounds = inputBounds.getUnion(midi2Button.getBounds());
+            auto oledBounds = inputBounds.expanded(6, 6);
             g.setColour(juce::Colour(c.lcdBg));
             g.fillRoundedRectangle(oledBounds.toFloat(), 5.0f);
             g.setColour(juce::Colour(c.borderLight).withAlpha(0.6f));
@@ -3674,15 +3677,15 @@ void MainComponent::resized()
     fullscreenButton.setVisible(false);
     audioSettingsButton.setBounds(toolbar.removeFromRight(80));
 
-    // Track input selector
+    // Track input selector + M2 button on same row
     trackNameLabel.setVisible(false);
-    trackInputSelector.setBounds(rightPanel.removeFromTop(30));
-    rightPanel.removeFromTop(6);
-    // M2 + Theme selector side by side
-    auto controlRow = rightPanel.removeFromTop(28);
-    midi2Button.setBounds(controlRow.removeFromLeft(36));
-    controlRow.removeFromLeft(4);
-    themeSelector.setBounds(controlRow);
+    auto inputRow = rightPanel.removeFromTop(30);
+    midi2Button.setBounds(inputRow.removeFromRight(32));
+    inputRow.removeFromRight(4);
+    trackInputSelector.setBounds(inputRow);
+    rightPanel.removeFromTop(8);
+    // Theme selector
+    themeSelector.setBounds(rightPanel.removeFromTop(30));
     rightPanel.removeFromTop(8);
 
     // Visualizer display
