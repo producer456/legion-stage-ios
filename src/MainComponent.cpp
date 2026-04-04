@@ -3998,22 +3998,52 @@ void MainComponent::updateTrackInputSelector()
     if (devices.isEmpty())
         trackInputSelector.addItem("MIDI (no device)", 99);
 
-    // Select current
+    // Select current and connect
     auto& track = pluginHost.getTrack(selectedTrackIndex);
     if (track.type == TrackType::Audio)
+    {
         trackInputSelector.setSelectedId(1, juce::dontSendNotification);
+    }
     else if (devices.size() > 0)
+    {
         trackInputSelector.setSelectedId(100, juce::dontSendNotification);
+        // Auto-connect the first MIDI device
+        disableCurrentMidiDevice();
+        deviceManager.setMidiInputDeviceEnabled(devices[0].identifier, true);
+        deviceManager.addMidiInputDeviceCallback(devices[0].identifier, this);
+        currentMidiDeviceId = devices[0].identifier;
+    }
     else
+    {
         trackInputSelector.setSelectedId(99, juce::dontSendNotification);
+    }
 }
 
 void MainComponent::applyTrackInput(int id)
 {
+    // Disconnect current MIDI device first
+    disableCurrentMidiDevice();
+
     if (id == 1)
+    {
+        // Audio: Built-in Mic
         pluginHost.setTrackType(selectedTrackIndex, TrackType::Audio);
+    }
     else if (id >= 100)
+    {
+        // MIDI input — connect the selected device
         pluginHost.setTrackType(selectedTrackIndex, TrackType::MIDI);
+
+        int midiIdx = id - 100;
+        auto devices = juce::MidiInput::getAvailableDevices();
+        if (midiIdx >= 0 && midiIdx < devices.size())
+        {
+            const auto& d = devices[midiIdx];
+            deviceManager.setMidiInputDeviceEnabled(d.identifier, true);
+            deviceManager.addMidiInputDeviceCallback(d.identifier, this);
+            currentMidiDeviceId = d.identifier;
+        }
+    }
 
     resized();
     repaint();
