@@ -2721,39 +2721,19 @@ void MainComponent::paint(juce::Graphics& g)
         g.setColour(juce::Colour(c.body));
         g.fillRect(rpLeft, 0, 180, getHeight());
 
-        // Draw OLED background behind input selector + M2 row
-        if (trackInputSelector.isVisible())
-        {
-            auto inputBounds = trackInputSelector.getBounds();
-            if (midi2Button.isVisible())
-                inputBounds = inputBounds.getUnion(midi2Button.getBounds());
-            auto oledBounds = inputBounds.expanded(6, 6);
-            g.setColour(juce::Colour(c.lcdBg));
-            g.fillRoundedRectangle(oledBounds.toFloat(), 5.0f);
-            g.setColour(juce::Colour(c.borderLight).withAlpha(0.6f));
-            g.drawRoundedRectangle(oledBounds.toFloat(), 5.0f, 2.5f);
-        }
+        // OLED frames removed — combo boxes have their own recessed bezel styling
 
-        if (themeSelector.isVisible())
+        // Draw OLED background behind status/chord in top bar
+        if (statusLabel.isVisible() && chordLabel.isVisible())
         {
-            auto oledBounds = themeSelector.getBounds().expanded(6, 6);
-            g.setColour(juce::Colour(c.lcdBg));
-            g.fillRoundedRectangle(oledBounds.toFloat(), 5.0f);
-            g.setColour(juce::Colour(c.borderLight).withAlpha(0.6f));
-            g.drawRoundedRectangle(oledBounds.toFloat(), 5.0f, 2.5f);
-        }
-
-        // Draw OLED background behind beat/status/chord in top bar with oak border
-        if (beatLabel.isVisible())
-        {
-            auto beatOled = beatLabel.getBounds().getUnion(statusLabel.getBounds()).getUnion(chordLabel.getBounds());
-            // Oak border
-            auto oakBorder = beatOled.expanded(3, 2);
+            auto oledArea = statusLabel.getBounds().getUnion(chordLabel.getBounds());
+            // Border
+            auto borderArea = oledArea.expanded(3, 2);
             g.setColour(juce::Colour(c.borderLight));
-            g.fillRoundedRectangle(oakBorder.toFloat(), 4.0f);
+            g.fillRoundedRectangle(borderArea.toFloat(), 4.0f);
             // LCD background
             g.setColour(juce::Colour(c.lcdBg));
-            g.fillRoundedRectangle(beatOled.toFloat(), 3.0f);
+            g.fillRoundedRectangle(oledArea.toFloat(), 3.0f);
         }
     }
 
@@ -3636,6 +3616,11 @@ void MainComponent::resized()
 
     // ── Edit Toolbar ──
     auto toolbar = area.removeFromTop(65).reduced(4, 4);
+    // Grid + Quantize on the far left
+    gridSelector.setBounds(toolbar.removeFromLeft(65));
+    toolbar.removeFromLeft(2);
+    quantizeButton.setBounds(toolbar.removeFromLeft(70));
+    toolbar.removeFromLeft(4);
     newClipButton.setBounds(toolbar.removeFromLeft(95));
     toolbar.removeFromLeft(3);
     deleteClipButton.setBounds(toolbar.removeFromLeft(80));
@@ -3647,10 +3632,6 @@ void MainComponent::resized()
     editClipButton.setBounds(toolbar.removeFromLeft(75));
     toolbar.removeFromLeft(2);
     clearAutoButton.setBounds(toolbar.removeFromLeft(75));
-    toolbar.removeFromLeft(2);
-    quantizeButton.setBounds(toolbar.removeFromLeft(70));
-    toolbar.removeFromLeft(4);
-    gridSelector.setBounds(toolbar.removeFromLeft(65));
     toolbar.removeFromLeft(4);
     saveButton.setBounds(toolbar.removeFromLeft(50));
     toolbar.removeFromLeft(2);

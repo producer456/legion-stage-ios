@@ -92,7 +92,7 @@ public:
         if (auto* lnf = dynamic_cast<DawLookAndFeel*>(&getLookAndFeel()))
         {
             accentColor = lnf->getTheme().lcdAmber;
-            bgColor     = lnf->getTheme().bodyDark;
+            bgColor     = lnf->getTheme().lcdBg;
         }
 
         auto bounds = getLocalBounds().toFloat().reduced(1.0f);

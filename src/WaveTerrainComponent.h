@@ -54,7 +54,7 @@ public:
         if (auto* lnf = dynamic_cast<DawLookAndFeel*>(&getLookAndFeel()))
         {
             lineColor = lnf->getTheme().lcdAmber;
-            bgColor   = lnf->getTheme().bodyDark;
+            bgColor   = lnf->getTheme().lcdBg;
         }
 
         auto bounds = getLocalBounds().toFloat();
