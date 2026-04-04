@@ -206,6 +206,15 @@ MainComponent::MainComponent()
         if (timelineComponent) timelineComponent->quantizeSelectedClip();
     };
 
+    addAndMakeVisible(clearAutoButton);
+    clearAutoButton.onClick = [this] {
+        takeSnapshot();
+        auto& track = pluginHost.getTrack(selectedTrackIndex);
+        track.automationLanes.clear();
+        statusLabel.setText("Automation cleared", juce::dontSendNotification);
+        if (timelineComponent) timelineComponent->repaint();
+    };
+
     addAndMakeVisible(gridSelector);
     gridSelector.addItem("1/4", 1);
     gridSelector.addItem("1/8", 2);
@@ -2101,6 +2110,21 @@ void MainComponent::saveProject()
                 }
             }
 
+            // Save automation lanes
+            for (auto* lane : track.automationLanes)
+            {
+                if (lane->points.size() < 2) continue;
+                auto* autoXml = trackXml->createNewChildElement("Automation");
+                autoXml->setAttribute("paramIndex", lane->parameterIndex);
+                autoXml->setAttribute("paramName", lane->parameterName);
+                for (auto& pt : lane->points)
+                {
+                    auto* ptXml = autoXml->createNewChildElement("Point");
+                    ptXml->setAttribute("beat", pt.beat);
+                    ptXml->setAttribute("value", static_cast<double>(pt.value));
+                }
+            }
+
             auto* cp = track.clipPlayer;
             if (cp == nullptr) continue;
 
@@ -2269,6 +2293,23 @@ void MainComponent::loadProject()
 
                 slot.clip->events.updateMatchedPairs();
                 slot.state.store(ClipSlot::Playing);
+            }
+
+            // Load automation lanes
+            track.automationLanes.clear();
+            for (auto* autoXml : trackXml->getChildWithTagNameIterator("Automation"))
+            {
+                auto* lane = new AutomationLane();
+                lane->parameterIndex = autoXml->getIntAttribute("paramIndex", -1);
+                lane->parameterName = autoXml->getStringAttribute("paramName");
+                for (auto* ptXml : autoXml->getChildWithTagNameIterator("Point"))
+                {
+                    AutomationPoint pt;
+                    pt.beat = ptXml->getDoubleAttribute("beat", 0.0);
+                    pt.value = static_cast<float>(ptXml->getDoubleAttribute("value", 0.0));
+                    lane->points.add(pt);
+                }
+                track.automationLanes.add(lane);
             }
         }
 
@@ -3438,6 +3479,8 @@ void MainComponent::resized()
     editClipButton.setBounds(toolbar.removeFromLeft(75));
     toolbar.removeFromLeft(2);
     quantizeButton.setBounds(toolbar.removeFromLeft(70));
+    toolbar.removeFromLeft(2);
+    clearAutoButton.setBounds(toolbar.removeFromLeft(75));
     toolbar.removeFromLeft(4);
     gridSelector.setBounds(toolbar.removeFromLeft(65));
     toolbar.removeFromLeft(4);

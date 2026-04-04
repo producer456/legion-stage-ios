@@ -86,6 +86,7 @@ target_sources(Sequencer PRIVATE
     src/SplashComponent.h
     src/ThemeManager.h
     src/TimelineComponent.h
+    src/ArrangerMinimapComponent.h
     src/TimelineComponent.cpp
     src/UpdateChecker.h
     src/UpdateChecker.cpp

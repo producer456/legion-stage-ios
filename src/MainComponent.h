@@ -97,6 +97,7 @@ private:
     juce::TextButton splitClipButton { "Split" };
     juce::TextButton editClipButton { "Edit Notes" };
     juce::TextButton quantizeButton { "Quantize" };
+    juce::TextButton clearAutoButton { "CLR AUTO" };
     juce::ComboBox gridSelector;
     juce::TextButton countInButton { "Count-In" };
     juce::TextButton loopButton { "LOOP" };

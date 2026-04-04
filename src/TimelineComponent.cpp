@@ -1207,11 +1207,12 @@ void TimelineComponent::drawMiniNotes(juce::Graphics& g, const MidiClip& clip, j
 
 void TimelineComponent::drawAutomation(juce::Graphics& g)
 {
-    static const juce::Colour autoColors[] = {
-        juce::Colour(0xccff6644), juce::Colour(0xcc44ff66),
-        juce::Colour(0xcc4466ff), juce::Colour(0xccffff44),
-        juce::Colour(0xccff44ff), juce::Colour(0xcc44ffff)
-    };
+    // Use OLED blue for all automation lanes with varying alpha
+    uint32_t lcdBlue = 0xffb8d8f0;
+    if (auto* lnf = dynamic_cast<DawLookAndFeel*>(&getLookAndFeel()))
+        lcdBlue = lnf->getTheme().lcdText;
+    static const float alphas[] = { 0.9f, 0.7f, 0.55f, 0.85f, 0.65f, 0.5f };
+    (void)alphas;
 
     for (int t = 0; t < PluginHost::NUM_TRACKS; ++t)
     {
@@ -1223,7 +1224,7 @@ void TimelineComponent::drawAutomation(juce::Graphics& g)
         {
             if (lane->points.size() < 2) { colorIdx++; continue; }
 
-            g.setColour(autoColors[colorIdx % 6]);
+            g.setColour(juce::Colour(lcdBlue).withAlpha(alphas[colorIdx % 6]));
             colorIdx++;
 
             juce::Path path;
