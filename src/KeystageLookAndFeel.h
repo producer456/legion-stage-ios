@@ -165,6 +165,41 @@ public:
     mutable juce::Image sideCache;
     mutable int sideCacheKey = 0, sideCacheH = 0;
 
+    // Oak strip between arranger and right panel
+    void drawInnerStrip(juce::Graphics& g, int x, int /*y*/, int width, int height) override
+    {
+        juce::Colour oakBase(0xffc8bda8);
+        juce::Colour oakLight(0xffd6ccba);
+        juce::Colour oakGrain(0xffa89880);
+
+        g.setColour(oakBase);
+        g.fillRect(x, 0, width, height);
+
+        juce::Random rng(99);
+        for (int i = 0; i < 40; ++i)
+        {
+            float fx = x + rng.nextFloat() * width;
+            float yStart = rng.nextFloat() * height * 0.8f;
+            float len = 30.0f + rng.nextFloat() * (height * 0.4f);
+            float thickness = 0.5f + rng.nextFloat() * 1.5f;
+            g.setColour(oakGrain.withAlpha(0.15f + rng.nextFloat() * 0.2f));
+            g.drawLine(fx, yStart, fx + rng.nextFloat() * 2.0f - 1.0f, yStart + len, thickness);
+        }
+
+        for (int i = 0; i < 12; ++i)
+        {
+            float fx = x + rng.nextFloat() * width;
+            float yStart = rng.nextFloat() * height;
+            float len = 10.0f + rng.nextFloat() * 40.0f;
+            g.setColour(oakLight.withAlpha(0.1f + rng.nextFloat() * 0.15f));
+            g.drawLine(fx, yStart, fx, yStart + len, 1.0f);
+        }
+
+        g.setColour(juce::Colour(0x30000000));
+        g.drawVerticalLine(x, 0, static_cast<float>(height));
+        g.drawVerticalLine(x + width - 1, 0, static_cast<float>(height));
+    }
+
     // Wood grain top bar — cached
     void drawTopBarBackground(juce::Graphics& g, int x, int y, int width, int height) override
     {

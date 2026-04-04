@@ -19,6 +19,9 @@ public:
     virtual int getSidePanelWidth() const { return 0; }
     virtual void drawSidePanels(juce::Graphics&, int /*width*/, int /*height*/) {}
 
+    // Inner decorative strip (between arranger and right panel)
+    virtual void drawInnerStrip(juce::Graphics&, int /*x*/, int /*y*/, int /*width*/, int /*height*/) {}
+
     // Top bar background — override for custom textures (e.g. wood grain)
     virtual void drawTopBarBackground(juce::Graphics&, int /*x*/, int /*y*/, int /*width*/, int /*height*/) {}
 

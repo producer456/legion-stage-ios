@@ -63,17 +63,9 @@ target_sources(Sequencer PRIVATE
     src/Midi2Handler.cpp
     src/DawTheme.h
     src/DawLookAndFeel.h
-    src/WalkmanLookAndFeel.h
-    src/GlassLookAndFeel.h
-    src/NoirLookAndFeel.h
-    src/TerminalLookAndFeel.h
-    src/JournalLookAndFeel.h
-    src/LinenLookAndFeel.h
-    src/IceLookAndFeel.h
-    src/IndigoLookAndFeel.h
-    src/FrostLookAndFeel.h
     src/KeystageLookAndFeel.h
-    src/BlueprintLookAndFeel.h
+    src/AlcantaraLookAndFeel.h
+    src/IoniqLookAndFeel.h
     src/SpectrumComponent.h
     src/LissajousComponent.h
     src/WaveTerrainComponent.h

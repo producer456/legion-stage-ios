@@ -804,9 +804,18 @@ void TimelineComponent::createEmptyClip(int trackIndex, double beatPos)
 
 // ── Drawing ──────────────────────────────────────────────────────────────────
 
+// Helper to get the current theme (returns nullptr if no DawLookAndFeel)
+static const DawTheme* getThemeColors(juce::Component* comp)
+{
+    if (auto* lnf = dynamic_cast<DawLookAndFeel*>(&comp->getLookAndFeel()))
+        return &lnf->getTheme();
+    return nullptr;
+}
+
 void TimelineComponent::paint(juce::Graphics& g)
 {
-    g.fillAll(juce::Colour(0xff000000));
+    auto* tc = getThemeColors(this);
+    g.fillAll(juce::Colour(tc ? tc->timelineBg : 0xff000000));
     drawHeader(g);
     drawTrackLanes(g);
     drawClips(g);
@@ -834,13 +843,13 @@ void TimelineComponent::recalcTrackHeight()
 
 void TimelineComponent::drawHeader(juce::Graphics& g)
 {
-    g.setColour(juce::Colour(0xff0a0a0a));
+    auto* tc = getThemeColors(this);
+    g.setColour(juce::Colour(tc ? tc->bodyDark : 0xff0a0a0a));
     g.fillRect(0, 0, getWidth(), headerHeight);
 
     double firstBeat = std::floor(scrollX / gridResolution) * gridResolution;
     double lastBeat = scrollX + (getWidth() - trackLabelWidth) / pixelsPerBeat;
 
-    // Draw grid lines at the selected resolution
     for (double beat = firstBeat; beat <= lastBeat; beat += gridResolution)
     {
         float x = beatToX(beat);
@@ -852,50 +861,43 @@ void TimelineComponent::drawHeader(juce::Graphics& g)
         if (isBar)
         {
             int barNum = static_cast<int>(beat / 4.0) + 1;
-            g.setColour(juce::Colour(0xffcccccc));
+            g.setColour(juce::Colour(tc ? tc->textPrimary : 0xffcccccc));
             g.setFont(11.0f);
             g.drawText(juce::String(barNum), static_cast<int>(x) + 2, 0, 40, headerHeight / 2,
                        juce::Justification::centredLeft);
-            // Tall tick mark
-            g.setColour(juce::Colour(0xff888888));
+            g.setColour(juce::Colour(tc ? tc->timelineGridMajor : 0xff888888));
             g.drawVerticalLine(static_cast<int>(x), static_cast<float>(headerHeight / 2),
                                static_cast<float>(headerHeight));
-            // Grid line down into track area
-            g.setColour(juce::Colour(0xff666666));
+            g.setColour(juce::Colour(tc ? tc->timelineGridMajor : 0xff666666));
             g.drawVerticalLine(static_cast<int>(x), static_cast<float>(headerHeight),
                                static_cast<float>(getHeight()));
         }
         else if (isBeat)
         {
-            // Beat number within bar (1-4)
             int beatInBar = (static_cast<int>(std::round(beat)) % 4) + 1;
-            g.setColour(juce::Colour(0xff888888));
+            g.setColour(juce::Colour(tc ? tc->textSecondary : 0xff888888));
             g.setFont(9.0f);
             g.drawText(juce::String(beatInBar), static_cast<int>(x) + 1, headerHeight / 2 - 2,
                        20, headerHeight / 2, juce::Justification::centredLeft);
-            // Medium tick mark
-            g.setColour(juce::Colour(0xff555555));
+            g.setColour(juce::Colour(tc ? tc->timelineGridMinor : 0xff555555));
             g.drawVerticalLine(static_cast<int>(x), static_cast<float>(headerHeight * 2 / 3),
                                static_cast<float>(headerHeight));
-            // Grid line
-            g.setColour(juce::Colour(0xff444444));
+            g.setColour(juce::Colour(tc ? tc->timelineGridBeat : 0xff444444));
             g.drawVerticalLine(static_cast<int>(x), static_cast<float>(headerHeight),
                                static_cast<float>(getHeight()));
         }
         else
         {
-            // Subdivision tick mark in header
-            g.setColour(juce::Colour(0xff444444));
+            g.setColour(juce::Colour(tc ? tc->timelineGridBeat : 0xff444444));
             g.drawVerticalLine(static_cast<int>(x), static_cast<float>(headerHeight * 3 / 4),
                                static_cast<float>(headerHeight));
-            // Faint grid line
-            g.setColour(juce::Colour(0xff2d2d2d));
+            g.setColour(juce::Colour(tc ? tc->timelineGridFaint : 0xff2d2d2d));
             g.drawVerticalLine(static_cast<int>(x), static_cast<float>(headerHeight),
                                static_cast<float>(getHeight()));
         }
     }
 
-    g.setColour(juce::Colour(0xff444444));
+    g.setColour(juce::Colour(tc ? tc->border : 0xff444444));
     g.drawHorizontalLine(headerHeight - 1, 0, static_cast<float>(getWidth()));
 }
 
@@ -913,14 +915,16 @@ void TimelineComponent::drawTrackLanes(juce::Graphics& g)
         if (y + trackHeight < headerHeight || y > getHeight()) continue;
 
         // Selected track highlight
+        auto* tc = getThemeColors(this);
         bool isSelected = (t == pluginHost.getSelectedTrack());
         if (isSelected)
-            g.setColour(juce::Colour(0xff0a1520));
+            g.setColour(juce::Colour(tc ? tc->timelineSelectedRow : 0xff0a1520));
         else
-            g.setColour(t % 2 == 0 ? juce::Colour(0xff000000) : juce::Colour(0xff060606));
+            g.setColour(t % 2 == 0 ? juce::Colour(tc ? tc->timelineBg : 0xff000000)
+                                    : juce::Colour(tc ? tc->timelineAltRow : 0xff060606));
         g.fillRect(0, y, getWidth(), trackHeight);
 
-        g.setColour(juce::Colour(0xff333333));
+        g.setColour(juce::Colour(tc ? tc->timelineGridMinor : 0xff333333));
         g.drawHorizontalLine(y + trackHeight - 1, 0, static_cast<float>(getWidth()));
     }
 
@@ -959,25 +963,26 @@ void TimelineComponent::drawTrackControls(juce::Graphics& g)
         // Track select button — color shows selection + arm state
         auto selRect = getSelectButtonRect(t);
 
+        auto* tc = getThemeColors(this);
         if (isLocked)
-            g.setColour(juce::Colour(0xff882222));      // locked arm = deep red
+            g.setColour(juce::Colour(tc ? tc->trackArmed : 0xff882222));
         else if (isSelected)
-            g.setColour(juce::Colour(0xff3a5a8a));      // selected = blue
+            g.setColour(juce::Colour(tc ? tc->trackSelected : 0xff3a5a8a));
         else
-            g.setColour(juce::Colour(0xff333333));       // normal = gray
+            g.setColour(juce::Colour(tc ? tc->timelineGridMinor : 0xff333333));
 
         g.fillRoundedRectangle(selRect.toFloat(), 3.0f);
 
         // Arm indicator dot on the left side
         if (isArmed || isLocked)
         {
-            g.setColour(isLocked ? juce::Colours::red : juce::Colours::red.darker());
+            g.setColour(juce::Colour(tc ? tc->red : 0xffcc2222));
             g.fillEllipse(static_cast<float>(selRect.getX() + 4),
                          static_cast<float>(selRect.getCentreY() - 4), 8.0f, 8.0f);
         }
 
         // Track label
-        g.setColour(juce::Colours::white);
+        g.setColour(juce::Colour(tc ? tc->textBright : 0xffffffff));
         g.setFont(13.0f);
         juce::String label = juce::String(t + 1);
         if (track.plugin != nullptr)
@@ -987,18 +992,21 @@ void TimelineComponent::drawTrackControls(juce::Graphics& g)
         // Mute button
         auto muteRect = getMuteButtonRect(t);
         bool isMuted = track.gainProcessor != nullptr && track.gainProcessor->muted.load();
-        g.setColour(isMuted ? juce::Colours::red : juce::Colour(0xff444444));
+        g.setColour(isMuted ? juce::Colour(tc ? tc->trackMuteOn : 0xffff0000)
+                            : juce::Colour(tc ? tc->border : 0xff444444));
         g.fillRoundedRectangle(muteRect.toFloat(), 3.0f);
-        g.setColour(juce::Colours::white);
+        g.setColour(juce::Colour(tc ? tc->textBright : 0xffffffff));
         g.setFont(13.0f);
         g.drawText("M", muteRect, juce::Justification::centred);
 
         // Solo button
         auto soloRect = getSoloButtonRect(t);
         bool isSoloed = track.gainProcessor != nullptr && track.gainProcessor->soloed.load();
-        g.setColour(isSoloed ? juce::Colours::yellow : juce::Colour(0xff444444));
+        g.setColour(isSoloed ? juce::Colour(tc ? tc->trackSoloOn : 0xffffff00)
+                             : juce::Colour(tc ? tc->border : 0xff444444));
         g.fillRoundedRectangle(soloRect.toFloat(), 3.0f);
-        g.setColour(isSoloed ? juce::Colours::black : juce::Colours::white);
+        g.setColour(isSoloed ? juce::Colour(tc ? tc->trackSoloText : 0xff000000)
+                             : juce::Colour(tc ? tc->textBright : 0xffffffff));
         g.setFont(13.0f);
         g.drawText("S", soloRect, juce::Justification::centred);
 
@@ -1010,13 +1018,9 @@ void TimelineComponent::drawTrackControls(juce::Graphics& g)
             int meterX = 2;
 
             // Get theme meter color
-            uint32_t meterColor = 0xffc8e4ff;
-            uint32_t meterBgColor = 0xff1a1a22;
-            uint32_t cpuColor = 0xff44dd66;
-            if (auto* lnf = dynamic_cast<DawLookAndFeel*>(&getLookAndFeel()))
-            {
-                meterBgColor = lnf->getTheme().bodyDark;
-            }
+            uint32_t meterColor = tc ? tc->lcdText : 0xffc8e4ff;
+            uint32_t meterBgColor = tc ? tc->bodyDark : 0xff1a1a22;
+            uint32_t cpuColor = tc ? tc->green : 0xff44dd66;
 
             float pkL = juce::jlimit(0.0f, 1.0f, track.gainProcessor->peakLevelL.load());
             float pkR = juce::jlimit(0.0f, 1.0f, track.gainProcessor->peakLevelR.load());
@@ -1048,7 +1052,7 @@ void TimelineComponent::drawTrackControls(juce::Graphics& g)
         }
 
         // Divider
-        g.setColour(juce::Colour(0xff444444));
+        g.setColour(juce::Colour(tc ? tc->border : 0xff444444));
         g.drawVerticalLine(trackLabelWidth - 1, static_cast<float>(headerHeight),
                            static_cast<float>(getHeight()));
     }
@@ -1116,16 +1120,17 @@ void TimelineComponent::drawClips(juce::Graphics& g)
             if (clipRect.getRight() < trackLabelWidth || clipRect.getX() > getWidth()) continue;
 
             // Color based on state
+            auto* tc = getThemeColors(this);
             auto state = slot.state.load();
             juce::Colour clipColor;
             if (state == ClipSlot::Playing)
-                clipColor = juce::Colour(0xff338844);
+                clipColor = juce::Colour(tc ? tc->clipPlaying : 0xff338844);
             else if (state == ClipSlot::Recording)
-                clipColor = juce::Colour(0xff5588bb);
+                clipColor = juce::Colour(tc ? tc->clipRecording : 0xff5588bb);
             else if (state == ClipSlot::Armed)
-                clipColor = juce::Colour(0xff884400);
+                clipColor = juce::Colour(tc ? tc->clipQueued : 0xff884400);
             else
-                clipColor = juce::Colour(0xff445566);
+                clipColor = juce::Colour(tc ? tc->clipDefault : 0xff445566);
 
             // Selected highlight
             bool isSelected = selectedClip.trackIndex == t && selectedClip.slotIndex == s;

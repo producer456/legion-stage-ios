@@ -2719,7 +2719,16 @@ void MainComponent::paint(juce::Graphics& g)
             auto oledBounds = trackInputSelector.getBounds().expanded(6, 6);
             g.setColour(juce::Colour(c.lcdBg));
             g.fillRoundedRectangle(oledBounds.toFloat(), 5.0f);
-            g.setColour(juce::Colour(0xffc8bda8).withAlpha(0.6f));
+            g.setColour(juce::Colour(c.borderLight).withAlpha(0.6f));
+            g.drawRoundedRectangle(oledBounds.toFloat(), 5.0f, 2.5f);
+        }
+
+        if (themeSelector.isVisible())
+        {
+            auto oledBounds = themeSelector.getBounds().expanded(6, 6);
+            g.setColour(juce::Colour(c.lcdBg));
+            g.fillRoundedRectangle(oledBounds.toFloat(), 5.0f);
+            g.setColour(juce::Colour(c.borderLight).withAlpha(0.6f));
             g.drawRoundedRectangle(oledBounds.toFloat(), 5.0f, 2.5f);
         }
 
@@ -2729,7 +2738,7 @@ void MainComponent::paint(juce::Graphics& g)
             auto beatOled = beatLabel.getBounds().getUnion(statusLabel.getBounds()).getUnion(chordLabel.getBounds());
             // Oak border
             auto oakBorder = beatOled.expanded(3, 2);
-            g.setColour(juce::Colour(0xffc8bda8));
+            g.setColour(juce::Colour(c.borderLight));
             g.fillRoundedRectangle(oakBorder.toFloat(), 4.0f);
             // LCD background
             g.setColour(juce::Colour(c.lcdBg));
@@ -2784,44 +2793,11 @@ void MainComponent::paint(juce::Graphics& g)
             if (!paintPhone)
 #endif
             {
-                // Draw oak strip to the left of the right panel
+                // Draw decorative strip to the left of the right panel
                 int sidePW = lnf->getSidePanelWidth();
                 int stripW = sidePW;
-                // Layout order from right: [side panel 18] [right panel 180] [oak strip 18] [arranger]
                 int stripX = getWidth() - sidePW - 180 - stripW;
-
-                // Reuse oak grain drawing style from the side panels
-                juce::Colour oakBase(0xffc8bda8);
-                juce::Colour oakLight(0xffd6ccba);
-                juce::Colour oakGrain(0xffa89880);
-
-                g.setColour(oakBase);
-                g.fillRect(stripX, 0, stripW, getHeight());
-
-                juce::Random rng(99);
-                for (int i = 0; i < 40; ++i)
-                {
-                    float x = stripX + rng.nextFloat() * stripW;
-                    float yStart = rng.nextFloat() * getHeight() * 0.8f;
-                    float len = 30.0f + rng.nextFloat() * (getHeight() * 0.4f);
-                    float thickness = 0.5f + rng.nextFloat() * 1.5f;
-                    g.setColour(oakGrain.withAlpha(0.15f + rng.nextFloat() * 0.2f));
-                    g.drawLine(x, yStart, x + rng.nextFloat() * 2.0f - 1.0f, yStart + len, thickness);
-                }
-
-                for (int i = 0; i < 12; ++i)
-                {
-                    float x = stripX + rng.nextFloat() * stripW;
-                    float yStart = rng.nextFloat() * getHeight();
-                    float len = 10.0f + rng.nextFloat() * 40.0f;
-                    g.setColour(oakLight.withAlpha(0.1f + rng.nextFloat() * 0.15f));
-                    g.drawLine(x, yStart, x, yStart + len, 1.0f);
-                }
-
-                // Subtle border
-                g.setColour(juce::Colour(0x30000000));
-                g.drawVerticalLine(stripX, 0, static_cast<float>(getHeight()));
-                g.drawVerticalLine(stripX + stripW - 1, 0, static_cast<float>(getHeight()));
+                lnf->drawInnerStrip(g, stripX, 0, stripW, getHeight());
             }
         }
     }
@@ -3658,9 +3634,9 @@ void MainComponent::resized()
     toolbar.removeFromLeft(2);
     editClipButton.setBounds(toolbar.removeFromLeft(75));
     toolbar.removeFromLeft(2);
-    quantizeButton.setBounds(toolbar.removeFromLeft(70));
-    toolbar.removeFromLeft(2);
     clearAutoButton.setBounds(toolbar.removeFromLeft(75));
+    toolbar.removeFromLeft(2);
+    quantizeButton.setBounds(toolbar.removeFromLeft(70));
     toolbar.removeFromLeft(4);
     gridSelector.setBounds(toolbar.removeFromLeft(65));
     toolbar.removeFromLeft(4);
@@ -3691,13 +3667,13 @@ void MainComponent::resized()
     fullscreenButton.setBounds(toolbar.removeFromRight(32));
     toolbar.removeFromRight(2);
     audioSettingsButton.setBounds(toolbar.removeFromRight(80));
-    toolbar.removeFromRight(2);
-    themeSelector.setBounds(toolbar.removeFromRight(82));
 
     // Track input selector
     trackNameLabel.setVisible(false);
     trackInputSelector.setBounds(rightPanel.removeFromTop(30));
-    rightPanel.removeFromTop(4);
+    rightPanel.removeFromTop(12);
+    themeSelector.setBounds(rightPanel.removeFromTop(30));
+    rightPanel.removeFromTop(8);
 
     // Visualizer display
     auto visPanelArea = rightPanel.removeFromTop(70);
