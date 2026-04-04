@@ -66,6 +66,7 @@ target_sources(Sequencer PRIVATE
     src/KeystageLookAndFeel.h
     src/AlcantaraLookAndFeel.h
     src/IoniqLookAndFeel.h
+    src/IoniqDarkLookAndFeel.h
     src/SpectrumComponent.h
     src/LissajousComponent.h
     src/WaveTerrainComponent.h

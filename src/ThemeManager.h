@@ -5,6 +5,7 @@
 #include "KeystageLookAndFeel.h"
 #include "AlcantaraLookAndFeel.h"
 #include "IoniqLookAndFeel.h"
+#include "IoniqDarkLookAndFeel.h"
 
 class ThemeManager
 {
@@ -14,6 +15,7 @@ public:
         Keystage = 0,
         Alcantara,
         Ioniq,
+        IoniqDark,
         NumThemes
     };
 
@@ -22,6 +24,7 @@ public:
         themes[Keystage]  = std::make_unique<KeystageLookAndFeel>();
         themes[Alcantara] = std::make_unique<AlcantaraLookAndFeel>();
         themes[Ioniq]     = std::make_unique<IoniqLookAndFeel>();
+        themes[IoniqDark] = std::make_unique<IoniqDarkLookAndFeel>();
     }
 
     // Apply the given theme to a component tree
@@ -49,12 +52,13 @@ public:
             case Keystage:  return "Keystage";
             case Alcantara: return "Alcantara";
             case Ioniq:     return "Ioniq";
+            case IoniqDark: return "Ioniq Dark";
             default:        return "Unknown";
         }
     }
 
 private:
-    Theme currentTheme = Keystage;
+    Theme currentTheme = Ioniq;
     std::unique_ptr<DawLookAndFeel> themes[NumThemes];
 
     void repaintAll(juce::Component* comp)

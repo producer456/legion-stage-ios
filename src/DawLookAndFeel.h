@@ -15,6 +15,9 @@ public:
 
     const DawTheme& getTheme() const { return theme; }
 
+    // Button corner radius
+    virtual float getButtonRadius() const { return 3.0f; }
+
     // Side panel width — override to add decorative side panels (e.g. wood cheeks)
     virtual int getSidePanelWidth() const { return 0; }
     virtual void drawSidePanels(juce::Graphics&, int /*width*/, int /*height*/) {}
@@ -566,8 +569,6 @@ protected:
         g.setColour(juce::Colour(theme.border));
         g.drawRoundedRectangle(bounds, getButtonRadius(), 1.0f);
     }
-
-    virtual float getButtonRadius() const { return 3.0f; }
 
     void drawButtonBackground(juce::Graphics& g, juce::Button& button,
                               const juce::Colour& backgroundColour,

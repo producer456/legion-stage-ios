@@ -110,6 +110,7 @@ public:
     }
 
     float getButtonRadius() const override { return 6.0f; }
+    juce::String getUIFontName() const override { return "Avenir Next"; }
 
     // Soft slate side panels
     int getSidePanelWidth() const override { return 8; }
@@ -234,16 +235,27 @@ public:
 
         if (useOled)
         {
-            g.setColour(juce::Colour(0xff2a3038));
-            g.fillRoundedRectangle(bounds, 4.0f);
+            // Outer bezel — lighter rim to simulate raised dashboard surround
+            g.setColour(juce::Colour(0xffc8c0b4));
+            g.fillRoundedRectangle(bounds, 5.0f);
+
+            // Inner shadow — dark edge on top/left for depth
+            auto inset = bounds.reduced(1.5f);
+            g.setColour(juce::Colour(0xff8a8278));
+            g.drawRoundedRectangle(inset, 4.0f, 1.0f);
+
+            // OLED screen — recessed black
+            auto screen = bounds.reduced(2.5f);
+            g.setColour(juce::Colour(0xff1a1e24));
+            g.fillRoundedRectangle(screen, 3.0f);
 
             if (shouldDrawButtonAsDown)
-                g.setColour(juce::Colour(0xff5a7a8a).withAlpha(0.5f));
+                g.setColour(juce::Colour(0xff5a7a8a).withAlpha(0.3f));
             else if (shouldDrawButtonAsHighlighted)
-                g.setColour(juce::Colour(0xff4a5a64));
-            else
                 g.setColour(juce::Colour(0xff3a4248));
-            g.drawRoundedRectangle(bounds, 4.0f, 0.8f);
+            else
+                g.setColour(juce::Colour(0xff2a2e34));
+            g.drawRoundedRectangle(screen, 3.0f, 0.5f);
         }
         else
         {
@@ -322,18 +334,29 @@ public:
                    juce::Justification::centred);
     }
 
-    // OLED-style combo box — dark background
+    // OLED-style combo box — recessed into dashboard
     void drawComboBox(juce::Graphics& g, int width, int height, bool,
                       int, int, int, int, juce::ComboBox&) override
     {
         auto bounds = juce::Rectangle<float>(0, 0, static_cast<float>(width), static_cast<float>(height));
 
-        g.setColour(juce::Colour(0xff2a3038));
-        g.fillRoundedRectangle(bounds, 4.0f);
-        g.setColour(juce::Colour(0xff3a4248));
-        g.drawRoundedRectangle(bounds, 4.0f, 0.8f);
+        // Outer bezel
+        g.setColour(juce::Colour(0xffc8c0b4));
+        g.fillRoundedRectangle(bounds, 5.0f);
 
-        auto arrowZone = bounds.removeFromRight(20.0f).reduced(5.0f);
+        // Inner shadow
+        auto inset = bounds.reduced(1.5f);
+        g.setColour(juce::Colour(0xff8a8278));
+        g.drawRoundedRectangle(inset, 4.0f, 1.0f);
+
+        // OLED screen
+        auto screen = bounds.reduced(2.5f);
+        g.setColour(juce::Colour(0xff1a1e24));
+        g.fillRoundedRectangle(screen, 3.0f);
+        g.setColour(juce::Colour(0xff2a2e34));
+        g.drawRoundedRectangle(screen, 3.0f, 0.5f);
+
+        auto arrowZone = screen.removeFromRight(18.0f).reduced(4.0f);
         juce::Path arrow;
         arrow.addTriangle(arrowZone.getX(), arrowZone.getCentreY() - 3,
                          arrowZone.getRight(), arrowZone.getCentreY() - 3,

@@ -5,7 +5,7 @@
 
 MainComponent::MainComponent()
 {
-    themeManager.setTheme(ThemeManager::Keystage, this);
+    themeManager.setTheme(ThemeManager::Ioniq, this);
 
     auto result = deviceManager.initialiseWithDefaultDevices(0, 2);
     if (result.isNotEmpty())
@@ -802,7 +802,7 @@ MainComponent::MainComponent()
     addAndMakeVisible(themeSelector);
     for (int i = 0; i < ThemeManager::NumThemes; ++i)
         themeSelector.addItem(ThemeManager::getThemeName(static_cast<ThemeManager::Theme>(i)), i + 1);
-    themeSelector.setSelectedId(ThemeManager::Keystage + 1, juce::dontSendNotification);
+    themeSelector.setSelectedId(ThemeManager::Ioniq + 1, juce::dontSendNotification);
     themeSelector.onChange = [this] {
         auto idx = themeSelector.getSelectedId() - 1;
         if (idx >= 0 && idx < ThemeManager::NumThemes)
@@ -940,15 +940,23 @@ void MainComponent::timerCallback()
 {
     auto& eng = pluginHost.getEngine();
 
-    if (eng.isInCountIn())
+    // Update BPM label to include beat position
     {
-        int barsLeft = static_cast<int>(std::ceil(eng.getCountInBeatsRemaining() / 4.0));
-        beatLabel.setText("Count: -" + juce::String(barsLeft), juce::dontSendNotification);
-    }
-    else
-    {
-        double beat = eng.getPositionInBeats();
-        beatLabel.setText("Beat: " + juce::String(beat, 1), juce::dontSendNotification);
+        int bpm = static_cast<int>(eng.getBpm());
+        juce::String beatText;
+        if (eng.isInCountIn())
+        {
+            int barsLeft = static_cast<int>(std::ceil(eng.getCountInBeatsRemaining() / 4.0));
+            beatText = "Count: -" + juce::String(barsLeft);
+        }
+        else
+        {
+            double beatPos = eng.getPositionInBeats();
+            int bar = static_cast<int>(beatPos / 4.0) + 1;
+            int beatInBar = (static_cast<int>(beatPos) % 4) + 1;
+            beatText = juce::String(bar) + "." + juce::String(beatInBar);
+        }
+        bpmLabel.setText(juce::String(bpm) + " BPM  " + beatText, juce::dontSendNotification);
     }
 
     // Update chord detector display
@@ -2824,24 +2832,29 @@ void MainComponent::paint(juce::Graphics& g)
 
 void MainComponent::paintOverChildren(juce::Graphics& g)
 {
-    // Draw green border outside play button (pulses when playing)
+    // Get button corner radius from theme
+    float radius = 0.0f;
+    if (auto* lnf = dynamic_cast<DawLookAndFeel*>(&getLookAndFeel()))
+        radius = lnf->getButtonRadius();
+
+    // Draw green border outside play button (flashes when playing)
     if (playButton.isVisible())
     {
         auto btnBounds = playButton.getBounds().toFloat().expanded(3.0f);
         g.setColour(juce::Colours::green.withAlpha(playHighlightAlpha * 0.8f));
-        g.drawRect(btnBounds, 2.0f);
+        g.drawRoundedRectangle(btnBounds, radius + 1.0f, 2.0f);
         g.setColour(juce::Colours::green.withAlpha(playHighlightAlpha * 0.25f));
-        g.drawRect(btnBounds.expanded(2.0f), 3.0f);
+        g.drawRoundedRectangle(btnBounds.expanded(2.0f), radius + 2.0f, 3.0f);
     }
 
-    // Draw red border outside record button (pulses when recording)
+    // Draw red border outside record button (flashes when recording)
     if (recordButton.isVisible())
     {
         auto btnBounds = recordButton.getBounds().toFloat().expanded(3.0f);
         g.setColour(juce::Colours::red.withAlpha(recHighlightAlpha * 0.8f));
-        g.drawRect(btnBounds, 2.0f);
+        g.drawRoundedRectangle(btnBounds, radius + 1.0f, 2.0f);
         g.setColour(juce::Colours::red.withAlpha(recHighlightAlpha * 0.25f));
-        g.drawRect(btnBounds.expanded(2.0f), 3.0f);
+        g.drawRoundedRectangle(btnBounds.expanded(2.0f), radius + 2.0f, 3.0f);
     }
 }
 
@@ -2955,10 +2968,7 @@ void MainComponent::resized()
 
         // ── Row 2: Clip tools, save/load, vis/piano/mixer ──
         // Right side first
-        fullscreenButton.setButtonText("VIS");
-        fullscreenButton.setBounds(row2.removeFromRight(36));
-        fullscreenButton.setVisible(true);
-        row2.removeFromRight(gap);
+        fullscreenButton.setVisible(false);
         pianoToggleButton.setBounds(row2.removeFromRight(42));
         row2.removeFromRight(gap);
         mixerButton.setBounds(row2.removeFromRight(36));
@@ -3042,10 +3052,10 @@ void MainComponent::resized()
             topBar.removeFromRight(4);
         }
 
-        // Left side: BPM group
+        // Left side: BPM group (includes beat position)
         bpmDownButton.setBounds(topBar.removeFromLeft(28));
         topBar.removeFromLeft(2);
-        bpmLabel.setBounds(topBar.removeFromLeft(65));
+        bpmLabel.setBounds(topBar.removeFromLeft(110));
         topBar.removeFromLeft(2);
         bpmUpButton.setBounds(topBar.removeFromLeft(28));
         topBar.removeFromLeft(3);
@@ -3064,14 +3074,13 @@ void MainComponent::resized()
         midiLearnButton.setVisible(true);
         topBar.removeFromRight(4);
         {
-            // OLED display — wider to fit text, with oak border padding
+            // OLED display — status + chord (beat merged into BPM label)
             auto oledOuter = topBar.removeFromRight(120);
-            auto infoArea = oledOuter.reduced(3, 2); // oak border inset
-            int rowH = infoArea.getHeight() / 3;
+            auto infoArea = oledOuter.reduced(3, 2);
+            int rowH = infoArea.getHeight() / 2;
             statusLabel.setBounds(infoArea.removeFromTop(rowH));
             statusLabel.setVisible(true);
-            beatLabel.setBounds(infoArea.removeFromTop(rowH));
-            beatLabel.setVisible(true);
+            beatLabel.setVisible(false);
             chordLabel.setBounds(infoArea);
             chordLabel.setVisible(true);
         }
@@ -3392,7 +3401,7 @@ void MainComponent::resized()
     zoomOutButton.setVisible(true);
     panicButton.setVisible(true);
     clearAutoButton.setVisible(true);
-    fullscreenButton.setVisible(true);
+    fullscreenButton.setVisible(false);
     trackInputSelector.setVisible(true);
     presetSelector.setVisible(true);
     presetPrevButton.setVisible(true);
@@ -3448,7 +3457,7 @@ void MainComponent::resized()
     visExitButton.setVisible(false);
     projectorButton.setVisible(false);  // merged with fullscreen
     visSelector.setVisible(true);
-    fullscreenButton.setVisible(true);
+    fullscreenButton.setVisible(false);
     midi2Button.setVisible(true);
     setVisControlsVisible();
 
@@ -3659,20 +3668,21 @@ void MainComponent::resized()
     bpmDownButton.setBounds(toolbar.removeFromRight(32));
     toolbar.removeFromRight(6);
 #endif
-    midi2Button.setBounds(toolbar.removeFromRight(36));
-    toolbar.removeFromRight(2);
     visSelector.setBounds(toolbar.removeFromRight(72));
     toolbar.removeFromRight(2);
     projectorButton.setVisible(false);
-    fullscreenButton.setBounds(toolbar.removeFromRight(32));
-    toolbar.removeFromRight(2);
+    fullscreenButton.setVisible(false);
     audioSettingsButton.setBounds(toolbar.removeFromRight(80));
 
     // Track input selector
     trackNameLabel.setVisible(false);
     trackInputSelector.setBounds(rightPanel.removeFromTop(30));
-    rightPanel.removeFromTop(12);
-    themeSelector.setBounds(rightPanel.removeFromTop(30));
+    rightPanel.removeFromTop(6);
+    // M2 + Theme selector side by side
+    auto controlRow = rightPanel.removeFromTop(28);
+    midi2Button.setBounds(controlRow.removeFromLeft(36));
+    controlRow.removeFromLeft(4);
+    themeSelector.setBounds(controlRow);
     rightPanel.removeFromTop(8);
 
     // Visualizer display
