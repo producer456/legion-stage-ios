@@ -1466,20 +1466,29 @@ void TimelineComponent::drawLoopRegion(juce::Graphics& g)
 
 void TimelineComponent::showClipContextMenu(const ClipRef& ref)
 {
-    auto* clip = getClip(ref);
-    if (clip == nullptr) return;
+    auto* slot = getSlot(ref);
+    if (slot == nullptr) return;
+
+    auto* midiClip = getClip(ref);
+    bool isAudio = (slot->audioClip != nullptr);
+    bool isMidi = (midiClip != nullptr);
+
+    if (!isAudio && !isMidi) return;
 
     juce::PopupMenu menu;
-    menu.addItem(1, "Copy");
-    menu.addItem(2, "Paste", clipboardClip != nullptr);
-    menu.addSeparator();
-    menu.addItem(3, "Transpose +Octave");
-    menu.addItem(4, "Transpose -Octave");
-    menu.addSeparator();
-    menu.addItem(5, "Velocity 50%");
-    menu.addItem(6, "Velocity 75%");
-    menu.addItem(7, "Velocity 150%");
-    menu.addSeparator();
+    if (isMidi)
+    {
+        menu.addItem(1, "Copy");
+        menu.addItem(2, "Paste", clipboardClip != nullptr);
+        menu.addSeparator();
+        menu.addItem(3, "Transpose +Octave");
+        menu.addItem(4, "Transpose -Octave");
+        menu.addSeparator();
+        menu.addItem(5, "Velocity 50%");
+        menu.addItem(6, "Velocity 75%");
+        menu.addItem(7, "Velocity 150%");
+        menu.addSeparator();
+    }
     menu.addItem(8, "Duplicate");
     menu.addItem(9, "Delete");
 
@@ -1488,7 +1497,8 @@ void TimelineComponent::showClipContextMenu(const ClipRef& ref)
         [this, ref](int result)
     {
         auto* clip = getClip(ref);
-        if (clip == nullptr && result != 2) return;
+        // For audio clips, only allow duplicate/delete
+        if (clip == nullptr && result != 2 && result != 8 && result != 9) return;
 
         switch (result)
         {

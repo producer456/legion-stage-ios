@@ -46,7 +46,7 @@ public:
         theme.redDark   = 0xff2a1014;
 
         // ── LCD — dark with amber readout (like vintage gear) ──
-        theme.lcdBg    = 0xff0a0a0c;
+        theme.lcdBg    = 0xff000000;
         theme.lcdText  = 0xffe8a030;   // amber — the numbers you watch
         theme.lcdAmber = 0xfff0b840;
 
@@ -121,7 +121,7 @@ public:
         setColour(juce::PopupMenu::highlightedBackgroundColourId, juce::Colour(0xffe8a030));
 
         setColour(juce::Slider::textBoxTextColourId,       juce::Colour(0xffe8a030));
-        setColour(juce::Slider::textBoxBackgroundColourId, juce::Colour(0xff0a0a0c));
+        setColour(juce::Slider::textBoxBackgroundColourId, juce::Colour(0xff000000));
         setColour(juce::Slider::textBoxOutlineColourId,    juce::Colour(0x00000000));
 
         setColour(juce::TextButton::buttonOnColourId,      juce::Colour(0xff302010));

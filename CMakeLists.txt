@@ -69,7 +69,6 @@ target_sources(Sequencer PRIVATE
     src/IoniqLookAndFeel.h
     src/IoniqDarkLookAndFeel.h
     src/IoniqForestLookAndFeel.h
-    src/RivianLookAndFeel.h
     src/CyberpunkLookAndFeel.h
     src/OxideLookAndFeel.h
     src/SpectrumComponent.h

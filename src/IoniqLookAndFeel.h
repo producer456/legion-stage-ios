@@ -32,7 +32,7 @@ public:
         theme.greenDark = 0xffd0e0d4;  // pale sage background
 
         // ── LCD — slate display: light grey bg, dark teal text ──
-        theme.lcdBg    = 0xff2a3038;   // dark slate screen
+        theme.lcdBg    = 0xff000000;   // true OLED black
         theme.lcdText  = 0xffc8dce8;   // cool blue-white readout
         theme.lcdAmber = 0xffd0e4f0;   // bright readout
 
@@ -248,7 +248,7 @@ public:
 
             // OLED screen — recessed black
             auto screen = bounds.reduced(2.5f);
-            g.setColour(juce::Colour(0xff1a1e24));
+            g.setColour(juce::Colour(theme.lcdBg));
             g.fillRoundedRectangle(screen, 3.0f);
 
             if (shouldDrawButtonAsDown)

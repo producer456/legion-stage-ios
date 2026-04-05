@@ -33,7 +33,7 @@ public:
         theme.greenDark = 0xff183020;  // dark racing green
 
         // ── LCD — instrument cluster: black bg, amber readout ──
-        theme.lcdBg    = 0xff0a0a0c;
+        theme.lcdBg    = 0xff000000;
         theme.lcdText  = 0xffe8a040;  // amber gauge
         theme.lcdAmber = 0xfff0b850;  // bright amber for values
 
@@ -101,7 +101,7 @@ public:
 
         // Slider text boxes — gauge style
         setColour(juce::Slider::textBoxTextColourId,       juce::Colour(0xffe8a040));
-        setColour(juce::Slider::textBoxBackgroundColourId, juce::Colour(0xff0a0a0c));
+        setColour(juce::Slider::textBoxBackgroundColourId, juce::Colour(0xff000000));
         setColour(juce::Slider::textBoxOutlineColourId,    juce::Colour(0x00000000));
 
         // Button on-state

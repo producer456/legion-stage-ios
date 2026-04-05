@@ -32,7 +32,7 @@ public:
         theme.greenDark = 0xff1a2e20;  // dark sage
 
         // ── LCD — same OLED style ──
-        theme.lcdBg    = 0xff0a0c10;
+        theme.lcdBg    = 0xff000000;
         theme.lcdText  = 0xffc8dce8;   // cool blue-white
         theme.lcdAmber = 0xffd0e4f0;
 
@@ -100,7 +100,7 @@ public:
         setColour(juce::PopupMenu::highlightedBackgroundColourId, juce::Colour(0xffc8dce8));
 
         setColour(juce::Slider::textBoxTextColourId,       juce::Colour(0xffc8dce8));
-        setColour(juce::Slider::textBoxBackgroundColourId, juce::Colour(0xff0a0c10));
+        setColour(juce::Slider::textBoxBackgroundColourId, juce::Colour(0xff000000));
         setColour(juce::Slider::textBoxOutlineColourId,    juce::Colour(0x00000000));
 
         setColour(juce::TextButton::buttonOnColourId,      juce::Colour(0xff1e3040));
@@ -126,7 +126,7 @@ public:
 
         // OLED screen
         auto screen = bounds.reduced(2.5f);
-        g.setColour(juce::Colour(0xff0e1014));
+        g.setColour(juce::Colour(theme.lcdBg));
         g.fillRoundedRectangle(screen, 3.0f);
 
         if (shouldDrawButtonAsDown)
@@ -280,7 +280,7 @@ public:
 
         // OLED screen
         auto screen = bounds.reduced(2.5f);
-        g.setColour(juce::Colour(0xff0e1014));
+        g.setColour(juce::Colour(theme.lcdBg));
         g.fillRoundedRectangle(screen, 3.0f);
         g.setColour(juce::Colour(0xff1a1e24));
         g.drawRoundedRectangle(screen, 3.0f, 0.5f);

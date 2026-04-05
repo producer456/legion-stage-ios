@@ -112,6 +112,13 @@ private:
     juce::TextButton panicButton { "PANIC" };
     double panicAnimEndTime = 0.0;
 
+    // ── Capture (always-on MIDI buffer) ──
+    juce::TextButton captureButton { "CAPT" };
+    juce::MidiMessageSequence captureBuffer;
+    double captureStartTime = 0.0;
+    bool captureHasNotes = false;
+    void performCapture();
+
     // ── Navigation ──
     juce::TextButton zoomInButton { "Zoom +" };
     juce::TextButton zoomOutButton { "Zoom -" };
@@ -289,6 +296,10 @@ private:
     juce::Slider panSlider;
     juce::Label panLabel { {}, "Pan" };
     juce::Label trackInfoLabel;
+    juce::Label cpuLabel;
+    juce::Array<float> cpuHistory;  // rolling CPU % history for heartbeat display
+    float currentCpuPercent = 0.0f;
+    int currentRamMB = 0;
 
     // ── Bottom Bar ──
     juce::Label statusLabel;

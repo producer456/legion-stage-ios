@@ -2,6 +2,9 @@
 #if JUCE_IOS
 #include "AUScanner.h"
 #endif
+#if JUCE_IOS || JUCE_MAC
+#include <mach/mach.h>
+#endif
 
 MainComponent::MainComponent()
 {
@@ -256,6 +259,10 @@ MainComponent::MainComponent()
         statusLabel.setText("MIDI Panic — all notes off", juce::dontSendNotification);
         panicAnimEndTime = juce::Time::getMillisecondCounterHiRes() * 0.001 + 3.0;
     };
+
+    // ── Capture Button ──
+    addAndMakeVisible(captureButton);
+    captureButton.onClick = [this] { performCapture(); };
 
     addAndMakeVisible(zoomInButton);
     zoomInButton.onClick = [this] { if (timelineComponent) timelineComponent->zoomIn(); };
@@ -675,6 +682,11 @@ MainComponent::MainComponent()
 
     testNoteButton.setVisible(false);
 
+    // ── CPU Label ──
+    addAndMakeVisible(cpuLabel);
+    cpuLabel.setText("CPU: 0%", juce::dontSendNotification);
+    cpuLabel.setJustificationType(juce::Justification::centredLeft);
+
     // ── Chord Detector Label ──
     addAndMakeVisible(chordLabel);
     chordLabel.setJustificationType(juce::Justification::centred);
@@ -771,6 +783,13 @@ MainComponent::MainComponent()
         {
             undoIndex--;
             restoreSnapshot(undoHistory[undoIndex]);
+            int clips = undoHistory[undoIndex].clips.size();
+            statusLabel.setText("Undo (" + juce::String(clips) + " clips)", juce::dontSendNotification);
+            chordLabel.setText("Step " + juce::String(undoIndex + 1) + "/" + juce::String(undoHistory.size()), juce::dontSendNotification);
+            juce::Timer::callAfterDelay(2000, [this] {
+                statusLabel.setText("", juce::dontSendNotification);
+                chordLabel.setText("---", juce::dontSendNotification);
+            });
         }
     };
 
@@ -780,6 +799,13 @@ MainComponent::MainComponent()
         {
             undoIndex++;
             restoreSnapshot(undoHistory[undoIndex]);
+            int clips = undoHistory[undoIndex].clips.size();
+            statusLabel.setText("Redo (" + juce::String(clips) + " clips)", juce::dontSendNotification);
+            chordLabel.setText("Step " + juce::String(undoIndex + 1) + "/" + juce::String(undoHistory.size()), juce::dontSendNotification);
+            juce::Timer::callAfterDelay(2000, [this] {
+                statusLabel.setText("", juce::dontSendNotification);
+                chordLabel.setText("---", juce::dontSendNotification);
+            });
         }
     };
 
@@ -1029,6 +1055,34 @@ void MainComponent::timerCallback()
             loopFlashCounter = 0;
             repaint(loopButton.getBounds().expanded(6));
         }
+    }
+
+    // Update CPU + RAM meter
+    {
+        float totalCpu = 0.0f;
+        for (int t = 0; t < PluginHost::NUM_TRACKS; ++t)
+        {
+            auto& track = pluginHost.getTrack(t);
+            if (track.gainProcessor)
+                totalCpu += track.gainProcessor->cpuPercent.load();
+        }
+
+        // Get RAM usage
+        int ramMB = 0;
+#if JUCE_IOS || JUCE_MAC
+        struct mach_task_basic_info info;
+        mach_msg_type_number_t size = MACH_TASK_BASIC_INFO_COUNT;
+        if (task_info(mach_task_self(), MACH_TASK_BASIC_INFO, (task_info_t)&info, &size) == KERN_SUCCESS)
+            ramMB = static_cast<int>(info.resident_size / (1024 * 1024));
+#endif
+        currentCpuPercent = totalCpu;
+        currentRamMB = ramMB;
+        cpuLabel.setText("", juce::dontSendNotification);  // drawn custom
+
+        // Store CPU history for heartbeat waveform
+        cpuHistory.add(totalCpu);
+        if (cpuHistory.size() > 60)  // ~4 seconds at 15Hz
+            cpuHistory.remove(0);
     }
 
     // Update arranger minimap
@@ -1797,6 +1851,49 @@ void MainComponent::handleIncomingMidiMessage(juce::MidiInput* /*source*/, const
         }
     }
 
+    // Buffer MIDI for capture (only note on/off, ignore when actively recording)
+    if ((msg.isNoteOn() || msg.isNoteOff()) && !pluginHost.getEngine().isRecording())
+    {
+        double now = juce::Time::getMillisecondCounterHiRes() * 0.001;
+        if (!captureHasNotes)
+        {
+            captureBuffer.clear();
+            captureStartTime = now;
+            captureHasNotes = true;
+        }
+        auto buffered = msg;
+        buffered.setTimeStamp(now - captureStartTime);
+        juce::MessageManager::callAsync([this, buffered] {
+            captureBuffer.addEvent(buffered);
+        });
+        // Trim buffer to last 60 seconds
+        double elapsed = now - captureStartTime;
+        if (elapsed > 60.0)
+        {
+            juce::MessageManager::callAsync([this] {
+                // Remove events older than 60 seconds from start
+                double cutoff = captureBuffer.getEndTime() - 60.0;
+                if (cutoff > 0.0)
+                {
+                    juce::MidiMessageSequence trimmed;
+                    for (int i = 0; i < captureBuffer.getNumEvents(); ++i)
+                    {
+                        auto& e = *captureBuffer.getEventPointer(i);
+                        if (e.message.getTimeStamp() >= cutoff)
+                        {
+                            auto m = e.message;
+                            m.setTimeStamp(m.getTimeStamp() - cutoff);
+                            trimmed.addEvent(m);
+                        }
+                    }
+                    trimmed.updateMatchedPairs();
+                    captureBuffer = trimmed;
+                    captureStartTime += cutoff;
+                }
+            });
+        }
+    }
+
     // Forward all MIDI to the collector for audio processing
     pluginHost.getMidiCollector().addMessageToQueue(msg);
 }
@@ -2045,6 +2142,265 @@ void MainComponent::updateParamSliders()
 }
 
 // ── Save/Load/Undo ───────────────────────────────────────────────────────────
+
+// ── Capture helpers ──
+
+// Detect tempo from note onset times using autocorrelation
+static double detectTempo(const juce::Array<double>& onsets)
+{
+    if (onsets.size() < 4) return 120.0;
+
+    // Collect inter-onset intervals
+    juce::Array<double> intervals;
+    for (int i = 1; i < onsets.size(); ++i)
+    {
+        double dt = onsets[i] - onsets[i - 1];
+        if (dt > 0.05 && dt < 2.0)  // ignore very short or very long gaps
+            intervals.add(dt);
+    }
+    if (intervals.isEmpty()) return 120.0;
+
+    // Try candidate BPMs from 60-180 and score each
+    double bestBpm = 120.0;
+    double bestScore = 0.0;
+
+    for (int candidateBpm = 60; candidateBpm <= 180; ++candidateBpm)
+    {
+        double beatDur = 60.0 / candidateBpm;
+        double score = 0.0;
+
+        for (auto& interval : intervals)
+        {
+            // How close is this interval to a multiple of the beat?
+            double beats = interval / beatDur;
+            double nearest = std::round(beats);
+            if (nearest < 1.0) nearest = 1.0;
+            double error = std::abs(beats - nearest) / nearest;
+            score += std::exp(-error * 10.0);  // gaussian-like scoring
+        }
+
+        if (score > bestScore)
+        {
+            bestScore = score;
+            bestBpm = static_cast<double>(candidateBpm);
+        }
+    }
+
+    return bestBpm;
+}
+
+// Detect loop length: find shortest repeating pattern in beat-quantized onsets
+static double detectLoopLength(const juce::MidiMessageSequence& events, double totalBeats)
+{
+    // Collect note-on beat positions
+    juce::Array<double> onsets;
+    for (int i = 0; i < events.getNumEvents(); ++i)
+        if (events.getEventPointer(i)->message.isNoteOn())
+            onsets.add(events.getEventPointer(i)->message.getTimeStamp());
+
+    if (onsets.size() < 4) return totalBeats;
+
+    // Try candidate loop lengths: 1, 2, 4, 8 bars
+    double candidates[] = { 4.0, 8.0, 16.0, 32.0 };
+
+    for (auto loopLen : candidates)
+    {
+        if (loopLen >= totalBeats) continue;
+        if (totalBeats / loopLen < 1.8) continue;  // need at least ~2 repetitions
+
+        // Score: for each note in the first cycle, check if similar notes exist in subsequent cycles
+        int matches = 0;
+        int totalNotes = 0;
+
+        for (auto onset : onsets)
+        {
+            if (onset >= loopLen) break;
+            totalNotes++;
+
+            // Check if this note repeats in later cycles
+            bool found = false;
+            for (double cycle = loopLen; cycle < totalBeats; cycle += loopLen)
+            {
+                for (auto other : onsets)
+                {
+                    if (std::abs((other - cycle) - onset) < 0.25)  // within 1/16 beat tolerance
+                    {
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) break;
+            }
+            if (found) matches++;
+        }
+
+        // If >70% of notes repeat, this is likely the loop length
+        if (totalNotes > 0 && static_cast<double>(matches) / totalNotes > 0.7)
+            return loopLen;
+    }
+
+    return totalBeats;  // no loop detected
+}
+
+// Light quantization: nudge notes toward nearest grid position (25% strength)
+static void lightQuantize(juce::MidiMessageSequence& events, double gridSize = 0.25)
+{
+    float strength = 0.25f;  // 25% quantize strength — preserves feel
+
+    for (int i = 0; i < events.getNumEvents(); ++i)
+    {
+        auto& msg = events.getEventPointer(i)->message;
+        double t = msg.getTimeStamp();
+        double nearest = std::round(t / gridSize) * gridSize;
+        double nudged = t + (nearest - t) * strength;
+        msg.setTimeStamp(nudged);
+    }
+}
+
+void MainComponent::performCapture()
+{
+    if (!captureHasNotes || captureBuffer.getNumEvents() < 2)
+    {
+        statusLabel.setText("Nothing to capture", juce::dontSendNotification);
+        juce::Timer::callAfterDelay(2000, [this] { statusLabel.setText("", juce::dontSendNotification); });
+        return;
+    }
+
+    captureBuffer.updateMatchedPairs();
+
+    auto& eng = pluginHost.getEngine();
+    bool transportWasPlaying = eng.isPlaying();
+
+    // ── 1. Tempo detection (only when transport is stopped) ──
+    double bpm = eng.getBpm();
+    if (!transportWasPlaying)
+    {
+        // Collect note-on times in seconds
+        juce::Array<double> onsets;
+        for (int i = 0; i < captureBuffer.getNumEvents(); ++i)
+            if (captureBuffer.getEventPointer(i)->message.isNoteOn())
+                onsets.add(captureBuffer.getEventPointer(i)->message.getTimeStamp());
+
+        if (onsets.size() >= 4)
+        {
+            bpm = detectTempo(onsets);
+            eng.setBpm(bpm);
+        }
+    }
+
+    double beatsPerSecond = bpm / 60.0;
+
+    // Find the time span
+    double firstTime = captureBuffer.getStartTime();
+    double lastTime = captureBuffer.getEndTime();
+    double durationBeats = (lastTime - firstTime) * beatsPerSecond;
+
+    // Round up to nearest bar
+    double lengthInBeats = std::ceil(durationBeats / 4.0) * 4.0;
+    if (lengthInBeats < 4.0) lengthInBeats = 4.0;
+
+    // ── 2. Convert to beat-based events ──
+    juce::MidiMessageSequence beatEvents;
+    for (int i = 0; i < captureBuffer.getNumEvents(); ++i)
+    {
+        auto msg = captureBuffer.getEventPointer(i)->message;
+        double beatPos = (msg.getTimeStamp() - firstTime) * beatsPerSecond;
+        msg.setTimeStamp(beatPos);
+        beatEvents.addEvent(msg);
+    }
+    beatEvents.updateMatchedPairs();
+
+    // ── 3. Light quantization (25% strength, 1/16 grid) ──
+    lightQuantize(beatEvents, 0.25);
+    beatEvents.updateMatchedPairs();
+
+    // ── 4. Loop detection — trim to shortest repeating cycle ──
+    double loopLen = detectLoopLength(beatEvents, lengthInBeats);
+    if (loopLen < lengthInBeats)
+    {
+        // Trim events to one loop cycle
+        juce::MidiMessageSequence trimmed;
+        for (int i = 0; i < beatEvents.getNumEvents(); ++i)
+        {
+            auto& msg = beatEvents.getEventPointer(i)->message;
+            if (msg.getTimeStamp() < loopLen)
+                trimmed.addEvent(msg);
+        }
+        trimmed.updateMatchedPairs();
+        beatEvents = trimmed;
+        lengthInBeats = loopLen;
+    }
+
+    // ── 5. Create clip ──
+    auto& track = pluginHost.getTrack(selectedTrackIndex);
+    if (track.clipPlayer == nullptr) return;
+
+    int emptySlot = -1;
+    for (int s = 0; s < ClipPlayerNode::NUM_SLOTS; ++s)
+    {
+        auto& slot = track.clipPlayer->getSlot(s);
+        if (!slot.hasContent() && slot.clip == nullptr)
+        {
+            emptySlot = s;
+            break;
+        }
+    }
+    if (emptySlot < 0)
+    {
+        statusLabel.setText("No empty slots", juce::dontSendNotification);
+        juce::Timer::callAfterDelay(2000, [this] { statusLabel.setText("", juce::dontSendNotification); });
+        return;
+    }
+
+    takeSnapshot();
+
+    auto newClip = std::make_unique<MidiClip>();
+    newClip->lengthInBeats = lengthInBeats;
+    newClip->events = beatEvents;
+
+    // ── 6. Transport-aware placement ──
+    if (transportWasPlaying)
+    {
+        // Place relative to where playback was when capture started
+        double captureStartBeats = (captureStartTime - (juce::Time::getMillisecondCounterHiRes() * 0.001 - eng.getPositionInBeats() / beatsPerSecond)) * beatsPerSecond;
+        // Snap to bar
+        captureStartBeats = std::floor(captureStartBeats / 4.0) * 4.0;
+        if (captureStartBeats < 0.0) captureStartBeats = 0.0;
+        newClip->timelinePosition = captureStartBeats;
+    }
+    else
+    {
+        // Transport stopped — place at bar 1
+        newClip->timelinePosition = 0.0;
+    }
+
+    track.clipPlayer->getSlot(emptySlot).clip = std::move(newClip);
+    track.clipPlayer->getSlot(emptySlot).state.store(ClipSlot::Stopped);
+
+    // Clear buffer
+    captureBuffer.clear();
+    captureHasNotes = false;
+
+    // Count notes for display
+    int numNotes = 0;
+    for (int i = 0; i < track.clipPlayer->getSlot(emptySlot).clip->events.getNumEvents(); ++i)
+        if (track.clipPlayer->getSlot(emptySlot).clip->events.getEventPointer(i)->message.isNoteOn())
+            numNotes++;
+
+    int bars = static_cast<int>(lengthInBeats / 4);
+    juce::String info = "Captured " + juce::String(numNotes) + " notes";
+    if (!transportWasPlaying)
+        info += " @ " + juce::String(static_cast<int>(bpm)) + " BPM";
+
+    statusLabel.setText(info, juce::dontSendNotification);
+    chordLabel.setText(juce::String(bars) + " bar" + (bars != 1 ? "s" : ""), juce::dontSendNotification);
+    juce::Timer::callAfterDelay(2000, [this] {
+        statusLabel.setText("", juce::dontSendNotification);
+        chordLabel.setText("---", juce::dontSendNotification);
+    });
+
+    if (timelineComponent) timelineComponent->repaint();
+}
 
 void MainComponent::takeSnapshot()
 {
@@ -2879,6 +3235,71 @@ void MainComponent::paint(juce::Graphics& g)
         }
     }
 
+    // Draw CPU/RAM heartbeat OLED
+    if (cpuLabel.isVisible())
+    {
+        auto bounds = cpuLabel.getBounds().toFloat().reduced(0.5f);
+
+        // OLED background
+        g.setColour(juce::Colour(c.lcdBg));
+        g.fillRoundedRectangle(bounds, 4.0f);
+        g.setColour(juce::Colour(c.borderLight).withAlpha(0.3f));
+        g.drawRoundedRectangle(bounds, 4.0f, 0.8f);
+
+        auto inner = bounds.reduced(3.0f, 2.0f);
+
+        // Heartbeat waveform — top half
+        float waveH = inner.getHeight() * 0.45f;
+        float waveY = inner.getY() + waveH * 0.5f;
+        float waveW = inner.getWidth();
+
+        if (cpuHistory.size() > 1)
+        {
+            // Color based on CPU load
+            juce::Colour waveCol = currentCpuPercent > 80.0f ? juce::Colour(c.red) :
+                                   currentCpuPercent > 50.0f ? juce::Colour(c.amber) :
+                                   juce::Colour(c.lcdText);
+
+            juce::Path wavePath;
+            for (int i = 0; i < cpuHistory.size(); ++i)
+            {
+                float x = inner.getX() + (static_cast<float>(i) / (cpuHistory.size() - 1)) * waveW;
+                float cpuVal = cpuHistory[i] / 100.0f;
+
+                // ECG-style spike: flat baseline with sharp peaks proportional to CPU
+                float spike = 0.0f;
+                int mod = i % 8;
+                if (mod == 3) spike = cpuVal * 0.3f;
+                else if (mod == 4) spike = -cpuVal * 1.0f;  // main spike (inverted = upward on screen)
+                else if (mod == 5) spike = cpuVal * 0.5f;
+                else spike = cpuVal * 0.05f;  // slight baseline wobble
+
+                float y = waveY - spike * waveH;
+
+                if (i == 0) wavePath.startNewSubPath(x, y);
+                else wavePath.lineTo(x, y);
+            }
+
+            g.setColour(waveCol.withAlpha(0.8f));
+            g.strokePath(wavePath, juce::PathStrokeType(1.2f));
+
+            // Glow on latest point
+            float lastX = inner.getRight();
+            float lastCpu = cpuHistory.getLast() / 100.0f;
+            float lastY = waveY + lastCpu * 0.05f * waveH;
+            g.setColour(waveCol.withAlpha(0.4f));
+            g.fillEllipse(lastX - 2, lastY - 2, 4, 4);
+        }
+
+        // Text — bottom half: "CPU 12%  RAM 201MB"
+        auto textArea = inner.removeFromBottom(inner.getHeight() * 0.45f);
+        g.setColour(juce::Colour(c.lcdText).withAlpha(0.8f));
+        g.setFont(juce::Font(themeManager.getLookAndFeel()->getUIFontName(), 9.0f, juce::Font::bold));
+        g.drawText("CPU " + juce::String(static_cast<int>(currentCpuPercent)) + "%  RAM " +
+                   juce::String(currentRamMB) + "MB",
+                   textArea.toNearestInt(), juce::Justification::centred);
+    }
+
     // Draw pulsing glow ring around active param knob
     if (activeParamIndex >= 0 && activeParamIndex < NUM_PARAM_SLIDERS
         && paramSliders[activeParamIndex]->isVisible())
@@ -3074,7 +3495,7 @@ void MainComponent::resized()
         deleteClipButton.setButtonText("Delete");
         deleteClipButton.setBounds(row2.removeFromLeft(r2bw));
         row2.removeFromLeft(gap);
-        duplicateClipButton.setVisible(true);
+        duplicateClipButton.setVisible(false);
         duplicateClipButton.setButtonText("Dupe");
         duplicateClipButton.setBounds(row2.removeFromLeft(r2bw));
         row2.removeFromLeft(gap);
@@ -3441,7 +3862,7 @@ void MainComponent::resized()
     testNoteButton.setVisible(true);
     newClipButton.setVisible(true);
     deleteClipButton.setVisible(true);
-    duplicateClipButton.setVisible(true);
+    duplicateClipButton.setVisible(false);
     splitClipButton.setVisible(true);
     editClipButton.setVisible(true);
     quantizeButton.setVisible(true);
@@ -3667,8 +4088,6 @@ void MainComponent::resized()
     toolbar.removeFromLeft(3);
     deleteClipButton.setBounds(toolbar.removeFromLeft(80));
     toolbar.removeFromLeft(3);
-    duplicateClipButton.setBounds(toolbar.removeFromLeft(95));
-    toolbar.removeFromLeft(3);
     splitClipButton.setBounds(toolbar.removeFromLeft(55));
     toolbar.removeFromLeft(2);
     editClipButton.setBounds(toolbar.removeFromLeft(75));
@@ -3682,6 +4101,15 @@ void MainComponent::resized()
     undoButton.setBounds(toolbar.removeFromLeft(50));
     toolbar.removeFromLeft(2);
     redoButton.setBounds(toolbar.removeFromLeft(50));
+    toolbar.removeFromLeft(6);
+    testNoteButton.setVisible(false);
+    captureButton.setBounds(toolbar.removeFromLeft(55));
+    captureButton.setVisible(true);
+    toolbar.removeFromLeft(4);
+    // CPU label — exact same vertical bounds as capture button
+    auto cpuArea = toolbar.removeFromLeft(120);
+    cpuLabel.setBounds(cpuArea.getX(), captureButton.getY(), cpuArea.getWidth(), captureButton.getHeight());
+    cpuLabel.setVisible(true);
 
     // Pack remaining controls at the right end of the toolbar
 #if !JUCE_IOS
@@ -4121,6 +4549,9 @@ void MainComponent::applyThemeToControls()
     beatLabel.setFont(juce::Font(fontName, 10.0f, juce::Font::plain));
     beatLabel.setJustificationType(juce::Justification::centred);
     beatLabel.setColour(juce::Label::textColourId, juce::Colour(c.lcdText));
+    cpuLabel.setFont(juce::Font(fontName, 12.0f, juce::Font::bold));
+    cpuLabel.setColour(juce::Label::textColourId, juce::Colour(c.lcdText));
+    cpuLabel.setColour(juce::Label::backgroundColourId, juce::Colours::transparentBlack);
     beatLabel.setColour(juce::Label::backgroundColourId, juce::Colours::transparentBlack);
     statusLabel.setFont(juce::Font(fontName, 14.0f, juce::Font::bold));
     statusLabel.setColour(juce::Label::textColourId, juce::Colour(c.lcdText).withAlpha(0.7f));

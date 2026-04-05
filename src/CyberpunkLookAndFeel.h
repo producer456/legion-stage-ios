@@ -32,7 +32,7 @@ public:
         theme.greenDark = 0xff082830;
 
         // ── LCD — neon cyan on void black ──
-        theme.lcdBg    = 0xff020408;
+        theme.lcdBg    = 0xff000000;
         theme.lcdText  = 0xff00e8f0;   // neon cyan
         theme.lcdAmber = 0xfffcee0a;   // acid yellow for values
 
@@ -87,7 +87,7 @@ public:
         setColour(juce::PopupMenu::highlightedBackgroundColourId, juce::Colour(0xff00e8f0));
 
         setColour(juce::Slider::textBoxTextColourId,       juce::Colour(0xff00e8f0));
-        setColour(juce::Slider::textBoxBackgroundColourId, juce::Colour(0xff020408));
+        setColour(juce::Slider::textBoxBackgroundColourId, juce::Colour(0xff000000));
         setColour(juce::Slider::textBoxOutlineColourId,    juce::Colour(0x00000000));
 
         setColour(juce::TextButton::buttonOnColourId,      juce::Colour(0xff082830));

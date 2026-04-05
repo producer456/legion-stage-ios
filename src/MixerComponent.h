@@ -9,11 +9,29 @@
 class MixerComponent : public juce::Component, public juce::Timer
 {
 public:
-    static constexpr uint32_t oledBg    = 0xff000000;
-    static constexpr uint32_t oledText  = 0xffb8d8f0;  // ice blue
-    static constexpr uint32_t oledDim   = 0xff4a6878;
-    static constexpr uint32_t oledRed   = 0xffcc4444;
-    static constexpr uint32_t oledWarm  = 0xffc9a96e;
+    // Theme-aware colors — resolved at paint time
+    uint32_t oledBg   = 0xff000000;
+    uint32_t oledText = 0xffb8d8f0;
+    uint32_t oledDim  = 0xff4a6878;
+    uint32_t oledRed  = 0xffcc4444;
+    uint32_t oledWarm = 0xffc9a96e;
+    uint32_t bodyCol  = 0xff1a1a1a;
+    uint32_t borderCol = 0xff3a3530;
+
+    void updateThemeColors()
+    {
+        if (auto* lnf = dynamic_cast<DawLookAndFeel*>(&getLookAndFeel()))
+        {
+            auto& t = lnf->getTheme();
+            oledBg   = t.lcdBg;
+            oledText = t.lcdText;
+            oledDim  = t.textSecondary;
+            oledRed  = t.red;
+            oledWarm = t.amber;
+            bodyCol  = t.body;
+            borderCol = t.border;
+        }
+    }
 
     // Callback when a track is selected in the mixer
     std::function<void(int)> onTrackSelected;
@@ -30,17 +48,19 @@ public:
 
     void paint(juce::Graphics& g) override
     {
+        updateThemeColors();
         int w = getWidth();
         int h = getHeight();
 
         // ── Wood background (cached) ──
-        if (w != woodCacheW || h != woodCacheH)
+        if (w != woodCacheW || h != woodCacheH || bodyCol != woodCacheTheme)
         {
             woodCache = juce::Image(juce::Image::RGB, w, h, false);
             juce::Graphics wg(woodCache);
             drawWoodBackground(wg, w, h);
             woodCacheW = w;
             woodCacheH = h;
+            woodCacheTheme = bodyCol;
         }
         g.drawImageAt(woodCache, 0, 0);
 
@@ -303,9 +323,10 @@ private:
 
     void drawWoodBackground(juce::Graphics& g, int w, int h)
     {
-        juce::Colour oakBase(0xffc0b49e);
-        juce::Colour oakLight(0xffcec2ae);
-        juce::Colour oakGrain(0xffa89882);
+        // Use theme body color as base, with subtle texture
+        juce::Colour oakBase(bodyCol);
+        juce::Colour oakLight = oakBase.brighter(0.08f);
+        juce::Colour oakGrain = oakBase.darker(0.1f);
 
         g.setColour(oakBase);
         g.fillAll();
@@ -334,6 +355,7 @@ private:
 
     juce::Image woodCache;
     int woodCacheW = 0, woodCacheH = 0;
+    uint32_t woodCacheTheme = 0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MixerComponent)
 };

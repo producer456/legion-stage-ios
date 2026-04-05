@@ -110,7 +110,7 @@ protected:
         return text == "PLAY" || text == "STOP" || text == "MET" ||
                text == "LOOP" || text == "Count-In" || text == "PANIC" ||
                text == "LEARN" || text == "MIX" || text == "KEYS" ||
-               text == "VIS" || text == "PROJ";
+               text == "VIS" || text == "PROJ" || text == "CAPT";
     }
 
     // Render OLED pixel art for a button. Returns true if handled.
@@ -228,9 +228,7 @@ protected:
             }
             else
             {
-                oledPlot(oled, icx - 6, icy, dim);
-                oledPlot(oled, icx, icy, dim);
-                oledPlot(oled, icx + 6, icy, dim);
+                return false;  // fall through to text rendering — shows "Count-In"
             }
         }
         else if (text == "LEARN")
@@ -307,6 +305,37 @@ protected:
                 oledPlot(oled, x + 1, kBot, bright);
                 oledPlot(oled, x, kBot - 1, bright.withAlpha(0.6f));
                 oledPlot(oled, x + 1, kBot - 1, bright.withAlpha(0.6f));
+            }
+        }
+        else if (text == "CAPT")
+        {
+            if (!on) return false;  // show "Capture" text when off
+
+            // Capture icon — downward arrow into a tray/container
+            // Tray base
+            for (int dx = -6; dx <= 6; ++dx)
+                oledPlot(oled, icx + dx, icy + 5, col);
+            oledPlot(oled, icx - 6, icy + 4, col);
+            oledPlot(oled, icx + 6, icy + 4, col);
+            // Down arrow
+            for (int dy = -5; dy <= 2; ++dy)
+                oledPlot(oled, icx, icy + dy, col);
+            oledPlot(oled, icx - 1, icy + 1, col);
+            oledPlot(oled, icx + 1, icy + 1, col);
+            oledPlot(oled, icx - 2, icy, col);
+            oledPlot(oled, icx + 2, icy, col);
+
+            if (on)
+            {
+                // Pulsing notes floating down
+                for (int i = 0; i < 3; ++i)
+                {
+                    float noteY = std::fmod(t * 4.0f + i * 2.0f, 8.0f) - 5.0f;
+                    int ny = icy + static_cast<int>(noteY);
+                    int nx = icx - 3 + i * 3;
+                    if (ny >= icy - 6 && ny <= icy + 2)
+                        oledPlot(oled, nx, ny, bright.withAlpha(0.5f));
+                }
             }
         }
         else if (text == "VIS")
