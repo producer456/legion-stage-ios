@@ -2640,8 +2640,12 @@ void MainComponent::saveProject()
     {
         auto file = fc.getResult();
         if (file == juce::File()) return;
-        auto xml = std::make_unique<juce::XmlElement>("SequencerProject");
+
+        // Stop recording to prevent data race on clip events
         auto& eng = pluginHost.getEngine();
+        if (eng.isRecording()) eng.toggleRecord();
+
+        auto xml = std::make_unique<juce::XmlElement>("SequencerProject");
         xml->setAttribute("bpm", eng.getBpm());
         xml->setAttribute("loopEnabled", eng.isLoopEnabled());
         xml->setAttribute("loopStart", eng.getLoopStart());
@@ -2709,7 +2713,7 @@ void MainComponent::saveProject()
             // Save automation lanes
             for (auto* lane : track.automationLanes)
             {
-                if (lane->points.size() < 2) continue;
+                if (lane->points.size() < 1) continue;
                 auto* autoXml = trackXml->createNewChildElement("Automation");
                 autoXml->setAttribute("paramIndex", lane->parameterIndex);
                 autoXml->setAttribute("paramName", lane->parameterName);

@@ -197,9 +197,9 @@ void ClipPlayerNode::processClipPlayback(int slotIndex, juce::MidiBuffer& midi, 
         midi.addEvent(holder->message, samplePos);
 
         if (holder->message.isNoteOn())
-            activePlaybackNotes.insert((holder->message.getChannel() << 8) | holder->message.getNoteNumber());
+            activePlaybackNotes[holder->message.getNoteNumber() & 0x7F] = true;
         else if (holder->message.isNoteOff())
-            activePlaybackNotes.erase((holder->message.getChannel() << 8) | holder->message.getNoteNumber());
+            activePlaybackNotes[holder->message.getNoteNumber() & 0x7F] = false;
     }
 }
 
@@ -219,7 +219,8 @@ void ClipPlayerNode::processRecording(const juce::MidiBuffer& incomingMidi, int 
     for (const auto metadata : incomingMidi)
     {
         auto msg = metadata.getMessage();
-        if (msg.isNoteOnOrOff())
+        if (msg.isNoteOnOrOff() || msg.isController() || msg.isPitchWheel() ||
+            msg.isAftertouch() || msg.isChannelPressure())
         {
             double beatTimestamp = (pos - recordStartBeat) + (metadata.samplePosition * beatsPerSample);
             if (beatTimestamp < 0.0) beatTimestamp = 0.0;
@@ -410,13 +411,12 @@ void ClipPlayerNode::closeOpenNotes(MidiClip& clip)
 void ClipPlayerNode::killActiveNotes(juce::MidiBuffer& midi, int sampleOffset, bool hard)
 {
     // Send explicit note-offs for every tracked note
-    for (int key : activePlaybackNotes)
+    for (int n = 0; n < 128; ++n)
     {
-        int ch = (key >> 8) & 0x1F;
-        int note = key & 0x7F;
-        midi.addEvent(juce::MidiMessage::noteOff(ch, note), sampleOffset);
+        if (activePlaybackNotes[n])
+            midi.addEvent(juce::MidiMessage::noteOff(1, n), sampleOffset);
     }
-    activePlaybackNotes.clear();
+    std::memset(activePlaybackNotes, 0, sizeof(activePlaybackNotes));
 
     // Hard kill: send note-off for ALL possible notes on channel 1
     // Some plugins ignore CC 120/123, so brute-force every note

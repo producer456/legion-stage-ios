@@ -4,7 +4,7 @@
 #include "MidiClip.h"
 #include "SequencerEngine.h"
 #include <array>
-#include <set>
+#include <cstring>
 
 class ClipPlayerNode : public juce::AudioProcessor
 {
@@ -65,7 +65,7 @@ private:
 
     // Track active notes so we can send explicit note-offs on loop wrap
     // Encoded as (channel << 8) | noteNumber
-    std::set<int> activePlaybackNotes;
+    bool activePlaybackNotes[128] = {};
     void killActiveNotes(juce::MidiBuffer& midi, int sampleOffset, bool hard = false);
 
     void processClipPlayback(int slotIndex, juce::MidiBuffer& midi, int numSamples);

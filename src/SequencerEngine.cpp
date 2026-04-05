@@ -49,8 +49,18 @@ void SequencerEngine::setLoopRegion(double startBeat, double endBeat)
 {
     if (startBeat < endBeat)
     {
-        loopStart.store(startBeat);
-        loopEnd.store(endBeat);
+        // Note: the two stores are not jointly atomic. We order them so the
+        // audio thread never sees a momentarily inverted (start > end) region.
+        if (endBeat > loopEnd.load())
+        {
+            loopEnd.store(endBeat);      // widen first
+            loopStart.store(startBeat);
+        }
+        else
+        {
+            loopStart.store(startBeat);  // shrink first
+            loopEnd.store(endBeat);
+        }
     }
 }
 
