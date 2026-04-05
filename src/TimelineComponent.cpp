@@ -371,7 +371,9 @@ void TimelineComponent::mouseDrag(const juce::MouseEvent& e)
     float mx = static_cast<float>(e.x);
     float my = static_cast<float>(e.y);
     auto* clip = getClip(dragClip);
-    if (clip == nullptr) return;
+    auto* slot = getSlot(dragClip);
+    auto* aClip = (slot != nullptr) ? slot->audioClip.get() : nullptr;
+    if (clip == nullptr && aClip == nullptr) return;
 
     double currentBeat = xToBeat(mx);
 
@@ -382,7 +384,8 @@ void TimelineComponent::mouseDrag(const juce::MouseEvent& e)
         // Snap to grid resolution
         newPos = snapToGrid(newPos);
         if (newPos < 0.0) newPos = 0.0;
-        clip->timelinePosition = newPos;
+        if (clip) clip->timelinePosition = newPos;
+        if (aClip) aClip->timelinePosition = newPos;
 
         // Check if dragged to a different track
         int newTrack = yToTrack(my);
@@ -397,7 +400,7 @@ void TimelineComponent::mouseDrag(const juce::MouseEvent& e)
                 int emptySlot = -1;
                 for (int s = 0; s < ClipPlayerNode::NUM_SLOTS; ++s)
                 {
-                    if (!dstCp->getSlot(s).hasContent() && dstCp->getSlot(s).clip == nullptr)
+                    if (!dstCp->getSlot(s).hasContent() && dstCp->getSlot(s).clip == nullptr && dstCp->getSlot(s).audioClip == nullptr)
                     {
                         emptySlot = s;
                         break;
@@ -411,6 +414,7 @@ void TimelineComponent::mouseDrag(const juce::MouseEvent& e)
                     auto& dstSlot = dstCp->getSlot(emptySlot);
 
                     dstSlot.clip = std::move(srcSlot.clip);
+                    dstSlot.audioClip = std::move(srcSlot.audioClip);
                     dstSlot.state.store(srcSlot.state.load());
                     srcSlot.state.store(ClipSlot::Empty);
 
@@ -423,10 +427,12 @@ void TimelineComponent::mouseDrag(const juce::MouseEvent& e)
     }
     else if (dragMode == ResizeClipRight)
     {
+        double clipPos = clip ? clip->timelinePosition : aClip->timelinePosition;
         double newEnd = snapToGrid(currentBeat);
-        double newLength = newEnd - clip->timelinePosition;
+        double newLength = newEnd - clipPos;
         if (newLength < gridResolution) newLength = gridResolution;
-        clip->lengthInBeats = newLength;
+        if (clip) clip->lengthInBeats = newLength;
+        if (aClip) aClip->lengthInBeats = newLength;
     }
     else if (dragMode == ResizeClipLeft)
     {
@@ -438,18 +444,26 @@ void TimelineComponent::mouseDrag(const juce::MouseEvent& e)
         if (newLength < 0.25) newLength = 0.25;
 
         // Shift MIDI events to compensate for the start position change
-        double shift = clip->timelinePosition - newStart;
-        if (std::abs(shift) > 0.001)
+        if (clip)
         {
-            for (int i = 0; i < clip->events.getNumEvents(); ++i)
+            double shift = clip->timelinePosition - newStart;
+            if (std::abs(shift) > 0.001)
             {
-                auto* event = clip->events.getEventPointer(i);
-                event->message.setTimeStamp(event->message.getTimeStamp() + shift);
+                for (int i = 0; i < clip->events.getNumEvents(); ++i)
+                {
+                    auto* event = clip->events.getEventPointer(i);
+                    event->message.setTimeStamp(event->message.getTimeStamp() + shift);
+                }
             }
+            clip->timelinePosition = newStart;
+            clip->lengthInBeats = newLength;
+            clip->events.updateMatchedPairs();
         }
-
-        clip->timelinePosition = newStart;
-        clip->lengthInBeats = newLength;
+        if (aClip)
+        {
+            aClip->timelinePosition = newStart;
+            aClip->lengthInBeats = newLength;
+        }
     }
 
     repaint();
@@ -801,6 +815,9 @@ void TimelineComponent::quantizeSelectedClip()
     auto* clip = getClip(selectedClip);
     if (clip == nullptr) return;
 
+    // Ensure matched pairs are up to date so we can find paired note-offs
+    clip->events.updateMatchedPairs();
+
     juce::MidiMessageSequence quantized;
 
     for (int i = 0; i < clip->events.getNumEvents(); ++i)
@@ -808,13 +825,40 @@ void TimelineComponent::quantizeSelectedClip()
         auto* event = clip->events.getEventPointer(i);
         auto msg = event->message;
 
-        // Snap timestamp to grid
-        double t = msg.getTimeStamp();
-        t = std::round(t / gridResolution) * gridResolution;
-        if (t < 0.0) t = 0.0;
-        msg.setTimeStamp(t);
+        if (msg.isNoteOn())
+        {
+            // Snap note-on to grid
+            double t = msg.getTimeStamp();
+            double snapped = std::round(t / gridResolution) * gridResolution;
+            if (snapped < 0.0) snapped = 0.0;
+            double delta = snapped - t;
+            msg.setTimeStamp(snapped);
+            quantized.addEvent(msg);
 
-        quantized.addEvent(msg);
+            // Shift the paired note-off by the same delta to preserve note length
+            if (event->noteOffObject != nullptr)
+            {
+                auto offMsg = event->noteOffObject->message;
+                double offT = offMsg.getTimeStamp() + delta;
+                if (offT < snapped) offT = snapped;
+                offMsg.setTimeStamp(offT);
+                quantized.addEvent(offMsg);
+            }
+        }
+        else if (msg.isNoteOff())
+        {
+            // Already handled via paired note-on above
+            continue;
+        }
+        else
+        {
+            // Non-note events: snap to grid
+            double t = msg.getTimeStamp();
+            t = std::round(t / gridResolution) * gridResolution;
+            if (t < 0.0) t = 0.0;
+            msg.setTimeStamp(t);
+            quantized.addEvent(msg);
+        }
     }
 
     quantized.updateMatchedPairs();

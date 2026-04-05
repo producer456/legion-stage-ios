@@ -1,6 +1,7 @@
 #pragma once
 
 #include <JuceHeader.h>
+#include <atomic>
 #include <set>
 #include "PluginHost.h"
 #include "PianoRollComponent.h"
@@ -77,6 +78,7 @@ private:
 
     // Transport
     double lastSpaceStopTime = 0.0;
+    bool wasRecording = false;
 
     // BPM drag
     bool bpmDragging = false;
@@ -115,8 +117,8 @@ private:
     // ── Capture (always-on MIDI buffer) ──
     juce::TextButton captureButton { "CAPT" };
     juce::MidiMessageSequence captureBuffer;
-    double captureStartTime = 0.0;
-    bool captureHasNotes = false;
+    std::atomic<double> captureStartTime { 0.0 };
+    std::atomic<bool> captureHasNotes { false };
     void performCapture();
 
     // ── Navigation ──
@@ -225,6 +227,9 @@ private:
             double timelinePosition = 0.0;
             int trackIndex = 0;
             int slotIndex = 0;
+            bool isAudio = false;
+            juce::AudioBuffer<float> audioSamples;
+            double audioSampleRate = 44100.0;
         };
         juce::Array<ClipData> clips;
         double bpm = 120.0;

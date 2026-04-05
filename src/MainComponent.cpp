@@ -331,9 +331,13 @@ MainComponent::MainComponent()
             int total = track.plugin->getNumPrograms();
             statusLabel.setText(juce::String(num) + "/" + juce::String(total) + " " + name, juce::dontSendNotification);
             chordLabel.setText("Preset", juce::dontSendNotification);
-            juce::Timer::callAfterDelay(2000, [this] {
-                statusLabel.setText("", juce::dontSendNotification);
-                chordLabel.setText("---", juce::dontSendNotification);
+            juce::Component::SafePointer<MainComponent> safeThis(this);
+            juce::Timer::callAfterDelay(2000, [safeThis] {
+                if (auto* self = safeThis.getComponent())
+                {
+                    self->statusLabel.setText("", juce::dontSendNotification);
+                    self->chordLabel.setText("---", juce::dontSendNotification);
+                }
             });
         }
     };
@@ -351,9 +355,13 @@ MainComponent::MainComponent()
             int total = track.plugin->getNumPrograms();
             statusLabel.setText(juce::String(num) + "/" + juce::String(total) + " " + name, juce::dontSendNotification);
             chordLabel.setText("Preset", juce::dontSendNotification);
-            juce::Timer::callAfterDelay(2000, [this] {
-                statusLabel.setText("", juce::dontSendNotification);
-                chordLabel.setText("---", juce::dontSendNotification);
+            juce::Component::SafePointer<MainComponent> safeThis(this);
+            juce::Timer::callAfterDelay(2000, [safeThis] {
+                if (auto* self = safeThis.getComponent())
+                {
+                    self->statusLabel.setText("", juce::dontSendNotification);
+                    self->chordLabel.setText("---", juce::dontSendNotification);
+                }
             });
         }
     };
@@ -786,9 +794,13 @@ MainComponent::MainComponent()
             int clips = undoHistory[undoIndex].clips.size();
             statusLabel.setText("Undo (" + juce::String(clips) + " clips)", juce::dontSendNotification);
             chordLabel.setText("Step " + juce::String(undoIndex + 1) + "/" + juce::String(undoHistory.size()), juce::dontSendNotification);
-            juce::Timer::callAfterDelay(2000, [this] {
-                statusLabel.setText("", juce::dontSendNotification);
-                chordLabel.setText("---", juce::dontSendNotification);
+            juce::Component::SafePointer<MainComponent> safeThis(this);
+            juce::Timer::callAfterDelay(2000, [safeThis] {
+                if (auto* self = safeThis.getComponent())
+                {
+                    self->statusLabel.setText("", juce::dontSendNotification);
+                    self->chordLabel.setText("---", juce::dontSendNotification);
+                }
             });
         }
     };
@@ -802,9 +814,13 @@ MainComponent::MainComponent()
             int clips = undoHistory[undoIndex].clips.size();
             statusLabel.setText("Redo (" + juce::String(clips) + " clips)", juce::dontSendNotification);
             chordLabel.setText("Step " + juce::String(undoIndex + 1) + "/" + juce::String(undoHistory.size()), juce::dontSendNotification);
-            juce::Timer::callAfterDelay(2000, [this] {
-                statusLabel.setText("", juce::dontSendNotification);
-                chordLabel.setText("---", juce::dontSendNotification);
+            juce::Component::SafePointer<MainComponent> safeThis(this);
+            juce::Timer::callAfterDelay(2000, [safeThis] {
+                if (auto* self = safeThis.getComponent())
+                {
+                    self->statusLabel.setText("", juce::dontSendNotification);
+                    self->chordLabel.setText("---", juce::dontSendNotification);
+                }
             });
         }
     };
@@ -914,9 +930,21 @@ MainComponent::MainComponent()
     selectTrack(0);
 
 #if JUCE_IOS
-    juce::Timer::callAfterDelay(3000, [this] { scanPlugins(); });
-    // Force layout refresh after orientation settles
-    juce::Timer::callAfterDelay(500, [this] { resized(); repaint(); });
+    {
+        juce::Component::SafePointer<MainComponent> safeThis(this);
+        juce::Timer::callAfterDelay(3000, [safeThis] {
+            if (auto* self = safeThis.getComponent())
+                self->scanPlugins();
+        });
+        // Force layout refresh after orientation settles
+        juce::Timer::callAfterDelay(500, [safeThis] {
+            if (auto* self = safeThis.getComponent())
+            {
+                self->resized();
+                self->repaint();
+            }
+        });
+    }
 #endif
     updateStatusLabel();
 
@@ -1187,7 +1215,7 @@ void MainComponent::timerCallback()
     panicButton.repaint();
 
     // Auto-snapshot when recording stops (detect transition)
-    static bool wasRecording = false;
+    // wasRecording is now a member variable (not static)
     bool isRec = false;
     for (int t = 0; t < PluginHost::NUM_TRACKS; ++t)
     {
@@ -1461,13 +1489,27 @@ void MainComponent::loadSelectedPlugin()
             statusLabel.setText(plugName, juce::dontSendNotification);
             chordLabel.setText("OK", juce::dontSendNotification);
             // Restore normal display after 3 seconds
-            juce::Timer::callAfterDelay(3000, [this] {
-                // Beat label will auto-update from timerCallback
-                statusLabel.setText("", juce::dontSendNotification);
-                chordLabel.setText("---", juce::dontSendNotification);
+            juce::Component::SafePointer<MainComponent> safeThis(this);
+            juce::Timer::callAfterDelay(3000, [safeThis] {
+                if (auto* self = safeThis.getComponent())
+                {
+                    // Beat label will auto-update from timerCallback
+                    self->statusLabel.setText("", juce::dontSendNotification);
+                    self->chordLabel.setText("---", juce::dontSendNotification);
+                }
             });
         }
-        juce::Timer::callAfterDelay(500, [this] { updateParamSliders(); updateFxDisplay(); updatePresetList(); });
+        {
+            juce::Component::SafePointer<MainComponent> safeThis(this);
+            juce::Timer::callAfterDelay(500, [safeThis] {
+                if (auto* self = safeThis.getComponent())
+                {
+                    self->updateParamSliders();
+                    self->updateFxDisplay();
+                    self->updatePresetList();
+                }
+            });
+        }
 #endif
     }
     else
@@ -1475,9 +1517,13 @@ void MainComponent::loadSelectedPlugin()
         beatLabel.setText("FAILED:", juce::dontSendNotification);
         statusLabel.setText(err, juce::dontSendNotification);
         chordLabel.setText("ERR", juce::dontSendNotification);
-        juce::Timer::callAfterDelay(3000, [this] {
-            statusLabel.setText("", juce::dontSendNotification);
-            chordLabel.setText("---", juce::dontSendNotification);
+        juce::Component::SafePointer<MainComponent> safeThis(this);
+        juce::Timer::callAfterDelay(3000, [safeThis] {
+            if (auto* self = safeThis.getComponent())
+            {
+                self->statusLabel.setText("", juce::dontSendNotification);
+                self->chordLabel.setText("---", juce::dontSendNotification);
+            }
         });
     }
 
@@ -1507,15 +1553,29 @@ void MainComponent::openPluginEditor()
         overlay->addAndMakeVisible(closeBtn);
         overlay->addAndMakeVisible(*currentEditor);
 
-        // Use the editor's preferred size, not its current bounds
+        // Use the editor's preferred size
         int edW = currentEditor->getWidth();
         int edH = currentEditor->getHeight();
         if (edW <= 0) edW = 600;
         if (edH <= 0) edH = 400;
 
+        // Check if the plugin has size constraints
+        if (auto* constrainer = currentEditor->getConstrainer())
+        {
+            if (constrainer->getMinimumWidth() > 0)
+                edW = juce::jmax(edW, constrainer->getMinimumWidth());
+            if (constrainer->getMinimumHeight() > 0)
+                edH = juce::jmax(edH, constrainer->getMinimumHeight());
+        }
+
         int closeBarH = 44;
-        int ew = juce::jmin(edW, getWidth() - 20);
-        int eh = juce::jmin(edH, getHeight() - closeBarH - 20);
+        int maxW = getWidth() - 20;
+        int maxH = getHeight() - closeBarH - 40;
+
+        // Fit to available space
+        int ew = juce::jmin(edW, maxW);
+        int eh = juce::jmin(edH, maxH);
+
         int ox = (getWidth() - ew) / 2;
         int oy = (getHeight() - eh - closeBarH) / 2;
 
@@ -1542,6 +1602,16 @@ void MainComponent::closePluginEditor()
         {
             if (child->getName() == "EditorOverlay")
             {
+                // Delete overlay's children (e.g. closeBtn) that aren't owned by unique_ptr
+                for (int j = child->getNumChildComponents() - 1; j >= 0; --j)
+                {
+                    auto* sub = child->getChildComponent(j);
+                    if (sub != currentEditor.get())
+                    {
+                        child->removeChildComponent(j);
+                        delete sub;
+                    }
+                }
                 removeChildComponent(i);
                 delete child;
                 break;
@@ -1558,7 +1628,11 @@ void MainComponent::closePluginEditor()
 void MainComponent::playTestNote()
 {
     pluginHost.sendTestNoteOn(60, 0.78f);
-    juce::Timer::callAfterDelay(500, [this] { pluginHost.sendTestNoteOff(60); });
+    juce::Component::SafePointer<MainComponent> safeThis(this);
+    juce::Timer::callAfterDelay(500, [safeThis] {
+        if (auto* self = safeThis.getComponent())
+            self->pluginHost.sendTestNoteOff(60);
+    });
 }
 
 // ── MIDI ─────────────────────────────────────────────────────────────────────
@@ -1883,7 +1957,7 @@ void MainComponent::handleIncomingMidiMessage(juce::MidiInput* /*source*/, const
                     }
                     trimmed.updateMatchedPairs();
                     captureBuffer = trimmed;
-                    captureStartTime += cutoff;
+                    captureStartTime.store(captureStartTime.load() + cutoff);
                 }
             });
         }
@@ -1927,10 +2001,14 @@ void MainComponent::showAudioSettings()
     opt.useNativeTitleBar = true;
     opt.resizable = false;
     opt.launchAsync();
-    juce::Timer::callAfterDelay(500, [this] {
-        if (auto* dev = deviceManager.getCurrentAudioDevice())
-            pluginHost.setAudioParams(dev->getCurrentSampleRate(), dev->getCurrentBufferSizeSamples());
-        updateStatusLabel();
+    juce::Component::SafePointer<MainComponent> safeThis(this);
+    juce::Timer::callAfterDelay(500, [safeThis] {
+        if (auto* self = safeThis.getComponent())
+        {
+            if (auto* dev = self->deviceManager.getCurrentAudioDevice())
+                self->pluginHost.setAudioParams(dev->getCurrentSampleRate(), dev->getCurrentBufferSizeSamples());
+            self->updateStatusLabel();
+        }
     });
 #endif
 }
@@ -2257,7 +2335,11 @@ void MainComponent::performCapture()
     if (!captureHasNotes || captureBuffer.getNumEvents() < 2)
     {
         statusLabel.setText("Nothing to capture", juce::dontSendNotification);
-        juce::Timer::callAfterDelay(2000, [this] { statusLabel.setText("", juce::dontSendNotification); });
+        juce::Component::SafePointer<MainComponent> safeThis(this);
+        juce::Timer::callAfterDelay(2000, [safeThis] {
+            if (auto* self = safeThis.getComponent())
+                self->statusLabel.setText("", juce::dontSendNotification);
+        });
         return;
     }
 
@@ -2343,7 +2425,11 @@ void MainComponent::performCapture()
     if (emptySlot < 0)
     {
         statusLabel.setText("No empty slots", juce::dontSendNotification);
-        juce::Timer::callAfterDelay(2000, [this] { statusLabel.setText("", juce::dontSendNotification); });
+        juce::Component::SafePointer<MainComponent> safeThis(this);
+        juce::Timer::callAfterDelay(2000, [safeThis] {
+            if (auto* self = safeThis.getComponent())
+                self->statusLabel.setText("", juce::dontSendNotification);
+        });
         return;
     }
 
@@ -2389,9 +2475,13 @@ void MainComponent::performCapture()
 
     statusLabel.setText(info, juce::dontSendNotification);
     chordLabel.setText(juce::String(bars) + " bar" + (bars != 1 ? "s" : ""), juce::dontSendNotification);
-    juce::Timer::callAfterDelay(2000, [this] {
-        statusLabel.setText("", juce::dontSendNotification);
-        chordLabel.setText("---", juce::dontSendNotification);
+    juce::Component::SafePointer<MainComponent> safeThis(this);
+    juce::Timer::callAfterDelay(2000, [safeThis] {
+        if (auto* self = safeThis.getComponent())
+        {
+            self->statusLabel.setText("", juce::dontSendNotification);
+            self->chordLabel.setText("---", juce::dontSendNotification);
+        }
     });
 
     if (timelineComponent) timelineComponent->repaint();
@@ -2428,6 +2518,18 @@ void MainComponent::takeSnapshot()
 
                 snap.clips.add(std::move(cd));
             }
+            if (slot.audioClip != nullptr && slot.hasContent())
+            {
+                ProjectSnapshot::ClipData cd;
+                cd.isAudio = true;
+                cd.audioSamples = slot.audioClip->samples;  // deep copy
+                cd.audioSampleRate = slot.audioClip->sampleRate;
+                cd.lengthInBeats = slot.audioClip->lengthInBeats;
+                cd.timelinePosition = slot.audioClip->timelinePosition;
+                cd.trackIndex = t;
+                cd.slotIndex = s;
+                snap.clips.add(std::move(cd));
+            }
         }
     }
 
@@ -2454,6 +2556,7 @@ void MainComponent::restoreSnapshot(const ProjectSnapshot& snap)
         {
             auto& slot = cp->getSlot(s);
             slot.clip = nullptr;
+            slot.audioClip = nullptr;
             slot.state.store(ClipSlot::Empty);
         }
     }
@@ -2468,13 +2571,27 @@ void MainComponent::restoreSnapshot(const ProjectSnapshot& snap)
         if (cp == nullptr) continue;
 
         auto& slot = cp->getSlot(cd.slotIndex);
-        slot.clip = std::make_unique<MidiClip>();
-        slot.clip->lengthInBeats = cd.lengthInBeats;
-        slot.clip->timelinePosition = cd.timelinePosition;
 
-        for (int e = 0; e < cd.events.getNumEvents(); ++e)
-            slot.clip->events.addEvent(cd.events.getEventPointer(e)->message);
-        slot.clip->events.updateMatchedPairs();
+        if (cd.isAudio)
+        {
+            slot.audioClip = std::make_unique<AudioClip>();
+            slot.audioClip->samples = cd.audioSamples;
+            slot.audioClip->sampleRate = cd.audioSampleRate;
+            slot.audioClip->lengthInBeats = cd.lengthInBeats;
+            slot.audioClip->timelinePosition = cd.timelinePosition;
+            slot.clip = nullptr;  // ensure only one type
+        }
+        else
+        {
+            slot.clip = std::make_unique<MidiClip>();
+            slot.clip->lengthInBeats = cd.lengthInBeats;
+            slot.clip->timelinePosition = cd.timelinePosition;
+
+            for (int e = 0; e < cd.events.getNumEvents(); ++e)
+                slot.clip->events.addEvent(cd.events.getEventPointer(e)->message);
+            slot.clip->events.updateMatchedPairs();
+            slot.audioClip = nullptr;  // ensure only one type
+        }
 
         slot.state.store(ClipSlot::Playing);
     }
@@ -2573,6 +2690,7 @@ void MainComponent::saveProject()
             for (int s = 0; s < ClipPlayerNode::NUM_SLOTS; ++s)
             {
                 auto& slot = cp->getSlot(s);
+                // TODO: AudioClip save/load not yet implemented — audio clips are skipped here
                 if (slot.clip == nullptr || !slot.hasContent()) continue;
 
                 auto* clipXml = trackXml->createNewChildElement("Clip");
@@ -3896,11 +4014,36 @@ void MainComponent::resized()
     shaderToyDisplay.setVisible(false);
     analyzerDisplay.setVisible(currentVisMode == 5);
     visExitButton.setVisible(false);
-    projectorButton.setVisible(false);  // merged with fullscreen
-    visSelector.setVisible(true);
+    projectorButton.setVisible(false);
     fullscreenButton.setVisible(false);
     midi2Button.setVisible(true);
-    setVisControlsVisible();
+
+    // Hide ALL fullscreen vis controls when not in fullscreen
+    specDecayBtn.setVisible(false);
+    specSensUpBtn.setVisible(false);
+    specSensDownBtn.setVisible(false);
+    lissZoomInBtn.setVisible(false);
+    lissZoomOutBtn.setVisible(false);
+    lissDotsBtn.setVisible(false);
+    gfRibbonUpBtn.setVisible(false);
+    gfRibbonDownBtn.setVisible(false);
+    gfTrailBtn.setVisible(false);
+    gfSpeedSelector.setVisible(false);
+    geissWaveBtn.setVisible(false);
+    geissPaletteBtn.setVisible(false);
+    geissSceneBtn.setVisible(false);
+    geissWaveUpBtn.setVisible(false);
+    geissWaveDownBtn.setVisible(false);
+    geissWarpLockBtn.setVisible(false);
+    geissPalLockBtn.setVisible(false);
+    geissSpeedSelector.setVisible(false);
+    geissAutoPilotBtn.setVisible(false);
+    geissBgBtn.setVisible(false);
+    pmNextBtn.setVisible(false);
+    pmPrevBtn.setVisible(false);
+    pmRandBtn.setVisible(false);
+    pmLockBtn.setVisible(false);
+    pmBgBtn.setVisible(false);
 
     } // end if (!isPhone) — iPad layout
 
