@@ -325,8 +325,7 @@ MainComponent::MainComponent()
             juce::String name = track.plugin->getProgramName(cur + 1);
             int num = cur + 2;
             int total = track.plugin->getNumPrograms();
-            beatLabel.setText(juce::String(num) + "/" + juce::String(total), juce::dontSendNotification);
-            statusLabel.setText(name, juce::dontSendNotification);
+            statusLabel.setText(juce::String(num) + "/" + juce::String(total) + " " + name, juce::dontSendNotification);
             chordLabel.setText("Preset", juce::dontSendNotification);
             juce::Timer::callAfterDelay(2000, [this] {
                 statusLabel.setText("", juce::dontSendNotification);
@@ -346,8 +345,7 @@ MainComponent::MainComponent()
             juce::String name = track.plugin->getProgramName(cur - 1);
             int num = cur;
             int total = track.plugin->getNumPrograms();
-            beatLabel.setText(juce::String(num) + "/" + juce::String(total), juce::dontSendNotification);
-            statusLabel.setText(name, juce::dontSendNotification);
+            statusLabel.setText(juce::String(num) + "/" + juce::String(total) + " " + name, juce::dontSendNotification);
             chordLabel.setText("Preset", juce::dontSendNotification);
             juce::Timer::callAfterDelay(2000, [this] {
                 statusLabel.setText("", juce::dontSendNotification);
@@ -1015,6 +1013,25 @@ void MainComponent::timerCallback()
             recHighlightOn = false;
             recFlashCounter = 0;
             repaint(recordButton.getBounds().expanded(6));
+        }
+
+        // Animate loop button blue border when loop is on
+        if (loopButton.getToggleState())
+        {
+            if (++loopFlashCounter >= 8)
+            {
+                loopHighlightOn = !loopHighlightOn;
+                loopFlashCounter = 0;
+            }
+            loopHighlightAlpha = loopHighlightOn ? 1.0f : 0.15f;
+            repaint(loopButton.getBounds().expanded(6));
+        }
+        else if (loopHighlightAlpha != 0.4f)
+        {
+            loopHighlightAlpha = 0.6f;
+            loopHighlightOn = false;
+            loopFlashCounter = 0;
+            repaint(loopButton.getBounds().expanded(6));
         }
     }
 
@@ -2864,24 +2881,28 @@ void MainComponent::paintOverChildren(juce::Graphics& g)
     if (auto* lnf = dynamic_cast<DawLookAndFeel*>(&getLookAndFeel()))
         radius = lnf->getButtonRadius();
 
-    // Draw green border outside play button (flashes when playing)
+    // Draw green border on play button (flashes when playing)
     if (playButton.isVisible())
     {
-        auto btnBounds = playButton.getBounds().toFloat().expanded(3.0f);
-        g.setColour(juce::Colours::green.withAlpha(playHighlightAlpha * 0.8f));
-        g.drawRoundedRectangle(btnBounds, radius + 1.0f, 2.0f);
-        g.setColour(juce::Colours::green.withAlpha(playHighlightAlpha * 0.25f));
-        g.drawRoundedRectangle(btnBounds.expanded(2.0f), radius + 2.0f, 3.0f);
+        auto btnBounds = playButton.getBounds().toFloat().expanded(0.5f);
+        g.setColour(juce::Colours::green.withAlpha(playHighlightAlpha * 0.9f));
+        g.drawRoundedRectangle(btnBounds, radius, 2.0f);
     }
 
-    // Draw red border outside record button (flashes when recording)
+    // Draw red border on record button (flashes when recording)
     if (recordButton.isVisible())
     {
-        auto btnBounds = recordButton.getBounds().toFloat().expanded(3.0f);
-        g.setColour(juce::Colours::red.withAlpha(recHighlightAlpha * 0.8f));
-        g.drawRoundedRectangle(btnBounds, radius + 1.0f, 2.0f);
-        g.setColour(juce::Colours::red.withAlpha(recHighlightAlpha * 0.25f));
-        g.drawRoundedRectangle(btnBounds.expanded(2.0f), radius + 2.0f, 3.0f);
+        auto btnBounds = recordButton.getBounds().toFloat().expanded(0.5f);
+        g.setColour(juce::Colours::red.withAlpha(recHighlightAlpha * 0.9f));
+        g.drawRoundedRectangle(btnBounds, radius, 2.0f);
+    }
+
+    // Draw blue border on loop button (flashes when loop is on)
+    if (loopButton.isVisible())
+    {
+        auto btnBounds = loopButton.getBounds().toFloat().expanded(0.5f);
+        g.setColour(juce::Colour(0xff4488cc).withAlpha(loopHighlightAlpha * 0.9f));
+        g.drawRoundedRectangle(btnBounds, radius, 2.0f);
     }
 }
 
@@ -3923,9 +3944,12 @@ void MainComponent::resized()
         mixerComponent->setVisible(false);
         if (timelineComponent)
         {
-            // Minimap at bottom
+            // Minimap at bottom — with safe area padding on iOS
             if (arrangerMinimap)
             {
+#if JUCE_IOS
+                area.removeFromBottom(20); // home indicator safe area
+#endif
                 arrangerMinimap->setBounds(area.removeFromBottom(20));
                 arrangerMinimap->setVisible(true);
             }

@@ -39,11 +39,9 @@ public:
         g.setColour(juce::Colour(bgColor));
         g.fillRect(bounds);
 
-        float w = bounds.getWidth();
         float h = bounds.getHeight();
-        float trackLabelFrac = 0.12f; // skip track label area
-        float mapX = bounds.getX() + w * trackLabelFrac;
-        float mapW = w * (1.0f - trackLabelFrac);
+        float mapX = bounds.getX();
+        float mapW = bounds.getWidth();
 
         // Draw clip blocks in OLED blue
         g.setColour(juce::Colour(lcdBlue).withAlpha(0.7f));
@@ -106,12 +104,9 @@ private:
 
     void dragToPosition(const juce::MouseEvent& e)
     {
-        float w = static_cast<float>(getWidth());
-        float trackLabelFrac = 0.12f;
-        float mapX = w * trackLabelFrac;
-        float mapW = w * (1.0f - trackLabelFrac);
+        float mapW = static_cast<float>(getWidth());
 
-        float frac = (static_cast<float>(e.x) - mapX) / mapW;
+        float frac = static_cast<float>(e.x) / mapW;
         frac = juce::jlimit(0.0f, 1.0f, frac);
         double newScroll = frac * projectLength - viewWidth * 0.5;
         newScroll = juce::jmax(0.0, newScroll);

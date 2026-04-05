@@ -2,6 +2,7 @@
 
 #include <JuceHeader.h>
 #include <set>
+#include "DawLookAndFeel.h"
 
 // On-screen touch/click piano keyboard.
 // Sends note on/off via a callback. Supports multi-touch,
@@ -42,6 +43,25 @@ public:
         float blackH = keyH * 0.6f;
         float blackW = keyW * 0.65f;
 
+        // Get theme colors
+        juce::Colour whiteKey(0xFFf0ece6);
+        juce::Colour whitePressed(0xFFB0C4FF);
+        juce::Colour blackKey(0xFF1a1a1a);
+        juce::Colour blackPressed(0xFF4466AA);
+        juce::Colour keyBorder(0xFF333333);
+        juce::Colour labelCol(0xFF666666);
+
+        if (auto* lnf = dynamic_cast<DawLookAndFeel*>(&getLookAndFeel()))
+        {
+            auto& theme = lnf->getTheme();
+            whiteKey     = juce::Colour(theme.textBright);
+            whitePressed = juce::Colour(theme.lcdText).withAlpha(0.5f);
+            blackKey     = juce::Colour(theme.bodyDark);
+            blackPressed = juce::Colour(theme.lcdText).withAlpha(0.7f);
+            keyBorder    = juce::Colour(theme.border);
+            labelCol     = juce::Colour(theme.textSecondary);
+        }
+
         // Draw white keys
         for (int i = 0; i < totalWhite; ++i)
         {
@@ -49,15 +69,15 @@ public:
             int note = whiteKeyToNote(i);
             bool pressed = activeNotes.count(note) > 0;
 
-            g.setColour(pressed ? juce::Colour(0xFFB0C4FF) : juce::Colours::white);
+            g.setColour(pressed ? whitePressed : whiteKey);
             g.fillRect(x + 0.5f, 0.0f, keyW - 1.0f, keyH);
-            g.setColour(juce::Colour(0xFF333333));
+            g.setColour(keyBorder);
             g.drawRect(x, 0.0f, keyW, keyH, 0.5f);
 
             // Label C notes
             if (note % 12 == 0)
             {
-                g.setColour(juce::Colour(0xFF666666));
+                g.setColour(labelCol);
                 g.setFont(10.0f);
                 g.drawText("C" + juce::String(note / 12 - 1),
                            static_cast<int>(x), static_cast<int>(keyH - 16),
@@ -69,17 +89,16 @@ public:
         for (int i = 0; i < totalWhite - 1; ++i)
         {
             int noteInOctave = whiteKeyToNote(i) % 12;
-            // Black key exists after C, D, F, G, A (positions 0,2,5,7,9 in chromatic)
             if (noteInOctave == 0 || noteInOctave == 2 || noteInOctave == 5 ||
                 noteInOctave == 7 || noteInOctave == 9)
             {
                 float x = bounds.getX() + (i + 1) * keyW - blackW * 0.5f;
-                int note = whiteKeyToNote(i) + 1; // the sharp
+                int note = whiteKeyToNote(i) + 1;
                 bool pressed = activeNotes.count(note) > 0;
 
-                g.setColour(pressed ? juce::Colour(0xFF4466AA) : juce::Colour(0xFF1a1a1a));
+                g.setColour(pressed ? blackPressed : blackKey);
                 g.fillRect(x, 0.0f, blackW, blackH);
-                g.setColour(juce::Colour(0xFF000000));
+                g.setColour(keyBorder.darker(0.5f));
                 g.drawRect(x, 0.0f, blackW, blackH, 0.5f);
             }
         }
