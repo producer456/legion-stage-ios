@@ -3005,9 +3005,7 @@ void MainComponent::resized()
         midiLearnButton.setButtonText("Learn");
         midiLearnButton.setBounds(row1.removeFromLeft(r1bw));
         row1.removeFromLeft(gap);
-        audioSettingsButton.setVisible(true);
-        audioSettingsButton.setButtonText("Audio");
-        audioSettingsButton.setBounds(row1.removeFromLeft(row1.getWidth()));  // take whatever's left
+        audioSettingsButton.setVisible(false);
 
         settingsButton.setVisible(false);
 
@@ -3461,7 +3459,7 @@ void MainComponent::resized()
     undoButton.setVisible(true);
     redoButton.setVisible(true);
     themeSelector.setVisible(true);
-    audioSettingsButton.setVisible(true);
+    audioSettingsButton.setVisible(false);
     midi2Button.setVisible(true);
     pluginSelector.setVisible(true);
     openEditorButton.setVisible(true);
@@ -3706,7 +3704,7 @@ void MainComponent::resized()
     toolbar.removeFromRight(2);
     projectorButton.setVisible(false);
     fullscreenButton.setVisible(false);
-    audioSettingsButton.setBounds(toolbar.removeFromRight(80));
+    audioSettingsButton.setVisible(false);
 
     // Track input selector + M2 button on same row
     trackNameLabel.setVisible(false);

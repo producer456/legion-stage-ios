@@ -54,11 +54,11 @@ public:
         if (auto* lnf = dynamic_cast<DawLookAndFeel*>(&getLookAndFeel()))
         {
             auto& theme = lnf->getTheme();
-            whiteKey     = juce::Colour(theme.textBright);
+            whiteKey     = juce::Colour(0xfff0ece6);  // always ivory white
             whitePressed = juce::Colour(theme.lcdText).withAlpha(0.5f);
-            blackKey     = juce::Colour(theme.bodyDark);
+            blackKey     = juce::Colour(0xff1a1a1e);  // always near-black
             blackPressed = juce::Colour(theme.lcdText).withAlpha(0.7f);
-            keyBorder    = juce::Colour(theme.border);
+            keyBorder    = juce::Colour(0xff404040);
             labelCol     = juce::Colour(theme.textSecondary);
         }
 
