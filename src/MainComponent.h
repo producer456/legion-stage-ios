@@ -275,7 +275,7 @@ private:
     float recHighlightAlpha = 0.4f;
     bool recHighlightOn = false;
     int recFlashCounter = 0;
-    float loopHighlightAlpha = 0.6f;
+    float loopHighlightAlpha = 0.4f;
     bool loopHighlightOn = false;
     int loopFlashCounter = 0;
 

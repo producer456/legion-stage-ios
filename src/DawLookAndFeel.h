@@ -34,6 +34,10 @@ public:
     // The font name used for display/headings (can be serif for some themes)
     virtual juce::String getDisplayFontName() const { return getUIFontName(); }
 
+    // Invalidate any cached images (side panels, top bar, etc.)
+    // Called by ThemeManager when switching themes so stale caches aren't reused.
+    virtual void invalidateCaches() {}
+
 protected:
     DawTheme theme {};
 
@@ -669,8 +673,6 @@ protected:
 
         // Use slider's own fill color if set, otherwise theme amber
         auto arcColor = slider.findColour(juce::Slider::rotarySliderFillColourId);
-        if (arcColor == juce::Colour(theme.amber))
-            arcColor = juce::Colour(theme.amber); // default
         juce::Path valueArc;
         valueArc.addArc(centreX - radius + 2, centreY - radius + 2,
                         (radius - 2) * 2.0f, (radius - 2) * 2.0f,

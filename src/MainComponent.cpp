@@ -25,7 +25,6 @@ MainComponent::MainComponent()
 
     addAndMakeVisible(shaderToyDisplay);
     shaderToyDisplay.setVisible(false);
-            analyzerDisplay.setVisible(false);
     pluginHost.shaderToyDisplay = &shaderToyDisplay;
 
     addAndMakeVisible(analyzerDisplay);
@@ -38,8 +37,6 @@ MainComponent::MainComponent()
 
     addAndMakeVisible(projectMDisplay);
     projectMDisplay.setVisible(false);
-            shaderToyDisplay.setVisible(false);
-            analyzerDisplay.setVisible(false);
     pluginHost.projectMDisplay = &projectMDisplay;
 
     // Tap on small visualizer to go fullscreen
@@ -1028,7 +1025,7 @@ void MainComponent::timerCallback()
         }
         else if (loopHighlightAlpha != 0.4f)
         {
-            loopHighlightAlpha = 0.6f;
+            loopHighlightAlpha = 0.4f;
             loopHighlightOn = false;
             loopFlashCounter = 0;
             repaint(loopButton.getBounds().expanded(6));
@@ -1268,7 +1265,7 @@ void MainComponent::updateTrackDisplay()
         for (int s = 0; s < ClipPlayerNode::NUM_SLOTS; ++s)
         {
             auto& slot = track.clipPlayer->getSlot(s);
-            if (slot.hasContent())
+            if (slot.hasContent() && slot.clip != nullptr)
             {
                 clipCount++;
                 totalNotes += slot.clip->events.getNumEvents() / 2; // note on+off pairs
@@ -2675,7 +2672,7 @@ void MainComponent::showPhoneMenu()
                 resized();
                 repaint();
             }
-            else if (result >= 100 && result <= 104) {
+            else if (result >= 100 && result <= 106) {
                 currentVisMode = result - 100;
                 visSelector.setSelectedId(currentVisMode + 1, juce::dontSendNotification);
                 resized();
@@ -3423,9 +3420,9 @@ void MainComponent::resized()
     recordButton.setVisible(true);
     metronomeButton.setVisible(true);
     loopButton.setVisible(true);
-    bpmDownButton.setVisible(true);
+    bpmDownButton.setVisible(false);
     bpmLabel.setVisible(true);
-    bpmUpButton.setVisible(true);
+    bpmUpButton.setVisible(false);
     tapTempoButton.setVisible(true);
     statusLabel.setVisible(true);
     chordLabel.setVisible(true);
@@ -3433,8 +3430,8 @@ void MainComponent::resized()
     mixerButton.setVisible(true);
     pianoToggleButton.setVisible(true);
     countInButton.setVisible(true);
-    scrollLeftButton.setVisible(true);
-    scrollRightButton.setVisible(true);
+    scrollLeftButton.setVisible(false);
+    scrollRightButton.setVisible(false);
     zoomInButton.setVisible(true);
     zoomOutButton.setVisible(true);
     panicButton.setVisible(true);

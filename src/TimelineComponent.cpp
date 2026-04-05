@@ -364,7 +364,6 @@ void TimelineComponent::mouseDrag(const juce::MouseEvent& e)
     {
         double newStart = snapToGrid(currentBeat);
         if (newStart < 0.0) newStart = 0.0;
-        if (newStart < 0.0) newStart = 0.0;
 
         double origEnd = clipOrigPosition + clipOrigLength;
         double newLength = origEnd - newStart;

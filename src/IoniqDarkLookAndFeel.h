@@ -294,5 +294,7 @@ public:
         g.fillPath(arrow);
     }
 
+    void invalidateCaches() override { sideCacheKey = 0; sideCacheH = 0; topBarCacheW = 0; topBarCacheH = 0; }
+
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(IoniqDarkLookAndFeel)
 };

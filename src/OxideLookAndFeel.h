@@ -165,6 +165,8 @@ public:
         g.drawImageAt(topBarCache, x, y);
     }
 
+    void invalidateCaches() override { topBarCacheW = 0; topBarCacheH = 0; }
+
     mutable juce::Image topBarCache;
     mutable int topBarCacheW = 0, topBarCacheH = 0;
 

@@ -42,7 +42,9 @@ public:
     // Apply the given theme to a component tree
     void setTheme(Theme t, juce::Component* root)
     {
+        themes[currentTheme]->invalidateCaches();
         currentTheme = t;
+        themes[currentTheme]->invalidateCaches();
         if (root)
         {
             root->setLookAndFeel(getLookAndFeel());
