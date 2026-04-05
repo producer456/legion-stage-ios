@@ -3138,9 +3138,7 @@ void MainComponent::resized()
 
         // OLED info display — centered in remaining space between panic and learn
         {
-            int oledW = juce::jmin(120, topBar.getWidth());
-            int oledX = topBar.getX() + (topBar.getWidth() - oledW) / 2;
-            auto oledOuter = juce::Rectangle<int>(oledX, topBar.getY(), oledW, topBar.getHeight());
+            auto oledOuter = topBar.reduced(6, 0);
             auto infoArea = oledOuter.reduced(3, 2);
             int rowH = infoArea.getHeight() / 2;
             statusLabel.setBounds(infoArea.removeFromTop(rowH));

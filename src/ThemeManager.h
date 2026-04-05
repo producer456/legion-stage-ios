@@ -7,6 +7,9 @@
 #include "IoniqLookAndFeel.h"
 #include "IoniqDarkLookAndFeel.h"
 #include "IoniqForestLookAndFeel.h"
+#include "RivianLookAndFeel.h"
+#include "CyberpunkLookAndFeel.h"
+#include "OxideLookAndFeel.h"
 
 class ThemeManager
 {
@@ -18,6 +21,9 @@ public:
         Ioniq,
         IoniqDark,
         IoniqForest,
+        Rivian,
+        Cyberpunk,
+        Oxide,
         NumThemes
     };
 
@@ -28,6 +34,9 @@ public:
         themes[Ioniq]     = std::make_unique<IoniqLookAndFeel>();
         themes[IoniqDark]   = std::make_unique<IoniqDarkLookAndFeel>();
         themes[IoniqForest] = std::make_unique<IoniqForestLookAndFeel>();
+        themes[Rivian]      = std::make_unique<RivianLookAndFeel>();
+        themes[Cyberpunk]   = std::make_unique<CyberpunkLookAndFeel>();
+        themes[Oxide]       = std::make_unique<OxideLookAndFeel>();
     }
 
     // Apply the given theme to a component tree
@@ -57,6 +66,9 @@ public:
             case Ioniq:     return "Ioniq";
             case IoniqDark:   return "Ioniq Dark";
             case IoniqForest: return "Ioniq Forest";
+            case Rivian:      return "Rivian";
+            case Cyberpunk:   return "Cyberpunk";
+            case Oxide:       return "Oxide";
             default:          return "Unknown";
         }
     }
