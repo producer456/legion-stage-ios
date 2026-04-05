@@ -2542,6 +2542,36 @@ void MainComponent::takeSnapshot()
         undoHistory.remove(0);
         undoIndex--;
     }
+
+    trimUndoHistoryByMemory();
+}
+
+void MainComponent::trimUndoHistoryByMemory()
+{
+    constexpr size_t maxBytes = 100 * 1024 * 1024;  // 100 MB limit
+
+    auto estimateSize = [](const ProjectSnapshot& snap) -> size_t {
+        size_t bytes = 0;
+        for (auto& cd : snap.clips)
+        {
+            bytes += cd.events.getNumEvents() * 16;  // rough MIDI estimate
+            if (cd.isAudio)
+                bytes += static_cast<size_t>(cd.audioSamples.getNumChannels())
+                       * static_cast<size_t>(cd.audioSamples.getNumSamples()) * sizeof(float);
+        }
+        return bytes;
+    };
+
+    size_t totalBytes = 0;
+    for (auto& snap : undoHistory)
+        totalBytes += estimateSize(snap);
+
+    while (totalBytes > maxBytes && undoHistory.size() > 2)
+    {
+        totalBytes -= estimateSize(undoHistory[0]);
+        undoHistory.remove(0);
+        undoIndex = juce::jmax(0, undoIndex - 1);
+    }
 }
 
 void MainComponent::restoreSnapshot(const ProjectSnapshot& snap)
@@ -2593,7 +2623,7 @@ void MainComponent::restoreSnapshot(const ProjectSnapshot& snap)
             slot.audioClip = nullptr;  // ensure only one type
         }
 
-        slot.state.store(ClipSlot::Playing);
+        slot.state.store(ClipSlot::Stopped);
     }
 
     updateTrackDisplay();
@@ -2611,7 +2641,14 @@ void MainComponent::saveProject()
         auto file = fc.getResult();
         if (file == juce::File()) return;
         auto xml = std::make_unique<juce::XmlElement>("SequencerProject");
-        xml->setAttribute("bpm", pluginHost.getEngine().getBpm());
+        auto& eng = pluginHost.getEngine();
+        xml->setAttribute("bpm", eng.getBpm());
+        xml->setAttribute("loopEnabled", eng.isLoopEnabled());
+        xml->setAttribute("loopStart", eng.getLoopStart());
+        xml->setAttribute("loopEnd", eng.getLoopEnd());
+        xml->setAttribute("metronome", eng.isMetronomeOn());
+        xml->setAttribute("selectedTrack", selectedTrackIndex);
+        xml->setAttribute("theme", static_cast<int>(themeManager.getCurrentTheme()));
 
         for (int t = 0; t < PluginHost::NUM_TRACKS; ++t)
         {
@@ -2759,8 +2796,46 @@ void MainComponent::loadProject()
         undoIndex = -1;
 
         double bpm = xml->getDoubleAttribute("bpm", 120.0);
-        pluginHost.getEngine().setBpm(bpm);
+        eng.setBpm(bpm);
         bpmLabel.setText(juce::String(static_cast<int>(bpm)) + " BPM", juce::dontSendNotification);
+
+        // Restore loop region
+        if (xml->hasAttribute("loopEnabled"))
+        {
+            bool loopOn = xml->getBoolAttribute("loopEnabled");
+            double ls = xml->getDoubleAttribute("loopStart", 0.0);
+            double le = xml->getDoubleAttribute("loopEnd", 0.0);
+            if (loopOn && le > ls)
+                eng.setLoopRegion(ls, le);
+            if (loopOn != eng.isLoopEnabled())
+                eng.toggleLoop();
+            loopButton.setToggleState(loopOn, juce::dontSendNotification);
+        }
+
+        // Restore metronome state
+        if (xml->hasAttribute("metronome"))
+        {
+            bool metOn = xml->getBoolAttribute("metronome");
+            if (metOn != eng.isMetronomeOn())
+                eng.toggleMetronome();
+            metronomeButton.setToggleState(metOn, juce::dontSendNotification);
+        }
+
+        // Restore selected track
+        if (xml->hasAttribute("selectedTrack"))
+            selectTrack(xml->getIntAttribute("selectedTrack", 0));
+
+        // Restore theme
+        if (xml->hasAttribute("theme"))
+        {
+            int themeIdx = xml->getIntAttribute("theme", 0);
+            if (themeIdx >= 0 && themeIdx < ThemeManager::NumThemes)
+            {
+                themeManager.setTheme(static_cast<ThemeManager::Theme>(themeIdx), this);
+                themeSelector.setSelectedId(themeIdx + 1, juce::dontSendNotification);
+                applyThemeToControls();
+            }
+        }
 
         // First pass: restore mixer settings and clips only (no plugin loading)
         for (auto* trackXml : xml->getChildWithTagNameIterator("Track"))
@@ -2862,7 +2937,7 @@ void MainComponent::loadProject()
                 }
 
                 slot.clip->events.updateMatchedPairs();
-                slot.state.store(ClipSlot::Playing);
+                slot.state.store(ClipSlot::Stopped);
             }
 
             // Load automation lanes

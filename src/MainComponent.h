@@ -237,6 +237,7 @@ private:
     juce::Array<ProjectSnapshot> undoHistory;
     int undoIndex = -1;
     void takeSnapshot();
+    void trimUndoHistoryByMemory();
     void restoreSnapshot(const ProjectSnapshot& snap);
     void saveProject();
     void loadProject();
