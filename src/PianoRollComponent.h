@@ -3,6 +3,7 @@
 #include <JuceHeader.h>
 #include "MidiClip.h"
 #include "SequencerEngine.h"
+#include "DawLookAndFeel.h"
 
 class PianoRollComponent : public juce::Component, public juce::Timer
 {
@@ -87,8 +88,15 @@ private:
 class PianoRollWindow : public juce::DocumentWindow
 {
 public:
-    PianoRollWindow(const juce::String& name, MidiClip& clip, SequencerEngine& engine)
-        : DocumentWindow(name, juce::Colour(0xff222222), DocumentWindow::closeButton)
+    PianoRollWindow(const juce::String& name, MidiClip& clip, SequencerEngine& engine,
+                    juce::LookAndFeel* lf = nullptr)
+        : DocumentWindow(name,
+                         [lf]() -> juce::Colour {
+                             if (auto* tc = dynamic_cast<DawLookAndFeel*>(lf))
+                                 return juce::Colour(tc->getTheme().body);
+                             return juce::Colour(0xff222222);
+                         }(),
+                         DocumentWindow::closeButton)
     {
         setUsingNativeTitleBar(true);
         setContentOwned(new PianoRollComponent(clip, engine), false);

@@ -1,4 +1,5 @@
 #include "PianoRollComponent.h"
+#include "DawLookAndFeel.h"
 
 PianoRollComponent::PianoRollComponent(MidiClip& c, SequencerEngine& eng)
     : clip(c), engine(eng)
@@ -271,7 +272,8 @@ void PianoRollComponent::mouseWheelMove(const juce::MouseEvent& e, const juce::M
 
 void PianoRollComponent::paint(juce::Graphics& g)
 {
-    g.fillAll(juce::Colour(0xff1a1a1a));
+    auto* tc = dynamic_cast<DawLookAndFeel*>(&getLookAndFeel());
+    g.fillAll(juce::Colour(tc ? tc->getTheme().timelineBg : 0xff1a1a1a));
     drawPianoKeys(g);
     drawGrid(g);
     drawNotes(g);
@@ -305,17 +307,19 @@ void PianoRollComponent::drawPlayhead(juce::Graphics& g)
 {
     if (!engine.isPlaying() || clip.lengthInBeats <= 0.0) return;
 
+    auto* tc = dynamic_cast<DawLookAndFeel*>(&getLookAndFeel());
+
     double clipPos = std::fmod(engine.getPositionInBeats(), clip.lengthInBeats);
     float x = beatToX(clipPos);
 
     if (x < pianoKeyWidth || x > getWidth()) return;
 
-    // Playhead line — bright white/yellow
-    g.setColour(juce::Colour(0xddffcc00));
+    // Playhead line
+    g.setColour(juce::Colour(tc ? tc->getTheme().playhead : 0xddffcc00));
     g.drawVerticalLine(static_cast<int>(x), 0.0f, static_cast<float>(getHeight()));
 
     // Slightly wider glow
-    g.setColour(juce::Colour(0x33ffcc00));
+    g.setColour(juce::Colour(tc ? tc->getTheme().playheadGlow : 0x33ffcc00));
     g.fillRect(x - 1.0f, 0.0f, 3.0f, static_cast<float>(getHeight()));
 }
 
@@ -335,6 +339,7 @@ juce::String PianoRollComponent::noteName(int note)
 
 void PianoRollComponent::drawPianoKeys(juce::Graphics& g)
 {
+    auto* tc = dynamic_cast<DawLookAndFeel*>(&getLookAndFeel());
     int topNote = scrollY + visibleNotes() - 1;
 
     for (int note = scrollY; note <= topNote && note <= MAX_NOTE; ++note)
@@ -342,10 +347,11 @@ void PianoRollComponent::drawPianoKeys(juce::Graphics& g)
         float y = noteToY(note);
         bool black = isBlackKey(note);
 
-        g.setColour(black ? juce::Colour(0xff333333) : juce::Colour(0xffcccccc));
+        g.setColour(black ? juce::Colour(tc ? tc->getTheme().bodyDark : 0xff333333)
+                          : juce::Colour(tc ? tc->getTheme().textPrimary : 0xffcccccc));
         g.fillRect(0.0f, y, static_cast<float>(pianoKeyWidth), static_cast<float>(noteHeight - 1));
 
-        g.setColour(juce::Colour(0xff555555));
+        g.setColour(juce::Colour(tc ? tc->getTheme().timelineGridMajor : 0xff555555));
         g.drawLine(0, y + noteHeight - 1, static_cast<float>(pianoKeyWidth), y + noteHeight - 1);
 
         // Label C notes
@@ -360,6 +366,7 @@ void PianoRollComponent::drawPianoKeys(juce::Graphics& g)
 
 void PianoRollComponent::drawGrid(juce::Graphics& g)
 {
+    auto* tc = dynamic_cast<DawLookAndFeel*>(&getLookAndFeel());
     int w = getWidth();
     int h = getHeight();
     int topNote = scrollY + visibleNotes() - 1;
@@ -371,10 +378,11 @@ void PianoRollComponent::drawGrid(juce::Graphics& g)
         bool black = isBlackKey(note);
 
         // Alternating lane colors
-        g.setColour(black ? juce::Colour(0xff1e1e1e) : juce::Colour(0xff242424));
+        g.setColour(black ? juce::Colour(tc ? tc->getTheme().timelineGridFaint : 0xff1e1e1e)
+                          : juce::Colour(tc ? tc->getTheme().timelineGridMinor : 0xff242424));
         g.fillRect(static_cast<float>(pianoKeyWidth), y, static_cast<float>(w - pianoKeyWidth), static_cast<float>(noteHeight));
 
-        g.setColour(juce::Colour(0xff2a2a2a));
+        g.setColour(juce::Colour(tc ? tc->getTheme().timelineGridBeat : 0xff2a2a2a));
         g.drawHorizontalLine(static_cast<int>(y + noteHeight - 1), static_cast<float>(pianoKeyWidth), static_cast<float>(w));
     }
 
@@ -392,18 +400,18 @@ void PianoRollComponent::drawGrid(juce::Graphics& g)
         bool isBar = std::abs(std::fmod(beat, 4.0)) < 0.001;
 
         if (isBar)
-            g.setColour(juce::Colour(0xff555555));
+            g.setColour(juce::Colour(tc ? tc->getTheme().timelineGridMajor : 0xff555555));
         else if (isBeat)
-            g.setColour(juce::Colour(0xff3a3a3a));
+            g.setColour(juce::Colour(tc ? tc->getTheme().timelineGridBeat : 0xff3a3a3a));
         else
-            g.setColour(juce::Colour(0xff2d2d2d));
+            g.setColour(juce::Colour(tc ? tc->getTheme().timelineGridMinor : 0xff2d2d2d));
 
         g.drawVerticalLine(static_cast<int>(x), 0.0f, static_cast<float>(h));
 
         // Beat numbers at top
         if (isBeat)
         {
-            g.setColour(juce::Colour(0xff888888));
+            g.setColour(juce::Colour(tc ? tc->getTheme().textSecondary : 0xff888888));
             g.setFont(10.0f);
             g.drawText(juce::String(static_cast<int>(beat) + 1), static_cast<int>(x) + 2, 0, 30, 12, juce::Justification::left);
         }
@@ -412,6 +420,7 @@ void PianoRollComponent::drawGrid(juce::Graphics& g)
 
 void PianoRollComponent::drawNotes(juce::Graphics& g)
 {
+    auto* tc = dynamic_cast<DawLookAndFeel*>(&getLookAndFeel());
     for (int i = 0; i < noteEvents.size(); ++i)
     {
         auto rect = getNoteRect(noteEvents[i]);
@@ -422,14 +431,14 @@ void PianoRollComponent::drawNotes(juce::Graphics& g)
 
         // Note color
         if (i == selectedNoteIndex)
-            g.setColour(juce::Colour(0xffff9944)); // orange for selected
+            g.setColour(juce::Colour(tc ? tc->getTheme().amber : 0xffff9944)); // selected
         else
-            g.setColour(juce::Colour(0xff5588cc)); // blue
+            g.setColour(juce::Colour(tc ? tc->getTheme().lcdText : 0xff5588cc)); // unselected
 
         g.fillRoundedRectangle(rect, 2.0f);
 
         // Border
-        g.setColour(juce::Colour(0xff88aadd));
+        g.setColour(juce::Colour(tc ? tc->getTheme().borderLight : 0xff88aadd));
         g.drawRoundedRectangle(rect, 2.0f, 1.0f);
 
         // Velocity bar at bottom of note
@@ -437,11 +446,11 @@ void PianoRollComponent::drawNotes(juce::Graphics& g)
         auto velBar = rect;
         velBar = velBar.removeFromBottom(3.0f);
         velBar = velBar.withWidth(velBar.getWidth() * velFrac);
-        g.setColour(juce::Colour(0xffff6644).withAlpha(0.7f));
+        g.setColour(juce::Colour(tc ? tc->getTheme().red : 0xffff6644).withAlpha(0.7f));
         g.fillRect(velBar);
 
         // Resize handle hint (right edge)
-        g.setColour(juce::Colour(0x44ffffff));
+        g.setColour(juce::Colour(tc ? tc->getTheme().textBright : 0xffffffff).withAlpha(0.27f));
         g.fillRect(rect.getRight() - 4, rect.getY() + 2, 2.0f, rect.getHeight() - 4);
     }
 }

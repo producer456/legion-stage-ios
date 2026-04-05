@@ -4745,7 +4745,7 @@ void MainComponent::applyThemeToControls()
     countInButton.setColour(juce::TextButton::textColourOnId, juce::Colour(c.lcdBg));
     loopButton.setColour(juce::TextButton::buttonColourId, juce::Colour(c.btnLoop));
     loopButton.setColour(juce::TextButton::buttonOnColourId, juce::Colour(c.btnLoopOn));
-    panicButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xffdd6600));
+    panicButton.setColour(juce::TextButton::buttonColourId, juce::Colour(c.amber));
     midiLearnButton.setColour(juce::TextButton::buttonColourId, juce::Colour(c.lcdBg).brighter(0.15f));
     midiLearnButton.setColour(juce::TextButton::buttonOnColourId, juce::Colour(c.lcdText));
     midiLearnButton.setColour(juce::TextButton::textColourOffId, juce::Colour(c.lcdText));
@@ -4781,6 +4781,10 @@ void MainComponent::applyThemeToControls()
     loadButton.setColour(juce::TextButton::buttonColourId, juce::Colour(c.btnLoad));
     undoButton.setColour(juce::TextButton::buttonColourId, juce::Colour(c.btnUndoRedo));
     redoButton.setColour(juce::TextButton::buttonColourId, juce::Colour(c.btnUndoRedo));
+
+    // Capture button
+    captureButton.setColour(juce::TextButton::buttonColourId, juce::Colour(c.btnNav));
+    captureButton.setColour(juce::TextButton::textColourOffId, juce::Colour(c.lcdText));
 
     for (int i = 0; i < NUM_FX_SLOTS; ++i)
         fxEditorButtons[i]->setColour(juce::TextButton::buttonColourId, juce::Colour(c.btnNav));

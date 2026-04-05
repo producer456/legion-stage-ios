@@ -93,6 +93,7 @@ public:
         {
             accentColor = lnf->getTheme().lcdAmber;
             bgColor     = lnf->getTheme().lcdBg;
+            gridColor   = lnf->getTheme().timelineGridMinor;
         }
 
         auto bounds = getLocalBounds().toFloat().reduced(1.0f);

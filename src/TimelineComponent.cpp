@@ -1164,18 +1164,18 @@ void TimelineComponent::drawTrackControls(juce::Graphics& g)
             g.fillRect(meterX + 4, y + 3, 3, meterH);
 
             // VU fill — L channel (bottom-up)
-            g.setColour(pkL > 0.9f ? juce::Colour(0xffee4444) : juce::Colour(meterColor));
+            g.setColour(pkL > 0.9f ? juce::Colour(tc ? tc->red : 0xffee4444) : juce::Colour(meterColor));
             g.fillRect(meterX, y + 3 + meterH - fillL, 3, fillL);
 
             // VU fill — R channel (bottom-up)
-            g.setColour(pkR > 0.9f ? juce::Colour(0xffee4444) : juce::Colour(meterColor));
+            g.setColour(pkR > 0.9f ? juce::Colour(tc ? tc->red : 0xffee4444) : juce::Colour(meterColor));
             g.fillRect(meterX + 4, y + 3 + meterH - fillR, 3, fillR);
 
             // CPU bar — thin vertical bar next to VU
             if (cpu > 0.1f)
             {
                 int fillCpu = static_cast<int>((cpu / 100.0f) * meterH);
-                g.setColour(cpu > 50.0f ? juce::Colour(0xffee4444) : juce::Colour(cpuColor));
+                g.setColour(cpu > 50.0f ? juce::Colour(tc ? tc->red : 0xffee4444) : juce::Colour(cpuColor));
                 g.fillRect(meterX + 9, y + 3 + meterH - fillCpu, 2, fillCpu);
             }
         }
