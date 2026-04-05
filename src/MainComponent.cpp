@@ -2731,21 +2731,47 @@ void MainComponent::saveProject()
             for (int s = 0; s < ClipPlayerNode::NUM_SLOTS; ++s)
             {
                 auto& slot = cp->getSlot(s);
-                // TODO: AudioClip save/load not yet implemented — audio clips are skipped here
-                if (slot.clip == nullptr || !slot.hasContent()) continue;
+                if (!slot.hasContent()) continue;
 
-                auto* clipXml = trackXml->createNewChildElement("Clip");
-                clipXml->setAttribute("slot", s);
-                clipXml->setAttribute("length", slot.clip->lengthInBeats);
-                clipXml->setAttribute("position", slot.clip->timelinePosition);
-
-                for (int e = 0; e < slot.clip->events.getNumEvents(); ++e)
+                // Save MIDI clip
+                if (slot.clip != nullptr)
                 {
-                    auto* event = slot.clip->events.getEventPointer(e);
-                    auto* noteXml = clipXml->createNewChildElement("Event");
-                    noteXml->setAttribute("time", event->message.getTimeStamp());
-                    noteXml->setAttribute("data", juce::String::toHexString(
-                        event->message.getRawData(), event->message.getRawDataSize()));
+                    auto* clipXml = trackXml->createNewChildElement("Clip");
+                    clipXml->setAttribute("slot", s);
+                    clipXml->setAttribute("length", slot.clip->lengthInBeats);
+                    clipXml->setAttribute("position", slot.clip->timelinePosition);
+
+                    for (int e = 0; e < slot.clip->events.getNumEvents(); ++e)
+                    {
+                        auto* event = slot.clip->events.getEventPointer(e);
+                        auto* noteXml = clipXml->createNewChildElement("Event");
+                        noteXml->setAttribute("time", event->message.getTimeStamp());
+                        noteXml->setAttribute("data", juce::String::toHexString(
+                            event->message.getRawData(), event->message.getRawDataSize()));
+                    }
+                }
+
+                // Save AudioClip
+                if (slot.audioClip != nullptr && slot.audioClip->samples.getNumSamples() > 0)
+                {
+                    auto* audioXml = trackXml->createNewChildElement("AudioClip");
+                    audioXml->setAttribute("slot", s);
+                    audioXml->setAttribute("length", slot.audioClip->lengthInBeats);
+                    audioXml->setAttribute("position", slot.audioClip->timelinePosition);
+                    audioXml->setAttribute("sampleRate", slot.audioClip->sampleRate);
+                    int numCh = slot.audioClip->samples.getNumChannels();
+                    int numSamp = slot.audioClip->samples.getNumSamples();
+                    audioXml->setAttribute("channels", numCh);
+
+                    // Interleave and base64-encode float samples
+                    juce::MemoryBlock audioData;
+                    audioData.setSize(static_cast<size_t>(numSamp) * numCh * sizeof(float));
+                    float* ptr = static_cast<float*>(audioData.getData());
+                    for (int si = 0; si < numSamp; ++si)
+                        for (int ch = 0; ch < numCh; ++ch)
+                            *ptr++ = slot.audioClip->samples.getSample(ch, si);
+
+                    audioXml->setAttribute("data", audioData.toBase64Encoding());
                 }
             }
         }
@@ -2941,6 +2967,37 @@ void MainComponent::loadProject()
                 }
 
                 slot.clip->events.updateMatchedPairs();
+                slot.state.store(ClipSlot::Stopped);
+            }
+
+            // Load AudioClips
+            for (auto* audioXml : trackXml->getChildWithTagNameIterator("AudioClip"))
+            {
+                int s = audioXml->getIntAttribute("slot", -1);
+                if (s < 0 || s >= ClipPlayerNode::NUM_SLOTS) continue;
+
+                auto& slot = cp->getSlot(s);
+                slot.audioClip = std::make_unique<AudioClip>();
+                slot.audioClip->lengthInBeats = audioXml->getDoubleAttribute("length", 4.0);
+                slot.audioClip->timelinePosition = audioXml->getDoubleAttribute("position", 0.0);
+                slot.audioClip->sampleRate = audioXml->getDoubleAttribute("sampleRate", 44100.0);
+
+                int numCh = audioXml->getIntAttribute("channels", 2);
+                auto dataStr = audioXml->getStringAttribute("data");
+
+                juce::MemoryBlock audioData;
+                audioData.fromBase64Encoding(dataStr);
+
+                int numSamp = static_cast<int>(audioData.getSize() / (numCh * sizeof(float)));
+                if (numSamp > 0)
+                {
+                    slot.audioClip->samples.setSize(numCh, numSamp);
+                    const float* ptr = static_cast<const float*>(audioData.getData());
+                    for (int si = 0; si < numSamp; ++si)
+                        for (int ch = 0; ch < numCh; ++ch)
+                            slot.audioClip->samples.setSample(ch, si, *ptr++);
+                }
+
                 slot.state.store(ClipSlot::Stopped);
             }
 
