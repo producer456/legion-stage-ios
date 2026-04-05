@@ -1059,13 +1059,8 @@ void MainComponent::timerCallback()
 
     // Update CPU + RAM meter
     {
-        float totalCpu = 0.0f;
-        for (int t = 0; t < PluginHost::NUM_TRACKS; ++t)
-        {
-            auto& track = pluginHost.getTrack(t);
-            if (track.gainProcessor)
-                totalCpu += track.gainProcessor->cpuPercent.load();
-        }
+        // Use audio device CPU usage — measures actual audio callback load
+        float totalCpu = static_cast<float>(deviceManager.getCpuUsage() * 100.0);
 
         // Get RAM usage
         int ramMB = 0;
@@ -3292,9 +3287,9 @@ void MainComponent::paint(juce::Graphics& g)
         }
 
         // Text — bottom half: "CPU 12%  RAM 201MB"
-        auto textArea = inner.removeFromBottom(inner.getHeight() * 0.45f);
-        g.setColour(juce::Colour(c.lcdText).withAlpha(0.8f));
-        g.setFont(juce::Font(themeManager.getLookAndFeel()->getUIFontName(), 9.0f, juce::Font::bold));
+        auto textArea = inner.removeFromBottom(inner.getHeight() * 0.5f);
+        g.setColour(juce::Colour(c.lcdText).withAlpha(0.9f));
+        g.setFont(juce::Font(themeManager.getLookAndFeel()->getUIFontName(), 14.0f, juce::Font::bold));
         g.drawText("CPU " + juce::String(static_cast<int>(currentCpuPercent)) + "%  RAM " +
                    juce::String(currentRamMB) + "MB",
                    textArea.toNearestInt(), juce::Justification::centred);
