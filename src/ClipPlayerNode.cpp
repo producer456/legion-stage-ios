@@ -341,16 +341,13 @@ void ClipPlayerNode::stopSlot(int slotIndex)
     if (state == ClipSlot::Playing)
     {
         sendAllNotesOff.store(true);
-        // If clip has no content, clean it up instead of keeping it in Playing
+        // Playing clips stay in Playing state — they resume when transport plays again
         if (!slot.hasContent())
         {
             slot.clip = nullptr;
             slot.state.store(ClipSlot::Empty);
         }
-        else
-        {
-            slot.state.store(ClipSlot::Stopped);
-        }
+        // else: keep Playing — clip will resume on next transport start
         return;
     }
 
