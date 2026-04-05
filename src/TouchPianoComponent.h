@@ -124,7 +124,7 @@ private:
         return (baseOctave + octave + 1) * 12 + offsets[keyInOctave]; // +1 for MIDI C convention
     }
 
-    int hitTest(juce::Point<float> pos) const
+    int noteAtPoint(juce::Point<float> pos) const
     {
         auto bounds = getLocalBounds().toFloat();
         int totalWhite = numOctaves * 7;
@@ -156,7 +156,7 @@ private:
 
     void handleTouch(juce::Point<float> pos, bool down)
     {
-        int note = hitTest(pos);
+        int note = noteAtPoint(pos);
         if (note < 0 || note > 127) return;
 
         if (down && note != lastDragNote)

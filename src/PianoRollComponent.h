@@ -17,6 +17,7 @@ public:
     void mouseMove(const juce::MouseEvent& e) override;
     void mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWheelDetails& w) override;
     void timerCallback() override;
+    void setGridResolution(double res) { gridResolution = res; }
 
 private:
     MidiClip& clip;
@@ -74,6 +75,8 @@ private:
     void drawGrid(juce::Graphics& g);
     void drawNotes(juce::Graphics& g);
     void drawPlayhead(juce::Graphics& g);
+
+    double gridResolution = 0.25;
 
     static bool isBlackKey(int note);
     static juce::String noteName(int note);

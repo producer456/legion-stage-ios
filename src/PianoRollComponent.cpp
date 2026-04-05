@@ -158,8 +158,8 @@ void PianoRollComponent::mouseDown(const juce::MouseEvent& e)
         double beat = xToBeat(mx);
         int note = yToNote(my);
 
-        // Snap to quarter beat
-        beat = std::floor(beat * 4.0) / 4.0;
+        // Snap to grid
+        beat = std::floor(beat / gridResolution) * gridResolution;
         if (beat < 0.0) beat = 0.0;
 
         NoteEvent newNote;
@@ -193,8 +193,8 @@ void PianoRollComponent::mouseDrag(const juce::MouseEvent& e)
         int noteDelta = yToNote(my) - dragStartNote;
 
         double newStart = noteOrigStart + beatDelta;
-        // Snap to 1/4 beat
-        newStart = std::floor(newStart * 4.0 + 0.5) / 4.0;
+        // Snap to grid
+        newStart = std::floor(newStart / gridResolution + 0.5) * gridResolution;
         if (newStart < 0.0) newStart = 0.0;
 
         n.startBeat = newStart;
@@ -203,8 +203,8 @@ void PianoRollComponent::mouseDrag(const juce::MouseEvent& e)
     else if (dragMode == ResizeNote)
     {
         double endBeat = xToBeat(mx);
-        // Snap to 1/4 beat
-        endBeat = std::floor(endBeat * 4.0 + 0.5) / 4.0;
+        // Snap to grid
+        endBeat = std::floor(endBeat / gridResolution + 0.5) * gridResolution;
         double newLength = endBeat - n.startBeat;
         if (newLength < 0.0625) newLength = 0.0625; // minimum 1/16 beat
         n.lengthBeats = newLength;

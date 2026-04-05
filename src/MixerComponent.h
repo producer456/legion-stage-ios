@@ -258,8 +258,8 @@ private:
                 gp->muted.store(!gp->muted.load());
             else if (e.x > sx + 8 + halfW)
             {
-                bool newSolo = !gp->soloed.load();
                 bool wasSoloed = gp->soloed.load();
+                bool newSolo = !wasSoloed;
                 gp->soloed.store(newSolo);
                 if (newSolo && !wasSoloed) pluginHost.soloCount.fetch_add(1);
                 else if (!newSolo && wasSoloed) pluginHost.soloCount.fetch_sub(1);

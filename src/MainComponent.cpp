@@ -2725,6 +2725,11 @@ void MainComponent::loadProject()
         auto file = fc.getResult();
         if (file == juce::File()) return;
 
+        // Stop transport to prevent race with audio thread
+        auto& eng = pluginHost.getEngine();
+        if (eng.isPlaying()) eng.stop();
+        if (eng.isRecording()) eng.toggleRecord();
+
         auto xml = juce::parseXML(file);
 
         if (xml == nullptr || !xml->hasTagName("SequencerProject"))
@@ -2744,9 +2749,14 @@ void MainComponent::loadProject()
             for (int s = 0; s < ClipPlayerNode::NUM_SLOTS; ++s)
             {
                 cp->getSlot(s).clip = nullptr;
+                cp->getSlot(s).audioClip = nullptr;
                 cp->getSlot(s).state.store(ClipSlot::Empty);
             }
         }
+
+        // Clear undo history before loading new project
+        undoHistory.clear();
+        undoIndex = -1;
 
         double bpm = xml->getDoubleAttribute("bpm", 120.0);
         pluginHost.getEngine().setBpm(bpm);
@@ -3935,8 +3945,7 @@ void MainComponent::resized()
         return;
     }
 
-    // ── Restore visibility when not in vis mode (skip on iPhone) ──
-    if (!isPhone)
+    // ── Restore visibility when not in vis mode ──
     {
     // Restore top bar controls
     playButton.setVisible(true);
@@ -4045,7 +4054,7 @@ void MainComponent::resized()
     pmLockBtn.setVisible(false);
     pmBgBtn.setVisible(false);
 
-    } // end if (!isPhone) — iPad layout
+    } // end restore visibility block
 
 #if JUCE_IOS
     if (isPhone)
@@ -4178,6 +4187,14 @@ void MainComponent::resized()
         else
         {
             mixerComponent->setVisible(false);
+            if (arrangerMinimap)
+            {
+#if JUCE_IOS
+                area.removeFromBottom(20); // home indicator safe area
+#endif
+                arrangerMinimap->setBounds(area.removeFromBottom(16));
+                arrangerMinimap->setVisible(true);
+            }
             if (timelineComponent)
             {
                 timelineComponent->setVisibleTracks(4);
@@ -4605,8 +4622,16 @@ bool MainComponent::keyPressed(const juce::KeyPress& key)
     int keyCode = key.getTextCharacter();
     if (keyCode >= 'a' && keyCode <= 'z') keyCode -= 32;
 
-    if (keyCode == 'Z') { computerKeyboardOctave = juce::jmax(0, computerKeyboardOctave - 1); updateStatusLabel(); return true; }
-    if (keyCode == 'X') { computerKeyboardOctave = juce::jmin(8, computerKeyboardOctave + 1); updateStatusLabel(); return true; }
+    if (keyCode == 'Z') {
+        for (int k : keysCurrentlyDown) { int s = keyToNote(k); if (s >= 0) { int n = (computerKeyboardOctave * 12) + s; if (n >= 0 && n <= 127) sendNoteOff(n); } }
+        keysCurrentlyDown.clear();
+        computerKeyboardOctave = juce::jmax(0, computerKeyboardOctave - 1); updateStatusLabel(); return true;
+    }
+    if (keyCode == 'X') {
+        for (int k : keysCurrentlyDown) { int s = keyToNote(k); if (s >= 0) { int n = (computerKeyboardOctave * 12) + s; if (n >= 0 && n <= 127) sendNoteOff(n); } }
+        keysCurrentlyDown.clear();
+        computerKeyboardOctave = juce::jmin(8, computerKeyboardOctave + 1); updateStatusLabel(); return true;
+    }
 
     return false;
 }

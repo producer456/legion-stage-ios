@@ -346,6 +346,10 @@ void ClipPlayerNode::stopSlot(int slotIndex)
             slot.clip = nullptr;
             slot.state.store(ClipSlot::Empty);
         }
+        else
+        {
+            slot.state.store(ClipSlot::Stopped);
+        }
         return;
     }
 
@@ -393,7 +397,7 @@ void ClipPlayerNode::closeOpenNotes(MidiClip& clip)
     }
     for (int key : openNotes)
     {
-        int ch = (key >> 8) & 0xF;
+        int ch = (key >> 8) & 0x1F;
         int note = key & 0x7F;
         auto noteOff = juce::MidiMessage::noteOff(ch, note);
         noteOff.setTimeStamp(clip.lengthInBeats - 0.001);
@@ -408,7 +412,7 @@ void ClipPlayerNode::killActiveNotes(juce::MidiBuffer& midi, int sampleOffset, b
     // Send explicit note-offs for every tracked note
     for (int key : activePlaybackNotes)
     {
-        int ch = (key >> 8) & 0xF;
+        int ch = (key >> 8) & 0x1F;
         int note = key & 0x7F;
         midi.addEvent(juce::MidiMessage::noteOff(ch, note), sampleOffset);
     }
