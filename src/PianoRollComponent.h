@@ -36,13 +36,14 @@ private:
     int visibleNotes() const { return (getHeight() / noteHeight) + 1; }
 
     // Interaction state
-    enum DragMode { None, MoveNote, ResizeNote, SelectArea };
+    enum DragMode { None, MoveNote, ResizeNote, SelectArea, AdjustVelocity };
     DragMode dragMode = None;
 
     struct NoteEvent {
-        int noteNumber;
-        double startBeat;
-        double lengthBeats;
+        int noteNumber = 60;
+        double startBeat = 0.0;
+        double lengthBeats = 0.25;
+        int velocity = 100;
     };
 
     int selectedNoteIndex = -1;   // index into noteEvents

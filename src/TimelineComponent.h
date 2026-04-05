@@ -135,12 +135,17 @@ private:
     bool longPressTriggered = false;
     static constexpr int longPressMs = 500;
 
+    // Clipboard for copy/paste
+    std::unique_ptr<MidiClip> clipboardClip;
+    int clipboardTrack = -1;
+
     // Coordinate conversion
     float beatToX(double beat) const;
     double xToBeat(float x) const;
     int yToTrack(float y) const;
 
     // Editing operations
+    void showClipContextMenu(const ClipRef& ref);
     void deleteSelectedClip();
     void duplicateSelectedClip();
     void splitClipAtBeat(const ClipRef& ref, double beat);

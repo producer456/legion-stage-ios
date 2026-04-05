@@ -7,7 +7,7 @@ MainComponent::MainComponent()
 {
     themeManager.setTheme(ThemeManager::Ioniq, this);
 
-    auto result = deviceManager.initialiseWithDefaultDevices(0, 2);
+    auto result = deviceManager.initialiseWithDefaultDevices(2, 2);  // 2 in, 2 out for mic recording
     if (result.isNotEmpty())
         DBG("Audio device init error: " + result);
 
@@ -2576,6 +2576,36 @@ void MainComponent::mouseUp(const juce::MouseEvent& e)
 #endif
 }
 
+void MainComponent::mouseDoubleClick(const juce::MouseEvent& e)
+{
+    // Double-tap BPM label to type a value
+    if (e.eventComponent == &bpmLabel)
+    {
+        auto callback = juce::ModalCallbackFunction::create([this](int result)
+        {
+            (void)result;
+        });
+
+        auto* alert = new juce::AlertWindow("Set BPM", "", juce::AlertWindow::NoIcon);
+        alert->addTextEditor("bpm", juce::String(static_cast<int>(pluginHost.getEngine().getBpm())), "BPM (20-300):");
+        alert->addButton("OK", 1);
+        alert->addButton("Cancel", 0);
+
+        alert->enterModalState(true, juce::ModalCallbackFunction::create([this, alert](int result)
+        {
+            if (result == 1)
+            {
+                auto text = alert->getTextEditorContents("bpm");
+                int bpm = text.getIntValue();
+                if (bpm >= 20 && bpm <= 300)
+                    pluginHost.getEngine().setBpm(static_cast<double>(bpm));
+            }
+            delete alert;
+        }), false);
+        return;
+    }
+}
+
 void MainComponent::showPhoneMenu()
 {
     juce::PopupMenu menu;
@@ -3713,6 +3743,15 @@ void MainComponent::resized()
         analyzerDisplay.setVisible(true);
     }
     rightPanel.removeFromTop(4);
+    // Vis selector overlaid on bottom of visualizer preview
+    {
+        int selH = 20;
+        visSelector.setBounds(visPanelArea.getX(), visPanelArea.getBottom() - selH,
+                              visPanelArea.getWidth(), selH);
+        visSelector.setVisible(true);
+        visSelector.setAlpha(0.6f);
+        visSelector.toFront(false);
+    }
 
     // Vis controls only show in fullscreen mode — hide them in right panel
     setVisControlsVisible();

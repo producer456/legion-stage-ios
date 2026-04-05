@@ -22,6 +22,7 @@ void PianoRollComponent::rebuildNoteList()
             NoteEvent n;
             n.noteNumber = event->message.getNoteNumber();
             n.startBeat = event->message.getTimeStamp();
+            n.velocity = event->message.getVelocity();
 
             // Find matching note-off
             n.lengthBeats = 0.25; // default
@@ -42,7 +43,7 @@ void PianoRollComponent::applyNoteListToClip()
 
     for (auto& n : noteEvents)
     {
-        auto noteOn = juce::MidiMessage::noteOn(1, n.noteNumber, (juce::uint8) 100);
+        auto noteOn = juce::MidiMessage::noteOn(1, n.noteNumber, (juce::uint8) n.velocity);
         noteOn.setTimeStamp(n.startBeat);
 
         auto noteOff = juce::MidiMessage::noteOff(1, n.noteNumber);
@@ -140,7 +141,13 @@ void PianoRollComponent::mouseDown(const juce::MouseEvent& e)
         dragStartBeat = xToBeat(mx);
         dragStartNote = yToNote(my);
 
-        if (isOnNoteRightEdge(mx, n))
+        // Shift+click to adjust velocity via drag
+        if (e.mods.isShiftDown())
+        {
+            dragMode = AdjustVelocity;
+            noteOrigLength = static_cast<double>(noteEvents[selectedNoteIndex].velocity);
+        }
+        else if (isOnNoteRightEdge(mx, n))
             dragMode = ResizeNote;
         else
             dragMode = MoveNote;
@@ -201,6 +208,13 @@ void PianoRollComponent::mouseDrag(const juce::MouseEvent& e)
         double newLength = endBeat - n.startBeat;
         if (newLength < 0.0625) newLength = 0.0625; // minimum 1/16 beat
         n.lengthBeats = newLength;
+    }
+    else if (dragMode == AdjustVelocity)
+    {
+        // Drag up = louder, drag down = softer
+        float dy = -(e.position.y - e.mouseDownPosition.y);
+        int newVel = juce::jlimit(1, 127, static_cast<int>(noteOrigLength + dy * 0.5));
+        noteEvents.getReference(selectedNoteIndex).velocity = newVel;
     }
 
     repaint();
@@ -417,6 +431,14 @@ void PianoRollComponent::drawNotes(juce::Graphics& g)
         // Border
         g.setColour(juce::Colour(0xff88aadd));
         g.drawRoundedRectangle(rect, 2.0f, 1.0f);
+
+        // Velocity bar at bottom of note
+        float velFrac = static_cast<float>(noteEvents[i].velocity) / 127.0f;
+        auto velBar = rect;
+        velBar = velBar.removeFromBottom(3.0f);
+        velBar = velBar.withWidth(velBar.getWidth() * velFrac);
+        g.setColour(juce::Colour(0xffff6644).withAlpha(0.7f));
+        g.fillRect(velBar);
 
         // Resize handle hint (right edge)
         g.setColour(juce::Colour(0x44ffffff));

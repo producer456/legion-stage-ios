@@ -15,5 +15,7 @@
     <true/>
     <key>CFBundleIconName</key>
     <string>AppIcon</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Legion Stage needs microphone access to record audio tracks.</string>
 </dict>
 </plist>

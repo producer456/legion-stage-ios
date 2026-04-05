@@ -33,10 +33,25 @@ juce::Rectangle<float> TimelineComponent::getClipRect(int trackIndex, int slotIn
     if (cp == nullptr) return {};
 
     auto& slot = cp->getSlot(slotIndex);
-    if (slot.clip == nullptr) return {};
 
-    float x1 = beatToX(slot.clip->timelinePosition);
-    float x2 = beatToX(slot.clip->timelinePosition + slot.clip->lengthInBeats);
+    double pos = 0.0, len = 0.0;
+    if (slot.clip != nullptr)
+    {
+        pos = slot.clip->timelinePosition;
+        len = slot.clip->lengthInBeats;
+    }
+    else if (slot.audioClip != nullptr)
+    {
+        pos = slot.audioClip->timelinePosition;
+        len = slot.audioClip->lengthInBeats;
+    }
+    else
+    {
+        return {};
+    }
+
+    float x1 = beatToX(pos);
+    float x2 = beatToX(pos + len);
     float y = static_cast<float>(headerHeight + trackIndex * trackHeight - scrollY + 2);
     float h = static_cast<float>(trackHeight - 4);
 
@@ -120,6 +135,22 @@ void TimelineComponent::timerCallback()
         {
             scrollX = pos;
             if (scrollX < 0.0) scrollX = 0.0;
+        }
+    }
+
+    // Long press on clip — show context menu
+    if (longPressTrack >= 0 && !longPressTriggered && mouseDownTime > 0)
+    {
+        juce::int64 holdTime = juce::Time::currentTimeMillis() - mouseDownTime;
+        if (holdTime >= longPressMs)
+        {
+            longPressTriggered = true;
+            auto hit = hitTestClip(longPressPos.x, longPressPos.y);
+            if (hit.isValid())
+            {
+                selectedClip = hit;
+                showClipContextMenu(hit);
+            }
         }
     }
 
@@ -1112,7 +1143,7 @@ void TimelineComponent::drawClips(juce::Graphics& g)
         for (int s = 0; s < ClipPlayerNode::NUM_SLOTS; ++s)
         {
             auto& slot = cp->getSlot(s);
-            if (slot.clip == nullptr) continue;
+            if (slot.clip == nullptr && slot.audioClip == nullptr) continue;
 
             auto clipRect = getClipRect(t, s);
             if (clipRect.isEmpty()) continue;
@@ -1150,12 +1181,54 @@ void TimelineComponent::drawClips(juce::Graphics& g)
                 g.fillRect(clipRect.getRight() - 3, clipRect.getY() + 4, 3.0f, clipRect.getHeight() - 8);
             }
 
-            // Mini note preview
+            // Mini note / waveform preview
             if (slot.hasContent())
             {
                 g.saveState();
                 g.reduceClipRegion(clipRect.toNearestInt());
-                drawMiniNotes(g, *slot.clip, clipRect);
+
+                if (slot.clip != nullptr)
+                {
+                    drawMiniNotes(g, *slot.clip, clipRect);
+                }
+                else if (slot.audioClip != nullptr)
+                {
+                    // Draw waveform
+                    auto& audio = *slot.audioClip;
+                    if (audio.samples.getNumSamples() > 0)
+                    {
+                        int numSamples = audio.samples.getNumSamples();
+                        int ch = 0; // draw first channel
+                        auto* data = audio.samples.getReadPointer(ch);
+
+                        float w = clipRect.getWidth();
+                        float h = clipRect.getHeight();
+                        float midY = clipRect.getCentreY();
+
+                        g.setColour(clipColor.brighter(0.2f));
+
+                        int pixelWidth = static_cast<int>(w);
+                        for (int px = 0; px < pixelWidth; ++px)
+                        {
+                            float frac = static_cast<float>(px) / w;
+                            int sampleIdx = static_cast<int>(frac * numSamples);
+
+                            // Find peak in this pixel's sample range
+                            int nextSampleIdx = static_cast<int>((px + 1.0f) / w * numSamples);
+                            nextSampleIdx = juce::jmin(nextSampleIdx, numSamples - 1);
+                            sampleIdx = juce::jmin(sampleIdx, numSamples - 1);
+
+                            float peak = 0.0f;
+                            for (int si = sampleIdx; si <= nextSampleIdx; ++si)
+                                peak = juce::jmax(peak, std::abs(data[si]));
+
+                            float barH = peak * h * 0.45f;
+                            float x = clipRect.getX() + px;
+                            g.drawVerticalLine(static_cast<int>(x), midY - barH, midY + barH);
+                        }
+                    }
+                }
+
                 g.restoreState();
             }
         }
@@ -1332,4 +1405,140 @@ void TimelineComponent::drawLoopRegion(juce::Graphics& g)
     g.setFont(10.0f);
     g.drawText("L", static_cast<int>(x1) + 2, 1, 12, headerHeight - 2, juce::Justification::topLeft);
     g.drawText("R", static_cast<int>(x2) - 14, 1, 12, headerHeight - 2, juce::Justification::topRight);
+}
+
+// ── Clip context menu (long-press) ──────────────────────────────────────────
+
+void TimelineComponent::showClipContextMenu(const ClipRef& ref)
+{
+    auto* clip = getClip(ref);
+    if (clip == nullptr) return;
+
+    juce::PopupMenu menu;
+    menu.addItem(1, "Copy");
+    menu.addItem(2, "Paste", clipboardClip != nullptr);
+    menu.addSeparator();
+    menu.addItem(3, "Transpose +Octave");
+    menu.addItem(4, "Transpose -Octave");
+    menu.addSeparator();
+    menu.addItem(5, "Velocity 50%");
+    menu.addItem(6, "Velocity 75%");
+    menu.addItem(7, "Velocity 150%");
+    menu.addSeparator();
+    menu.addItem(8, "Duplicate");
+    menu.addItem(9, "Delete");
+
+    menu.showMenuAsync(juce::PopupMenu::Options().withTargetScreenArea(
+        localAreaToGlobal(getClipRect(ref.trackIndex, ref.slotIndex).toNearestInt())),
+        [this, ref](int result)
+    {
+        auto* clip = getClip(ref);
+        if (clip == nullptr && result != 2) return;
+
+        switch (result)
+        {
+            case 1: // Copy
+            {
+                clipboardClip = std::make_unique<MidiClip>();
+                clipboardClip->lengthInBeats = clip->lengthInBeats;
+                clipboardClip->timelinePosition = clip->timelinePosition;
+                for (int i = 0; i < clip->events.getNumEvents(); ++i)
+                    clipboardClip->events.addEvent(clip->events.getEventPointer(i)->message);
+                clipboardClip->events.updateMatchedPairs();
+                clipboardTrack = ref.trackIndex;
+                break;
+            }
+            case 2: // Paste
+            {
+                if (clipboardClip == nullptr) return;
+                auto* cp = pluginHost.getTrack(ref.trackIndex).clipPlayer;
+                if (cp == nullptr) return;
+                // Find empty slot
+                for (int s = 0; s < ClipPlayerNode::NUM_SLOTS; ++s)
+                {
+                    auto& slot = cp->getSlot(s);
+                    if (!slot.hasContent() && slot.clip == nullptr)
+                    {
+                        auto newClip = std::make_unique<MidiClip>();
+                        newClip->lengthInBeats = clipboardClip->lengthInBeats;
+                        newClip->timelinePosition = clipboardClip->timelinePosition;
+                        for (int i = 0; i < clipboardClip->events.getNumEvents(); ++i)
+                            newClip->events.addEvent(clipboardClip->events.getEventPointer(i)->message);
+                        newClip->events.updateMatchedPairs();
+                        slot.clip = std::move(newClip);
+                        slot.state.store(ClipSlot::Stopped);
+                        break;
+                    }
+                }
+                repaint();
+                break;
+            }
+            case 3: // Transpose +Octave
+            {
+                if (onBeforeEdit) onBeforeEdit();
+                juce::MidiMessageSequence newEvents;
+                for (int i = 0; i < clip->events.getNumEvents(); ++i)
+                {
+                    auto msg = clip->events.getEventPointer(i)->message;
+                    if (msg.isNoteOnOrOff())
+                    {
+                        int newNote = juce::jmin(127, msg.getNoteNumber() + 12);
+                        msg.setNoteNumber(newNote);
+                    }
+                    newEvents.addEvent(msg);
+                }
+                newEvents.updateMatchedPairs();
+                clip->events = newEvents;
+                repaint();
+                break;
+            }
+            case 4: // Transpose -Octave
+            {
+                if (onBeforeEdit) onBeforeEdit();
+                juce::MidiMessageSequence newEvents;
+                for (int i = 0; i < clip->events.getNumEvents(); ++i)
+                {
+                    auto msg = clip->events.getEventPointer(i)->message;
+                    if (msg.isNoteOnOrOff())
+                    {
+                        int newNote = juce::jmax(0, msg.getNoteNumber() - 12);
+                        msg.setNoteNumber(newNote);
+                    }
+                    newEvents.addEvent(msg);
+                }
+                newEvents.updateMatchedPairs();
+                clip->events = newEvents;
+                repaint();
+                break;
+            }
+            case 5: // Velocity 50%
+            case 6: // Velocity 75%
+            case 7: // Velocity 150%
+            {
+                if (onBeforeEdit) onBeforeEdit();
+                float scale = (result == 5) ? 0.5f : (result == 6) ? 0.75f : 1.5f;
+                juce::MidiMessageSequence newEvents;
+                for (int i = 0; i < clip->events.getNumEvents(); ++i)
+                {
+                    auto msg = clip->events.getEventPointer(i)->message;
+                    if (msg.isNoteOn())
+                    {
+                        int vel = juce::jlimit(1, 127, static_cast<int>(msg.getVelocity() * scale));
+                        msg.setVelocity(static_cast<float>(vel) / 127.0f);
+                    }
+                    newEvents.addEvent(msg);
+                }
+                newEvents.updateMatchedPairs();
+                clip->events = newEvents;
+                repaint();
+                break;
+            }
+            case 8: // Duplicate
+                duplicateSelectedClip();
+                break;
+            case 9: // Delete
+                deleteSelectedClip();
+                break;
+        }
+    });
 }
