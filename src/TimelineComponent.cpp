@@ -145,6 +145,7 @@ void TimelineComponent::timerCallback()
         if (holdTime >= longPressMs)
         {
             longPressTriggered = true;
+            clipClickPending = false;  // cancel deferred drag
             auto hit = hitTestClip(longPressPos.x, longPressPos.y);
             if (hit.isValid())
             {
@@ -240,26 +241,16 @@ void TimelineComponent::mouseDown(const juce::MouseEvent& e)
     if (hit.isValid())
     {
         selectedClip = hit;
-        dragClip = hit;
-        auto* clip = getClip(hit);
-        if (clip == nullptr) return;
-
-        clipOrigPosition = clip->timelinePosition;
-        clipOrigLength = clip->lengthInBeats;
-        dragStartBeat = xToBeat(mx);
-        dragStartTrack = yToTrack(my);
-
-        auto rect = getClipRect(hit.trackIndex, hit.slotIndex);
-
-        // Snapshot before any drag edit
-        if (onBeforeEdit) onBeforeEdit();
-
-        if (isOnClipRightEdge(mx, rect))
-            dragMode = ResizeClipRight;
-        else if (isOnClipLeftEdge(mx, rect))
-            dragMode = ResizeClipLeft;
-        else
-            dragMode = MoveClip;
+        // Defer drag setup to allow long press detection on clips
+        clipClickPending = true;
+        pendingClipHit = hit;
+        pendingClickX = mx;
+        pendingClickY = my;
+        longPressPos = { mx, my };
+        mouseDownTime = juce::Time::currentTimeMillis();
+        longPressTriggered = false;
+        longPressTrack = hit.trackIndex;  // reuse long press tracking
+        dragMode = NoDrag;
     }
     else
     {
@@ -327,6 +318,52 @@ void TimelineComponent::mouseDrag(const juce::MouseEvent& e)
 
         repaint();
         return;
+    }
+
+    // Deferred drag setup for clip clicks — only start dragging if long press hasn't triggered
+    if (clipClickPending && !longPressTriggered && pendingClipHit.isValid())
+    {
+        float dx = e.position.x - pendingClickX;
+        float dy = e.position.y - pendingClickY;
+        float dist = std::sqrt(dx * dx + dy * dy);
+        if (dist > 4.0f)  // movement threshold to start drag
+        {
+            clipClickPending = false;
+            dragClip = pendingClipHit;
+            auto* pendClip = getClip(pendingClipHit);
+            auto* pendSlot = getSlot(pendingClipHit);
+            if (pendClip != nullptr)
+            {
+                clipOrigPosition = pendClip->timelinePosition;
+                clipOrigLength = pendClip->lengthInBeats;
+            }
+            else if (pendSlot != nullptr && pendSlot->audioClip != nullptr)
+            {
+                clipOrigPosition = pendSlot->audioClip->timelinePosition;
+                clipOrigLength = pendSlot->audioClip->lengthInBeats;
+            }
+            else
+            {
+                return;
+            }
+            dragStartBeat = xToBeat(pendingClickX);
+            dragStartTrack = yToTrack(pendingClickY);
+
+            auto rect = getClipRect(pendingClipHit.trackIndex, pendingClipHit.slotIndex);
+
+            if (onBeforeEdit) onBeforeEdit();
+
+            if (isOnClipRightEdge(pendingClickX, rect))
+                dragMode = ResizeClipRight;
+            else if (isOnClipLeftEdge(pendingClickX, rect))
+                dragMode = ResizeClipLeft;
+            else
+                dragMode = MoveClip;
+
+            // Reset long press tracking since we're dragging now
+            longPressTrack = -1;
+            mouseDownTime = 0;
+        }
     }
 
     if (dragMode == NoDrag || !dragClip.isValid()) return;
@@ -424,6 +461,23 @@ void TimelineComponent::mouseUp(const juce::MouseEvent& e)
         touchScrolling = false;
 
     draggingLoop = false;
+
+    // Handle clip click pending — short tap selects, long press already handled in timerCallback
+    if (clipClickPending)
+    {
+        clipClickPending = false;
+        if (!longPressTriggered)
+        {
+            // Short tap on clip = just select it (already set in mouseDown)
+            selectedClip = pendingClipHit;
+        }
+        longPressTrack = -1;
+        mouseDownTime = 0;
+        repaint();
+        dragMode = NoDrag;
+        dragClip = {};
+        return;
+    }
 
     // Handle ARM button release — distinguish tap vs long press
     if (longPressTrack >= 0)
@@ -624,6 +678,7 @@ void TimelineComponent::deleteSelectedClip()
     if (slot == nullptr) return;
 
     slot->clip = nullptr;
+    slot->audioClip = nullptr;
     slot->state.store(ClipSlot::Empty);
     selectedClip = {};
     repaint();

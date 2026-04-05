@@ -4271,6 +4271,29 @@ void MainComponent::updateTrackInputSelector()
 
 void MainComponent::applyTrackInput(int id)
 {
+    // Check if track has content before allowing type change
+    auto& track = pluginHost.getTrack(selectedTrackIndex);
+    bool currentIsAudio = (track.type == TrackType::Audio);
+    bool newIsAudio = (id == 1);
+    if (currentIsAudio != newIsAudio && track.clipPlayer != nullptr)
+    {
+        for (int s = 0; s < ClipPlayerNode::NUM_SLOTS; ++s)
+        {
+            if (track.clipPlayer->getSlot(s).hasContent())
+            {
+                juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::WarningIcon,
+                    "Cannot Change Input",
+                    "Clear all clips on this track before changing the input type.");
+                // Reset selector to current value
+                if (currentIsAudio)
+                    trackInputSelector.setSelectedId(1, juce::dontSendNotification);
+                else
+                    trackInputSelector.setSelectedId(99, juce::dontSendNotification);
+                return;
+            }
+        }
+    }
+
     // Disconnect current MIDI device first
     disableCurrentMidiDevice();
 

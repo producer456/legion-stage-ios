@@ -135,6 +135,12 @@ private:
     bool longPressTriggered = false;
     static constexpr int longPressMs = 500;
 
+    // Clip click pending — defer drag setup to allow long press detection
+    bool clipClickPending = false;
+    ClipRef pendingClipHit;
+    float pendingClickX = 0.0f;
+    float pendingClickY = 0.0f;
+
     // Clipboard for copy/paste
     std::unique_ptr<MidiClip> clipboardClip;
     int clipboardTrack = -1;
