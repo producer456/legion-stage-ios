@@ -430,8 +430,7 @@ MainComponent::MainComponent()
     visSelector.addItem("Terrain", 3);
     visSelector.addItem("Geiss", 4);
     visSelector.addItem("MilkDrop", 5);
-    visSelector.addItem("Shader", 6);
-    visSelector.addItem("Analyzer", 7);
+    visSelector.addItem("Analyzer", 6);
     visSelector.setSelectedId(2, juce::dontSendNotification);  // Lissajous
     currentVisMode = 1;
     visSelector.onChange = [this] {
@@ -2623,8 +2622,7 @@ void MainComponent::showPhoneMenu()
     visMenu.addItem(102, "Terrain", true, currentVisMode == 2);
     visMenu.addItem(103, "Geiss", true, currentVisMode == 3);
     visMenu.addItem(104, "MilkDrop", true, currentVisMode == 4);
-    visMenu.addItem(105, "Shader", true, currentVisMode == 5);
-    visMenu.addItem(106, "Analyzer", true, currentVisMode == 6);
+    visMenu.addItem(105, "Analyzer", true, currentVisMode == 5);
     menu.addSubMenu("Visualizer", visMenu);
     menu.addItem(10, "Fullscreen Vis");
     menu.addSeparator();
@@ -2672,7 +2670,7 @@ void MainComponent::showPhoneMenu()
                 resized();
                 repaint();
             }
-            else if (result >= 100 && result <= 106) {
+            else if (result >= 100 && result <= 105) {
                 currentVisMode = result - 100;
                 visSelector.setSelectedId(currentVisMode + 1, juce::dontSendNotification);
                 resized();
@@ -3227,47 +3225,12 @@ void MainComponent::resized()
         touchPiano.setVisible(false);
         if (mixerComponent) mixerComponent->setVisible(false);
 
-        if (projectorMode)
         {
-            // Projector mode — zero UI chrome, just the visualizer
-            auto visArea = getLocalBounds();
-
-            spectrumDisplay.setVisible(false);
-            lissajousDisplay.setVisible(false);
-            waveTerrainDisplay.setVisible(false);
-            geissDisplay.setVisible(false);
-            projectMDisplay.setVisible(false);
-            shaderToyDisplay.setVisible(false);
-            analyzerDisplay.setVisible(false);
-            visSelector.setVisible(false);
-            setVisControlsVisible();
-            projectorButton.setVisible(false);
-
-#if JUCE_IOS
-            // On iOS, always show EXIT button since there's no Escape key
-            visExitButton.setBounds(visArea.getRight() - 60, visArea.getY() + 50, 55, 35);
-            visExitButton.setVisible(true);
-            visExitButton.toFront(false);
-#else
-            visExitButton.setVisible(false);
-#endif
-
-            if (currentVisMode == 0) { spectrumDisplay.setBounds(visArea); spectrumDisplay.setAlpha(1.0f); spectrumDisplay.setVisible(true); }
-            else if (currentVisMode == 1) { lissajousDisplay.setBounds(visArea); lissajousDisplay.setVisible(true); }
-            else if (currentVisMode == 2) { waveTerrainDisplay.setBounds(visArea); waveTerrainDisplay.setVisible(true); }
-            else if (currentVisMode == 3) { geissDisplay.setBounds(visArea); geissDisplay.setVisible(true); }
-            else if (currentVisMode == 4) { projectMDisplay.setBounds(visArea); projectMDisplay.setVisible(true); }
-            else if (currentVisMode == 5) { shaderToyDisplay.setBounds(visArea); shaderToyDisplay.setVisible(true); }
-            else if (currentVisMode == 6) { analyzerDisplay.setBounds(visArea); analyzerDisplay.setVisible(true); }
-
-#if JUCE_IOS
-            visExitButton.toFront(false);
-#endif
-        }
-        else
-        {
-            // Fullscreen with control bar
+            // Fullscreen with control bar (always shown)
             auto fsArea = getLocalBounds();
+#if JUCE_IOS
+            fsArea.removeFromTop(50); // iOS status bar safe area
+#endif
             auto controlBar = fsArea.removeFromTop(36).reduced(4, 2);
             visExitButton.setBounds(controlBar.removeFromLeft(55));
             visExitButton.setVisible(true);
@@ -3357,8 +3320,7 @@ void MainComponent::resized()
             else if (currentVisMode == 2) { waveTerrainDisplay.setBounds(visArea); waveTerrainDisplay.setVisible(true); }
             else if (currentVisMode == 3) { geissDisplay.setBounds(visArea); geissDisplay.setVisible(true); }
             else if (currentVisMode == 4) { projectMDisplay.setBounds(visArea); projectMDisplay.setVisible(true); }
-            else if (currentVisMode == 5) { shaderToyDisplay.setBounds(visArea); shaderToyDisplay.setVisible(true); }
-            else if (currentVisMode == 6) { analyzerDisplay.setBounds(visArea); analyzerDisplay.setVisible(true); }
+            else if (currentVisMode == 5) { analyzerDisplay.setBounds(visArea); analyzerDisplay.setVisible(true); }
 
             // Bring control bar widgets to front so they're not hidden behind the visualizer
             visExitButton.toFront(false);
@@ -3485,8 +3447,8 @@ void MainComponent::resized()
     waveTerrainDisplay.setVisible(currentVisMode == 2);
     geissDisplay.setVisible(currentVisMode == 3);
     projectMDisplay.setVisible(currentVisMode == 4);
-    shaderToyDisplay.setVisible(currentVisMode == 5);
-    analyzerDisplay.setVisible(currentVisMode == 6);
+    shaderToyDisplay.setVisible(false);
+    analyzerDisplay.setVisible(currentVisMode == 5);
     visExitButton.setVisible(false);
     projectorButton.setVisible(false);  // merged with fullscreen
     visSelector.setVisible(true);
@@ -3745,12 +3707,7 @@ void MainComponent::resized()
         projectMDisplay.setBounds(visPanelArea);
         projectMDisplay.setVisible(true);
     }
-    else if (currentVisMode == 5)  // ShaderToy
-    {
-        shaderToyDisplay.setBounds(visPanelArea);
-        shaderToyDisplay.setVisible(true);
-    }
-    else if (currentVisMode == 6)  // Analyzer
+    else if (currentVisMode == 5)  // Analyzer
     {
         analyzerDisplay.setBounds(visPanelArea);
         analyzerDisplay.setVisible(true);
