@@ -39,16 +39,29 @@ public:
     MixerComponent(PluginHost& host) : pluginHost(host)
     {
         setWantsKeyboardFocus(false);
-        startTimerHz(20);
+        startTimerHz(10);  // reduced from 20Hz — meters don't need 20fps
     }
 
     ~MixerComponent() override { stopTimer(); }
 
-    void timerCallback() override { if (isVisible()) repaint(); }
+    void timerCallback() override
+    {
+        if (!isVisible()) return;
+        // Only repaint meter regions — skip full component redraw
+        int stripW = getWidth() / PluginHost::NUM_TRACKS;
+        int meterX = 4;
+        int meterW = 30;
+        for (int t = 0; t < PluginHost::NUM_TRACKS; ++t)
+        {
+            int x = t * stripW + meterX;
+            repaint(x, 0, meterW, getHeight());
+        }
+    }
+
+    void visibilityChanged() override { if (isVisible()) updateThemeColors(); }
 
     void paint(juce::Graphics& g) override
     {
-        updateThemeColors();
         int w = getWidth();
         int h = getHeight();
 

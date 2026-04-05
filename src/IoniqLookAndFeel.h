@@ -233,7 +233,7 @@ public:
 
         // OLED style for animated transport buttons
         bool useOled = isOledAnimatedButton(text) || text == "REC" || text == "PANIC"
-                       || text == "M2" || text == "..." || text == "PHN";
+                       || text == "M2" || text == "..." || text == "PHN" || text == "E";
 
         if (useOled)
         {
@@ -324,7 +324,7 @@ public:
 
         // Check if this is an OLED or cream button
         bool useOled = isOledAnimatedButton(text) || text == "REC" || text == "PANIC"
-                       || text == "M2" || text == "..." || text == "PHN";
+                       || text == "M2" || text == "..." || text == "PHN" || text == "E";
         auto dispBounds = button.getLocalBounds().toFloat().reduced(2.0f);
         if (useOled)
             g.setColour(on ? bright : bright.withAlpha(0.7f));

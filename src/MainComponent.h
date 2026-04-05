@@ -129,7 +129,7 @@ private:
 
     // ── Right Panel ──
     juce::ComboBox pluginSelector;
-    juce::TextButton openEditorButton { "Open Editor" };
+    juce::TextButton openEditorButton { "E" };
     juce::ComboBox midiInputSelector;
     juce::TextButton midiRefreshButton { "Refresh" };
     juce::TextButton audioSettingsButton { "Audio Settings" };

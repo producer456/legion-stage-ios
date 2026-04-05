@@ -306,14 +306,14 @@ MainComponent::MainComponent()
     presetPrevButton.onClick = [this] {
         auto& track = pluginHost.getTrack(selectedTrackIndex);
         if (track.plugin == nullptr) return;
-        int cur = track.plugin->getCurrentProgram();
+        int cur = presetSelector.getSelectedId() - 2;  // use selector as source of truth
         if (cur > 0) loadPreset(cur - 1);
     };
     addAndMakeVisible(presetNextButton);
     presetNextButton.onClick = [this] {
         auto& track = pluginHost.getTrack(selectedTrackIndex);
         if (track.plugin == nullptr) return;
-        int cur = track.plugin->getCurrentProgram();
+        int cur = presetSelector.getSelectedId() - 2;  // use selector as source of truth
         if (cur < track.plugin->getNumPrograms() - 1) loadPreset(cur + 1);
     };
 
@@ -322,7 +322,7 @@ MainComponent::MainComponent()
     presetUpButton.onClick = [this] {
         auto& track = pluginHost.getTrack(selectedTrackIndex);
         if (track.plugin == nullptr) return;
-        int cur = track.plugin->getCurrentProgram();
+        int cur = presetSelector.getSelectedId() - 2;  // use selector as source of truth
         if (cur < track.plugin->getNumPrograms() - 1)
         {
             loadPreset(cur + 1);
@@ -346,7 +346,7 @@ MainComponent::MainComponent()
     presetDownButton.onClick = [this] {
         auto& track = pluginHost.getTrack(selectedTrackIndex);
         if (track.plugin == nullptr) return;
-        int cur = track.plugin->getCurrentProgram();
+        int cur = presetSelector.getSelectedId() - 2;  // use selector as source of truth
         if (cur > 0)
         {
             loadPreset(cur - 1);
@@ -1106,6 +1106,10 @@ void MainComponent::timerCallback()
         cpuHistory.add(totalCpu);
         if (cpuHistory.size() > 60)  // ~4 seconds at 15Hz
             cpuHistory.remove(0);
+
+        // Repaint the CPU OLED area
+        if (cpuLabel.isVisible())
+            repaint(cpuLabel.getBounds().expanded(5));
     }
 
     // Update arranger minimap
@@ -1556,8 +1560,6 @@ void MainComponent::openPluginEditor()
         // Use the editor's preferred size
         int edW = currentEditor->getWidth();
         int edH = currentEditor->getHeight();
-        if (edW <= 0) edW = 600;
-        if (edH <= 0) edH = 400;
 
         // Check if the plugin has size constraints
         if (auto* constrainer = currentEditor->getConstrainer())
@@ -1568,13 +1570,19 @@ void MainComponent::openPluginEditor()
                 edH = juce::jmax(edH, constrainer->getMinimumHeight());
         }
 
+        // Enforce minimum usable size — some AUv3 plugins report tiny initial sizes
+        int minW = 400;
+        int minH = 300;
+        if (edW < minW) edW = minW;
+        if (edH < minH) edH = minH;
+
         int closeBarH = 44;
         int maxW = getWidth() - 20;
         int maxH = getHeight() - closeBarH - 40;
 
         // Fit to available space
-        int ew = juce::jmin(edW, maxW);
-        int eh = juce::jmin(edH, maxH);
+        int ew = juce::jlimit(minW, maxW, edW);
+        int eh = juce::jlimit(minH, maxH, edH);
 
         int ox = (getWidth() - ew) / 2;
         int oy = (getHeight() - eh - closeBarH) / 2;
@@ -4101,8 +4109,8 @@ void MainComponent::resized()
     countInButton.setVisible(true);
     scrollLeftButton.setVisible(false);
     scrollRightButton.setVisible(false);
-    zoomInButton.setVisible(true);
-    zoomOutButton.setVisible(true);
+    zoomInButton.setVisible(false);  // not in iPad layout
+    zoomOutButton.setVisible(false);  // not in iPad layout
     panicButton.setVisible(true);
     clearAutoButton.setVisible(true);
     fullscreenButton.setVisible(false);
@@ -4117,7 +4125,7 @@ void MainComponent::resized()
     paramPageLabel.setVisible(true);
     paramPageNameLabel.setVisible(true);
     trackInfoLabel.setVisible(true);
-    testNoteButton.setVisible(true);
+    testNoteButton.setVisible(false);  // not in iPad layout
     newClipButton.setVisible(true);
     deleteClipButton.setVisible(true);
     duplicateClipButton.setVisible(false);
@@ -4189,6 +4197,17 @@ void MainComponent::resized()
     pmRandBtn.setVisible(false);
     pmLockBtn.setVisible(false);
     pmBgBtn.setVisible(false);
+
+    // Reset vis selector alpha (may have been 1.0 in fullscreen)
+    visSelector.setAlpha(1.0f);
+
+    // Force all visualizer components behind other UI
+    spectrumDisplay.toBack();
+    lissajousDisplay.toBack();
+    waveTerrainDisplay.toBack();
+    geissDisplay.toBack();
+    projectMDisplay.toBack();
+    analyzerDisplay.toBack();
 
     } // end restore visibility block
 
@@ -4472,8 +4491,8 @@ void MainComponent::resized()
         visSelector.toFront(false);
     }
 
-    // Vis controls only show in fullscreen mode — hide them in right panel
-    setVisControlsVisible();
+    // Vis controls only show in fullscreen mode — force all hidden in normal view
+    // (setVisControlsVisible is called inside the fullscreen block instead)
 
     {
         auto& currentTrack = pluginHost.getTrack(selectedTrackIndex);
