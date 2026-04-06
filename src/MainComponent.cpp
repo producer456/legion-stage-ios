@@ -2707,6 +2707,11 @@ void MainComponent::performCapture()
         eng.toggleLoop();
     loopButton.setToggleState(true, juce::dontSendNotification);
 
+    // Reset playhead to clip start and flush clip player state so playback
+    // starts cleanly (fixes no-sound after undo/delete then re-capture)
+    eng.setPosition(clipStartBeats);
+    track.clipPlayer->sendAllNotesOff.store(true);
+
     // Clear ring buffer
     captureCount.store(0);
     captureWritePos.store(0);
