@@ -58,6 +58,19 @@ public:
     bool keyPressed(const juce::KeyPress& key) override;
     bool keyStateChanged(bool isKeyDown) override;
 
+    // Capture event type — public so free-function helpers can access it
+    struct CaptureEvent
+    {
+        enum Type : uint8_t { NoteOn, NoteOff, CC, PitchBend };
+        Type type;
+        uint8_t channel;
+        uint8_t data1;
+        uint8_t data2;
+        int16_t pitchBend;
+        double absTime;
+    };
+    static constexpr int CAPTURE_RING_SIZE = 32768;
+
 private:
     ThemeManager themeManager;
     juce::ComboBox themeSelector;
@@ -114,11 +127,12 @@ private:
     juce::TextButton panicButton { "PANIC" };
     double panicAnimEndTime = 0.0;
 
-    // ── Capture (always-on MIDI buffer) ──
+    // ── Capture (always-on MIDI ring buffer) ──
     juce::TextButton captureButton { "CAPT" };
-    juce::MidiMessageSequence captureBuffer;
-    std::atomic<double> captureStartTime { 0.0 };
-    std::atomic<bool> captureHasNotes { false };
+    std::array<CaptureEvent, CAPTURE_RING_SIZE> captureRing;
+    std::atomic<int> captureWritePos { 0 };
+    std::atomic<int> captureCount { 0 };
+
     void performCapture();
 
     // ── Navigation ──
