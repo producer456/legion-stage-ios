@@ -2396,55 +2396,6 @@ static double estimateDownbeatOffset(const juce::Array<MainComponent::CaptureEve
     return 0.0;
 }
 
-// ── Loop Detection ──
-// Finds shortest repeating pattern in beat-quantized onsets
-static double detectLoopLength(const juce::MidiMessageSequence& events, double totalBeats)
-{
-    juce::Array<double> onsets;
-    for (int i = 0; i < events.getNumEvents(); ++i)
-        if (events.getEventPointer(i)->message.isNoteOn())
-            onsets.add(events.getEventPointer(i)->message.getTimeStamp());
-
-    if (onsets.size() < 4) return totalBeats;
-
-    double candidates[] = { 8.0, 16.0, 32.0 };  // 2, 4, 8 bars
-
-    for (auto loopLen : candidates)
-    {
-        if (loopLen >= totalBeats) continue;
-        if (totalBeats / loopLen < 1.8) continue;
-
-        int matches = 0;
-        int totalNotes = 0;
-
-        for (auto onset : onsets)
-        {
-            if (onset >= loopLen) break;
-            totalNotes++;
-
-            bool found = false;
-            for (double cycle = loopLen; cycle < totalBeats; cycle += loopLen)
-            {
-                for (auto other : onsets)
-                {
-                    if (std::abs((other - cycle) - onset) < 0.25)
-                    {
-                        found = true;
-                        break;
-                    }
-                }
-                if (!found) break;
-            }
-            if (found) matches++;
-        }
-
-        if (totalNotes > 0 && static_cast<double>(matches) / totalNotes > 0.7)
-            return loopLen;
-    }
-
-    return totalBeats;
-}
-
 // ── Soft Quantize (80% strength to 1/16 grid) ──
 static void softQuantize(juce::MidiMessageSequence& events, double gridSize = 0.25)
 {
@@ -2616,39 +2567,7 @@ void MainComponent::performCapture()
     softQuantize(beatEvents, 0.25);
     beatEvents.updateMatchedPairs();
 
-    // ── 8. Loop Detection — trim to shortest repeating cycle ──
-    double loopLen = detectLoopLength(beatEvents, lengthInBeats);
-    if (loopLen < lengthInBeats)
-    {
-        juce::MidiMessageSequence trimmed;
-        std::set<int> openNotes;
-
-        for (int i = 0; i < beatEvents.getNumEvents(); ++i)
-        {
-            auto& msg = beatEvents.getEventPointer(i)->message;
-            if (msg.getTimeStamp() >= loopLen) break;
-
-            trimmed.addEvent(msg);
-            if (msg.isNoteOn())
-                openNotes.insert(msg.getNoteNumber());
-            else if (msg.isNoteOff())
-                openNotes.erase(msg.getNoteNumber());
-        }
-
-        // Close any notes still open at the loop boundary
-        for (int note : openNotes)
-        {
-            auto noteOff = juce::MidiMessage::noteOff(1, note);
-            noteOff.setTimeStamp(loopLen - 0.01);
-            trimmed.addEvent(noteOff);
-        }
-
-        trimmed.updateMatchedPairs();
-        beatEvents = trimmed;
-        lengthInBeats = loopLen;
-    }
-
-    // ── 9. Create clip ──
+    // ── 8. Create clip ──
     auto& track = pluginHost.getTrack(selectedTrackIndex);
     if (track.clipPlayer == nullptr) return;
 
