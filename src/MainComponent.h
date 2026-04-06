@@ -62,12 +62,12 @@ public:
     struct CaptureEvent
     {
         enum Type : uint8_t { NoteOn, NoteOff, CC, PitchBend };
-        Type type;
-        uint8_t channel;
-        uint8_t data1;
-        uint8_t data2;
-        int16_t pitchBend;
-        double absTime;
+        Type type = NoteOn;
+        uint8_t channel = 1;
+        uint8_t data1 = 0;
+        uint8_t data2 = 0;
+        int16_t pitchBend = 0;
+        double absTime = 0.0;
     };
     static constexpr int CAPTURE_RING_SIZE = 32768;
 

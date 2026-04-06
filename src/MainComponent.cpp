@@ -1970,12 +1970,12 @@ void MainComponent::handleIncomingMidiMessage(juce::MidiInput* /*source*/, const
 
         if (store)
         {
-            int pos = captureWritePos.load();
+            int pos = captureWritePos.load(std::memory_order_relaxed);
             captureRing[static_cast<size_t>(pos)] = evt;
-            captureWritePos.store((pos + 1) % CAPTURE_RING_SIZE);
-            int cnt = captureCount.load();
+            captureWritePos.store((pos + 1) % CAPTURE_RING_SIZE, std::memory_order_release);
+            int cnt = captureCount.load(std::memory_order_relaxed);
             if (cnt < CAPTURE_RING_SIZE)
-                captureCount.store(cnt + 1);
+                captureCount.store(cnt + 1, std::memory_order_relaxed);
         }
     }
 
@@ -2489,7 +2489,11 @@ void MainComponent::performCapture()
     }
 
     // ── 1. Snapshot the ring buffer ──
-    auto allEvents = extractRingBuffer(captureRing, captureWritePos.load(), count);
+    // Read writePos first, then use min(count, writePos-distance) to avoid
+    // reading slots the MIDI thread might be actively writing to.
+    int wp = captureWritePos.load(std::memory_order_acquire);
+    int safeCount = juce::jmin(count, CAPTURE_RING_SIZE - 1);  // leave 1 slot margin
+    auto allEvents = extractRingBuffer(captureRing, wp, safeCount);
 
     // ── 2. Phrase Segmentation — find the musical idea ──
     int phraseStart = findPhraseStart(allEvents);
@@ -2545,10 +2549,25 @@ void MainComponent::performCapture()
     double downbeatTime = phraseStartTime - downbeatOffset;
 
     // ── 5. Convert absolute time to beat positions ──
+    // Find the last note-off/note-on time for accurate duration (ignore trailing CC/PB)
+    double lastNoteTime = phraseStartTime;
+    for (int i = phrase.size() - 1; i >= 0; --i)
+    {
+        if (phrase[i].type == CaptureEvent::NoteOn || phrase[i].type == CaptureEvent::NoteOff)
+        {
+            lastNoteTime = phrase[i].absTime;
+            break;
+        }
+    }
+
     juce::MidiMessageSequence beatEvents;
     for (auto& e : phrase)
     {
         double beatPos = (e.absTime - downbeatTime) * beatsPerSecond;
+
+        // Pickup notes land at negative beat positions — wrap them to the end
+        // of the previous bar (e.g., -0.5 beats → 3.5 in a 4-beat bar).
+        // We'll shift them after we know the clip length.
 
         juce::MidiMessage msg;
         switch (e.type)
@@ -2572,7 +2591,7 @@ void MainComponent::performCapture()
     beatEvents.updateMatchedPairs();
 
     // ── 6. Calculate clip length — round to nearest musical unit (2, 4, 8 bars) ──
-    double durationBeats = (phraseEndTime - downbeatTime) * beatsPerSecond;
+    double durationBeats = (lastNoteTime - downbeatTime) * beatsPerSecond;
     double lengthInBeats;
     if (durationBeats <= 8.0)
         lengthInBeats = 8.0;   // 2 bars
@@ -2584,7 +2603,16 @@ void MainComponent::performCapture()
         lengthInBeats = std::ceil(durationBeats / 16.0) * 16.0;  // round to 4-bar blocks
     if (lengthInBeats < 8.0) lengthInBeats = 8.0;
 
-    // ── 7. Soft Quantize (80% strength, 1/16 grid) ──
+    // ── 7. Wrap negative beat positions (pickup notes) to end of clip ──
+    for (int i = 0; i < beatEvents.getNumEvents(); ++i)
+    {
+        auto& msg = beatEvents.getEventPointer(i)->message;
+        if (msg.getTimeStamp() < 0.0)
+            msg.setTimeStamp(msg.getTimeStamp() + lengthInBeats);
+    }
+    beatEvents.updateMatchedPairs();
+
+    // ── 8. Soft Quantize (80% strength, 1/16 grid) ──
     softQuantize(beatEvents, 0.25);
     beatEvents.updateMatchedPairs();
 
@@ -2593,12 +2621,28 @@ void MainComponent::performCapture()
     if (loopLen < lengthInBeats)
     {
         juce::MidiMessageSequence trimmed;
+        std::set<int> openNotes;
+
         for (int i = 0; i < beatEvents.getNumEvents(); ++i)
         {
             auto& msg = beatEvents.getEventPointer(i)->message;
-            if (msg.getTimeStamp() < loopLen)
-                trimmed.addEvent(msg);
+            if (msg.getTimeStamp() >= loopLen) break;
+
+            trimmed.addEvent(msg);
+            if (msg.isNoteOn())
+                openNotes.insert(msg.getNoteNumber());
+            else if (msg.isNoteOff())
+                openNotes.erase(msg.getNoteNumber());
         }
+
+        // Close any notes still open at the loop boundary
+        for (int note : openNotes)
+        {
+            auto noteOff = juce::MidiMessage::noteOff(1, note);
+            noteOff.setTimeStamp(loopLen - 0.01);
+            trimmed.addEvent(noteOff);
+        }
+
         trimmed.updateMatchedPairs();
         beatEvents = trimmed;
         lengthInBeats = loopLen;
@@ -2651,8 +2695,17 @@ void MainComponent::performCapture()
         newClip->timelinePosition = 0.0;
     }
 
+    double clipStartBeats = transportWasPlaying ? newClip->timelinePosition : 0.0;
+    double clipEndBeats = clipStartBeats + lengthInBeats;
+
     track.clipPlayer->getSlot(emptySlot).clip = std::move(newClip);
-    track.clipPlayer->getSlot(emptySlot).state.store(ClipSlot::Stopped);
+    track.clipPlayer->getSlot(emptySlot).state.store(ClipSlot::Playing);
+
+    // Set loop region around the captured clip and enable looping
+    eng.setLoopRegion(clipStartBeats, clipEndBeats);
+    if (!eng.isLoopEnabled())
+        eng.toggleLoop();
+    loopButton.setToggleState(true, juce::dontSendNotification);
 
     // Clear ring buffer
     captureCount.store(0);

@@ -1357,7 +1357,8 @@ void TimelineComponent::drawMiniNotes(juce::Graphics& g, const MidiClip& clip, j
     float noteH = juce::jmax(1.0f, (area.getHeight() - 6.0f) / static_cast<float>(noteRange));
     float beatsToPixels = area.getWidth() / static_cast<float>(clip.lengthInBeats);
 
-    g.setColour(juce::Colours::white.withAlpha(0.5f));
+    auto* tc = getThemeColors(this);
+    g.setColour(tc ? juce::Colour(tc->clipNotePreview) : juce::Colours::white.withAlpha(0.5f));
 
     for (int i = 0; i < clip.events.getNumEvents(); ++i)
     {

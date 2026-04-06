@@ -76,6 +76,7 @@ struct DawTheme
     uint32_t clipRecording;
     uint32_t clipQueued;
     uint32_t clipPlaying;
+    uint32_t clipNotePreview = 0x80ffffff;  // mini-note color in arranger clips
 
     // ── Playhead ──
     uint32_t playhead;
