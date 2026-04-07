@@ -2451,34 +2451,27 @@ static void softQuantize(juce::MidiMessageSequence& events, double gridSize = 0.
 {
     constexpr double strength = 0.8;
 
-    events.updateMatchedPairs();
+    // Quantize all events, then ensure note-offs stay after their note-ons
+    for (int i = 0; i < events.getNumEvents(); ++i)
+    {
+        auto& msg = events.getEventPointer(i)->message;
+        double t = msg.getTimeStamp();
+        double nearest = std::round(t / gridSize) * gridSize;
+        msg.setTimeStamp(t + (nearest - t) * strength);
+    }
 
+    // Fix any inverted note pairs (note-off before note-on)
+    events.updateMatchedPairs();
     for (int i = 0; i < events.getNumEvents(); ++i)
     {
         auto* evt = events.getEventPointer(i);
-        auto& msg = evt->message;
-
-        if (msg.isNoteOn())
+        if (evt->message.isNoteOn() && evt->noteOffObject != nullptr)
         {
-            double t = msg.getTimeStamp();
-            double nearest = std::round(t / gridSize) * gridSize;
-            double nudged = t + (nearest - t) * strength;
-            double shift = nudged - t;
-            msg.setTimeStamp(nudged);
-
-            // Shift the paired note-off by the same amount to preserve duration
-            if (evt->noteOffObject != nullptr)
-                evt->noteOffObject->message.setTimeStamp(
-                    evt->noteOffObject->message.getTimeStamp() + shift);
+            double onTime = evt->message.getTimeStamp();
+            double offTime = evt->noteOffObject->message.getTimeStamp();
+            if (offTime <= onTime)
+                evt->noteOffObject->message.setTimeStamp(onTime + 0.05);  // minimum 1/20 beat
         }
-        else if (!msg.isNoteOff())
-        {
-            // Quantize CC/PB independently
-            double t = msg.getTimeStamp();
-            double nearest = std::round(t / gridSize) * gridSize;
-            msg.setTimeStamp(t + (nearest - t) * strength);
-        }
-        // Note-offs are moved with their paired note-on above
     }
 }
 
@@ -2759,10 +2752,11 @@ void MainComponent::performCapture()
         eng.toggleLoop();
     loopButton.setToggleState(true, juce::dontSendNotification);
 
-    // Reset playhead to clip start and flush clip player state so playback
-    // starts cleanly (fixes no-sound after undo/delete then re-capture)
+    // Reset playhead to clip start, flush state, and start transport
     eng.setPosition(clipStartBeats);
     track.clipPlayer->sendAllNotesOff.store(true);
+    if (!eng.isPlaying())
+        eng.play();
 
     // Clear ring buffer
     captureCount.store(0);
