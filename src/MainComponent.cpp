@@ -1180,9 +1180,8 @@ void MainComponent::timerCallback()
             repaint(cpuLabel.getBounds().expanded(5));
     }
 
-    // Start heart rate observation once authorized
-    if (heartRateManager.authorized.load() && heartRateManager.heartRateBpm.load() < 1.0)
-        heartRateManager.startObserving();
+    // Heart rate observation is started automatically by the auth completion handler
+    // No need to poll here
 
     // Update arranger minimap
     if (arrangerMinimap && timelineComponent && timelineComponent->isVisible())

@@ -80,6 +80,9 @@
 - (void)startObserving
 {
     if (!_healthStore || !_authorized->load()) return;
+    if (_heartRateQuery != nil) return;  // already observing
+
+    NSLog(@"HealthKit: Starting heart rate observation...");
 
     HKQuantityType* heartRateType = [HKQuantityType quantityTypeForIdentifier:HKQuantityTypeIdentifierHeartRate];
 
