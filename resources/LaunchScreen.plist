@@ -17,5 +17,7 @@
     <string>AppIcon</string>
     <key>NSMicrophoneUsageDescription</key>
     <string>Legion Stage needs microphone access to record audio tracks.</string>
+    <key>NSHealthShareUsageDescription</key>
+    <string>Legion Stage uses your heart rate to create bio-resonance visualizations that sync your heartbeat with your music.</string>
 </dict>
 </plist>

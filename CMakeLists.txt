@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(Sequencer VERSION 1.4.0)
+project(Sequencer VERSION 1.5.0)
 
 # ASIO SDK path — JUCE needs this to compile ASIO support (Windows only)
 if(WIN32)
@@ -79,6 +79,9 @@ target_sources(Sequencer PRIVATE
     src/GeissComponent.h
     src/ProjectMComponent.h
     src/HeartbeatComponent.h
+    src/HeartRateManager.h
+    src/HeartRateManager.mm
+    src/BioResonanceComponent.h
     src/TouchPianoComponent.h
     src/MixerComponent.h
     src/SplashComponent.h
@@ -151,6 +154,10 @@ elseif(APPLE)
     )
     if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
         # AudioUnit.framework doesn't exist on iOS — it's part of AudioToolbox
+        find_library(HEALTHKIT_FRAMEWORK HealthKit)
+        if(HEALTHKIT_FRAMEWORK)
+            target_link_libraries(Sequencer PRIVATE ${HEALTHKIT_FRAMEWORK})
+        endif()
     else()
         find_library(AUDIOUNIT_FRAMEWORK AudioUnit)
         find_library(OPENGL_FRAMEWORK OpenGL)

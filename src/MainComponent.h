@@ -21,6 +21,7 @@
 #include "ChordDetector.h"
 #include "ArrangerMinimapComponent.h"
 #include "HeartbeatComponent.h"
+#include "BioResonanceComponent.h"
 
 class PluginEditorWindow : public juce::DocumentWindow, public juce::ComponentListener
 {
@@ -112,6 +113,8 @@ private:
     GeissComponent geissDisplay;
     ProjectMComponent projectMDisplay;
     std::unique_ptr<HeartbeatComponent> heartbeatDisplay;
+    HeartRateManager heartRateManager;
+    std::unique_ptr<BioResonanceComponent> bioResonanceDisplay;
     juce::AudioDeviceManager deviceManager;
     juce::AudioProcessorPlayer audioPlayer;
     PluginHost pluginHost;

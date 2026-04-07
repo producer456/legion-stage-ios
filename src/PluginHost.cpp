@@ -8,6 +8,7 @@
 #include "GeissComponent.h"
 #include "ProjectMComponent.h"
 #include "HeartbeatComponent.h"
+#include "BioResonanceComponent.h"
 
 
 PluginHost::PluginHost()
@@ -618,6 +619,8 @@ void PluginHost::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer
             projectMDisplay->pushSamples(mono, count);
         if (heartbeatDisplay != nullptr)
             heartbeatDisplay->pushSamples(mono, count);
+        if (bioResonanceDisplay != nullptr)
+            bioResonanceDisplay->pushSamples(mono, count);
     }
 
 }

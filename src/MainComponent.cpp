@@ -47,6 +47,14 @@ MainComponent::MainComponent()
     heartbeatDisplay->setVisible(false);
     pluginHost.heartbeatDisplay = heartbeatDisplay.get();
 
+    bioResonanceDisplay = std::make_unique<BioResonanceComponent>(pluginHost.getEngine(), heartRateManager);
+    addAndMakeVisible(*bioResonanceDisplay);
+    bioResonanceDisplay->setVisible(false);
+    pluginHost.bioResonanceDisplay = bioResonanceDisplay.get();
+
+    // Request heart rate access from HealthKit
+    heartRateManager.requestAuthorization();
+
     // Tap on small visualizer to go fullscreen
     spectrumDisplay.addMouseListener(this, false);
     lissajousDisplay.addMouseListener(this, false);
@@ -56,6 +64,7 @@ MainComponent::MainComponent()
     geissDisplay.addMouseListener(this, false);
     projectMDisplay.addMouseListener(this, false);
     heartbeatDisplay->addMouseListener(this, false);
+    bioResonanceDisplay->addMouseListener(this, false);
 
     if (auto* device = deviceManager.getCurrentAudioDevice())
     {
@@ -262,7 +271,7 @@ MainComponent::MainComponent()
             if (track.clipPlayer)
                 track.clipPlayer->sendAllNotesOff.store(true);
         }
-        statusLabel.setText("MIDI Panic — all notes off", juce::dontSendNotification);
+        statusLabel.setText("MIDI Panic - all notes off", juce::dontSendNotification);
         panicAnimEndTime = juce::Time::getMillisecondCounterHiRes() * 0.001 + 3.0;
     };
 
@@ -453,6 +462,7 @@ MainComponent::MainComponent()
     visSelector.addItem("MilkDrop", 5);
     visSelector.addItem("Analyzer", 6);
     visSelector.addItem("Heartbeat", 7);
+    visSelector.addItem("BioSync", 8);
     visSelector.setSelectedId(2, juce::dontSendNotification);  // Lissajous
     currentVisMode = 1;
     visSelector.onChange = [this] {
@@ -1157,7 +1167,7 @@ void MainComponent::timerCallback()
                 }
 
                 // Arrhythmia jitter at high CPU
-                if (cpu > 0.7f)
+                if (cpu > 0.75f)
                     v += (cpu - 0.7f) * 0.1f * std::sin(static_cast<float>(ekgWritePos) * 3.1f);
 
                 ekgBuffer[static_cast<size_t>(ekgWritePos)] = v;
@@ -1169,6 +1179,10 @@ void MainComponent::timerCallback()
         if (cpuLabel.isVisible())
             repaint(cpuLabel.getBounds().expanded(5));
     }
+
+    // Start heart rate observation once authorized
+    if (heartRateManager.authorized.load() && heartRateManager.heartRateBpm.load() < 1.0)
+        heartRateManager.startObserving();
 
     // Update arranger minimap
     if (arrangerMinimap && timelineComponent && timelineComponent->isVisible())
@@ -3475,7 +3489,8 @@ void MainComponent::mouseDown(const juce::MouseEvent& e)
         auto* src = e.eventComponent;
         if (src == &spectrumDisplay || src == &lissajousDisplay || src == &waveTerrainDisplay
             || src == &shaderToyDisplay || src == &analyzerDisplay || src == &geissDisplay
-            || src == &projectMDisplay)
+            || src == &projectMDisplay || src == heartbeatDisplay.get()
+            || src == bioResonanceDisplay.get())
         {
             visualizerFullScreen = true;
             projectorMode = true;
@@ -3634,8 +3649,8 @@ void MainComponent::showExpandedEkg()
             auto inner = bounds.reduced(10.0f, 8.0f);
             float cpu = owner.currentCpuPercent / 100.0f;
 
-            juce::Colour waveCol = cpu > 0.8f ? juce::Colour(red) :
-                                   cpu > 0.5f ? juce::Colour(amber) :
+            juce::Colour waveCol = cpu > 0.75f ? juce::Colour(red) :
+                                   cpu > 0.33f ? juce::Colour(amber) :
                                    juce::Colour(lcdText);
 
             // Grid lines
@@ -3694,7 +3709,7 @@ void MainComponent::showExpandedEkg()
             g.setFont(14.0f);
 
             int bpm = static_cast<int>(60.0f + cpu * 120.0f);
-            juce::String status = cpu > 0.8f ? "CRITICAL" : cpu > 0.5f ? "ELEVATED" : "NORMAL";
+            juce::String status = cpu > 0.75f ? "CRITICAL" : cpu > 0.33f ? "TACHYCARDIA" : "NORMAL";
             g.drawText("CPU " + juce::String(static_cast<int>(owner.currentCpuPercent)) + "%   "
                        + "RAM " + juce::String(owner.currentRamMB) + "MB   "
                        + "HR " + juce::String(bpm) + " BPM   " + status,
@@ -3706,39 +3721,27 @@ void MainComponent::showExpandedEkg()
     infoBtn->setColour(juce::TextButton::buttonColourId, juce::Colours::transparentBlack);
     infoBtn->setColour(juce::TextButton::textColourOffId, juce::Colours::white.withAlpha(0.7f));
     infoBtn->onClick = [] {
-        auto* alert = new juce::AlertWindow("CPU Health Monitor", "", juce::AlertWindow::NoIcon);
-        alert->addTextBlock(
+        auto* alert = new juce::AlertWindow("CPU Health Monitor",
             "This EKG visualizes your device's CPU load as a cardiac rhythm, "
             "using the same PQRST waveform morphology as a real electrocardiogram.\n\n"
-            "WAVEFORM COMPONENTS\n"
-            "P Wave — Small bump before the main spike. Represents baseline system "
-            "overhead (OS, background tasks). Gets larger as system load increases.\n\n"
-            "QRS Complex — The sharp spike. This is the main indicator of audio "
-            "processing load. The R wave (tall peak) grows with CPU usage. The QRS "
-            "width increases under heavy load — just like a stressed heart produces "
-            "a wider QRS complex, a struggling CPU takes longer to process each buffer.\n\n"
-            "ST Segment — The flat section after the spike. Normally at baseline, "
-            "it elevates with sustained high CPU (like ST elevation indicating "
-            "cardiac ischemia). This means the CPU has no headroom between processing cycles.\n\n"
-            "T Wave — The recovery bump. Represents the CPU's ability to recover "
-            "between audio callbacks. Inverts above 85% CPU — on a real EKG, "
-            "T wave inversion signals the heart muscle isn't recovering properly.\n\n"
-            "HEART RATE (R-R INTERVAL)\n"
-            "The spacing between beats directly maps to CPU load:\n"
-            "  0-50% = 60-90 BPM — Normal sinus rhythm. Wide spacing between "
-            "beats, clear P-QRS-T separation. Your device is relaxed.\n"
-            "  50-80% = 90-150 BPM — Sinus tachycardia. Beats get closer, "
-            "T waves start merging with the next P wave. Amber warning.\n"
-            "  80%+ = 150-180 BPM — Critical tachycardia with arrhythmia. "
-            "Irregular beat spacing, ST elevation, T inversion. Red alert. "
-            "Audio dropouts are imminent.\n\n"
-            "WHAT TO DO\n"
-            "If the EKG turns red with irregular, tightly-spaced beats:\n"
-            "- Reduce plugin count or switch to lighter plugins\n"
-            "- Increase audio buffer size (Settings > Audio)\n"
-            "- Close other apps running in the background\n"
-            "- Freeze tracks that aren't being actively edited"
-        );
+            "WAVEFORM COMPONENTS\n\n"
+            "P Wave - Small bump before the main spike. Represents baseline system "
+            "overhead (OS, background tasks).\n\n"
+            "QRS Complex - The sharp spike showing audio processing load. "
+            "The R wave grows with CPU usage and widens under heavy load.\n\n"
+            "ST Segment - Flat normally, elevates with sustained high CPU "
+            "(like cardiac ischemia - no headroom between processing cycles).\n\n"
+            "T Wave - Recovery phase. Inverts above 85% CPU (danger sign).\n\n"
+            "HEART RATE\n\n"
+            "0-33% CPU = 60-99 BPM (normal sinus rhythm, green)\n"
+            "33-75% CPU = 100-150 BPM (sinus tachycardia, amber)\n"
+            "75%+ CPU = 150-180 BPM (critical tachycardia, red)\n\n"
+            "WHAT TO DO\n\n"
+            "If the EKG turns red:\n"
+            "- Reduce plugin count\n"
+            "- Increase audio buffer size\n"
+            "- Close background apps",
+            juce::AlertWindow::InfoIcon);
         alert->addButton("OK", 1);
         alert->enterModalState(true, juce::ModalCallbackFunction::create(
             [alert](int) { delete alert; }), false);
@@ -3772,7 +3775,7 @@ void MainComponent::showPhoneMenu()
     auto& track = pluginHost.getTrack(selectedTrackIndex);
     juce::String trackName = "Track " + juce::String(selectedTrackIndex + 1);
     if (track.plugin != nullptr)
-        trackName += " — " + track.plugin->getName();
+        trackName += " - " + track.plugin->getName();
     menu.addSectionHeader(trackName);
     menu.addSeparator();
 
@@ -3783,7 +3786,7 @@ void MainComponent::showPhoneMenu()
         auto& t = pluginHost.getTrack(i);
         juce::String label = "Track " + juce::String(i + 1);
         if (t.plugin != nullptr)
-            label += " — " + t.plugin->getName();
+            label += " - " + t.plugin->getName();
         trackMenu.addItem(200 + i, label, true, i == selectedTrackIndex);
     }
     menu.addSubMenu("Select Track", trackMenu);
@@ -3812,6 +3815,7 @@ void MainComponent::showPhoneMenu()
     visMenu.addItem(104, "MilkDrop", true, currentVisMode == 4);
     visMenu.addItem(105, "Analyzer", true, currentVisMode == 5);
     visMenu.addItem(106, "Heartbeat", true, currentVisMode == 6);
+    visMenu.addItem(107, "BioSync", true, currentVisMode == 7);
     menu.addSubMenu("Visualizer", visMenu);
     menu.addItem(10, "Fullscreen Vis");
     menu.addSeparator();
@@ -4057,8 +4061,8 @@ void MainComponent::paint(juce::Graphics& g)
         float waveW = inner.getWidth();
 
         {
-            juce::Colour waveCol = currentCpuPercent > 80.0f ? juce::Colour(c.red) :
-                                   currentCpuPercent > 50.0f ? juce::Colour(c.amber) :
+            juce::Colour waveCol = currentCpuPercent > 75.0f ? juce::Colour(c.red) :
+                                   currentCpuPercent > 33.0f ? juce::Colour(c.amber) :
                                    juce::Colour(c.lcdText);
 
             // Draw the sweep trace from the circular buffer
@@ -4581,6 +4585,7 @@ void MainComponent::resized()
             shaderToyDisplay.setVisible(false);
             analyzerDisplay.setVisible(false);
             heartbeatDisplay->setVisible(false);
+            bioResonanceDisplay->setVisible(false);
 
             if (currentVisMode == 0) { spectrumDisplay.setBounds(visArea); spectrumDisplay.setAlpha(1.0f); spectrumDisplay.setVisible(true); }
             else if (currentVisMode == 1) { lissajousDisplay.setBounds(visArea); lissajousDisplay.setVisible(true); }
@@ -4589,6 +4594,7 @@ void MainComponent::resized()
             else if (currentVisMode == 4) { projectMDisplay.setBounds(visArea); projectMDisplay.setVisible(true); }
             else if (currentVisMode == 5) { analyzerDisplay.setBounds(visArea); analyzerDisplay.setVisible(true); }
             else if (currentVisMode == 6) { heartbeatDisplay->setBounds(visArea); heartbeatDisplay->setVisible(true); }
+            else if (currentVisMode == 7) { bioResonanceDisplay->setBounds(visArea); bioResonanceDisplay->setVisible(true); }
 
             // Bring control bar widgets to front so they're not hidden behind the visualizer
             visExitButton.toFront(false);
@@ -4717,6 +4723,7 @@ void MainComponent::resized()
     shaderToyDisplay.setVisible(false);
     analyzerDisplay.setVisible(currentVisMode == 5);
     heartbeatDisplay->setVisible(currentVisMode == 6);
+    bioResonanceDisplay->setVisible(currentVisMode == 7);
     visExitButton.setVisible(false);
     projectorButton.setVisible(false);
     fullscreenButton.setVisible(false);
@@ -4760,6 +4767,7 @@ void MainComponent::resized()
     projectMDisplay.toBack();
     analyzerDisplay.toBack();
     heartbeatDisplay->toBack();
+    bioResonanceDisplay->toBack();
 
     } // end restore visibility block
 
@@ -4793,6 +4801,7 @@ void MainComponent::resized()
             shaderToyDisplay.setVisible(false);
             analyzerDisplay.setVisible(false);
             heartbeatDisplay->setVisible(false);
+            bioResonanceDisplay->setVisible(false);
         chordLabel.setVisible(false);
 
         // ── Right panel: volume knob on top (full width), then two columns ──
@@ -5037,6 +5046,11 @@ void MainComponent::resized()
     {
         heartbeatDisplay->setBounds(visPanelArea);
         heartbeatDisplay->setVisible(true);
+    }
+    else if (currentVisMode == 7)  // BioSync
+    {
+        bioResonanceDisplay->setBounds(visPanelArea);
+        bioResonanceDisplay->setVisible(true);
     }
     rightPanel.removeFromTop(4);
     // Vis selector overlaid on bottom of visualizer preview
