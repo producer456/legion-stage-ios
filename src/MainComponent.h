@@ -280,6 +280,9 @@ private:
         };
         juce::Array<ClipData> clips;
         double bpm = 120.0;
+        bool loopEnabled = false;
+        double loopStart = 0.0;
+        double loopEnd = 0.0;
     };
     juce::Array<ProjectSnapshot> undoHistory;
     int undoIndex = -1;

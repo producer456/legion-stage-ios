@@ -255,6 +255,11 @@ void TimelineComponent::mouseDown(const juce::MouseEvent& e)
     else
     {
         selectedClip = {};
+        // Start single-finger pan on empty space
+        panning = true;
+        panStart = e.position;
+        panStartScrollX = scrollX;
+        panStartScrollY = scrollY;
     }
 
     repaint();
@@ -316,6 +321,25 @@ void TimelineComponent::mouseDrag(const juce::MouseEvent& e)
         if (le - ls > 0.1)  // minimum size of ~0.1 beats
             pluginHost.getEngine().setLoopRegion(ls, le);
 
+        repaint();
+        return;
+    }
+
+    // Single-finger pan on empty space
+    if (panning && e.source.getIndex() == 0)
+    {
+        float dx = e.position.x - panStart.x;
+        float dy = e.position.y - panStart.y;
+
+        scrollX = panStartScrollX - dx / pixelsPerBeat;
+        if (scrollX < 0.0) scrollX = 0.0;
+
+        int totalContent = PluginHost::NUM_TRACKS * trackHeight;
+        int maxScroll = juce::jmax(0, totalContent - (getHeight() - headerHeight));
+        scrollY = juce::jlimit(0, maxScroll, panStartScrollY - static_cast<int>(dy));
+
+        userScrollActive = true;
+        userScrollExpireTime = juce::Time::getMillisecondCounterHiRes() * 0.001 + 3.0;
         repaint();
         return;
     }
@@ -397,15 +421,7 @@ void TimelineComponent::mouseDrag(const juce::MouseEvent& e)
 
             if (srcCp != nullptr && dstCp != nullptr)
             {
-                int emptySlot = -1;
-                for (int s = 0; s < dstCp->getNumSlots(); ++s)
-                {
-                    if (!dstCp->getSlot(s).hasContent() && dstCp->getSlot(s).clip == nullptr && dstCp->getSlot(s).audioClip == nullptr)
-                    {
-                        emptySlot = s;
-                        break;
-                    }
-                }
+                int emptySlot = dstCp->findOrCreateEmptySlot();
 
                 if (emptySlot >= 0)
                 {
@@ -474,6 +490,7 @@ void TimelineComponent::mouseUp(const juce::MouseEvent& e)
     if (e.source.getIndex() > 0)
         touchScrolling = false;
 
+    panning = false;
     draggingLoop = false;
 
     // Handle clip click pending — short tap selects, long press already handled in timerCallback
@@ -709,17 +726,8 @@ void TimelineComponent::duplicateSelectedClip()
     if (cp == nullptr) return;
 
     // Find empty slot on same track
-    int emptySlot = -1;
-    for (int s = 0; s < cp->getNumSlots(); ++s)
-    {
-        if (!cp->getSlot(s).hasContent() && cp->getSlot(s).clip == nullptr)
-        {
-            emptySlot = s;
-            break;
-        }
-    }
-
-    if (emptySlot < 0) return; // no empty slots
+    int emptySlot = cp->findOrCreateEmptySlot();
+    if (emptySlot < 0) return;
 
     auto newClip = std::make_unique<MidiClip>();
     newClip->lengthInBeats = srcClip->lengthInBeats;
@@ -753,16 +761,8 @@ void TimelineComponent::splitClipAtBeat(const ClipRef& ref, double beat)
     auto* cp = pluginHost.getTrack(ref.trackIndex).clipPlayer;
     if (cp == nullptr) return;
 
-    // Find empty slot for the second half
-    int emptySlot = -1;
-    for (int s = 0; s < cp->getNumSlots(); ++s)
-    {
-        if (!cp->getSlot(s).hasContent() && cp->getSlot(s).clip == nullptr)
-        {
-            emptySlot = s;
-            break;
-        }
-    }
+    // Find or create empty slot for the second half
+    int emptySlot = cp->findOrCreateEmptySlot();
     if (emptySlot < 0) return;
 
     // Create second half clip
@@ -909,15 +909,7 @@ void TimelineComponent::createEmptyClip(int trackIndex, double beatPos)
     auto* cp = pluginHost.getTrack(trackIndex).clipPlayer;
     if (cp == nullptr) return;
 
-    int emptySlot = -1;
-    for (int s = 0; s < cp->getNumSlots(); ++s)
-    {
-        if (!cp->getSlot(s).hasContent() && cp->getSlot(s).clip == nullptr)
-        {
-            emptySlot = s;
-            break;
-        }
-    }
+    int emptySlot = cp->findOrCreateEmptySlot();
     if (emptySlot < 0) return;
 
     auto newClip = std::make_unique<MidiClip>();

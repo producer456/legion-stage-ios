@@ -123,6 +123,12 @@ private:
     bool userScrollActive = false;
     double userScrollExpireTime = 0.0;  // time when auto-follow resumes
 
+    // Single-finger pan (drag on empty space)
+    bool panning = false;
+    juce::Point<float> panStart;
+    double panStartScrollX = 0.0;
+    int panStartScrollY = 0;
+
     // Loop region dragging
     bool draggingLoop = false;
     double loopDragStartBeat = 0.0;

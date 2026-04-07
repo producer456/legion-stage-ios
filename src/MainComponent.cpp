@@ -2848,6 +2848,9 @@ void MainComponent::takeSnapshot()
 
     ProjectSnapshot snap;
     snap.bpm = pluginHost.getEngine().getBpm();
+    snap.loopEnabled = pluginHost.getEngine().isLoopEnabled();
+    snap.loopStart = pluginHost.getEngine().getLoopStart();
+    snap.loopEnd = pluginHost.getEngine().getLoopEnd();
 
     for (int t = 0; t < PluginHost::NUM_TRACKS; ++t)
     {
@@ -2946,6 +2949,21 @@ void MainComponent::restoreSnapshot(const ProjectSnapshot& snap)
 
     pluginHost.getEngine().setBpm(snap.bpm);
     bpmLabel.setText(juce::String(static_cast<int>(snap.bpm)) + " BPM", juce::dontSendNotification);
+
+    // Restore loop state
+    if (snap.loopEnabled)
+    {
+        pluginHost.getEngine().setLoopRegion(snap.loopStart, snap.loopEnd);
+        if (!pluginHost.getEngine().isLoopEnabled())
+            pluginHost.getEngine().toggleLoop();
+    }
+    else
+    {
+        if (pluginHost.getEngine().isLoopEnabled())
+            pluginHost.getEngine().toggleLoop();
+        pluginHost.getEngine().clearLoopRegion();
+    }
+    loopButton.setToggleState(snap.loopEnabled, juce::dontSendNotification);
 
     // Restore clips
     for (auto& cd : snap.clips)
@@ -5535,6 +5553,14 @@ void MainComponent::applyThemeToControls()
 
     for (int i = 0; i < NUM_FX_SLOTS; ++i)
         fxEditorButtons[i]->setColour(juce::TextButton::buttonColourId, juce::Colour(c.btnNav));
+
+    // Parameter knobs
+    for (int i = 0; i < NUM_PARAM_SLIDERS; ++i)
+    {
+        paramSliders[i]->setColour(juce::Slider::rotarySliderFillColourId, juce::Colour(c.amber));
+        paramSliders[i]->setColour(juce::Slider::thumbColourId, juce::Colour(c.lcdText));
+        paramLabels[i]->setColour(juce::Label::textColourId, juce::Colour(c.textSecondary));
+    }
 
     repaint();
 }
