@@ -24,6 +24,18 @@ public:
     {
         startTimerHz(30);
 
+        connectButton.setButtonText("Connect Watch");
+        connectButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff334455));
+        connectButton.setColour(juce::TextButton::textColourOffId, juce::Colours::white.withAlpha(0.8f));
+        connectButton.onClick = [this] {
+            heartRate.requestAuthorization();
+            // After auth, start observing
+            juce::Timer::callAfterDelay(1000, [this] {
+                heartRate.startObserving();
+            });
+        };
+        addAndMakeVisible(connectButton);
+
         infoButton.setButtonText("?");
         infoButton.setColour(juce::TextButton::buttonColourId, juce::Colours::white.withAlpha(0.15f));
         infoButton.setColour(juce::TextButton::textColourOffId, juce::Colours::white.withAlpha(0.7f));
@@ -70,6 +82,12 @@ public:
     void resized() override
     {
         infoButton.setBounds(getWidth() - 34, 4, 30, 30);
+
+        // Show Connect button only when no heart rate data
+        bool hasHR = heartRate.heartRateBpm.load() >= 30.0;
+        connectButton.setVisible(!hasHR);
+        if (!hasHR)
+            connectButton.setBounds(getWidth() / 2 - 70, getHeight() - 50, 140, 30);
     }
 
     // Called from audio thread
@@ -103,6 +121,11 @@ public:
         // Phase advances per timer tick (30 Hz)
         musicPhase += (musicBpm / 60.0) / 30.0;
         heartPhase += (hrBpm / 60.0) / 30.0;
+
+        // Hide connect button once HR data is available
+        bool hasHR = heartRate.heartRateBpm.load() >= 30.0;
+        if (hasHR && connectButton.isVisible())
+            connectButton.setVisible(false);
 
         frameCount++;
         repaint();
@@ -310,6 +333,7 @@ private:
     }
 
     juce::TextButton infoButton;
+    juce::TextButton connectButton;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(BioResonanceComponent)
 };
