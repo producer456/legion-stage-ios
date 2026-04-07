@@ -20,6 +20,7 @@
 #include "UpdateDialog.h"
 #include "ChordDetector.h"
 #include "ArrangerMinimapComponent.h"
+#include "HeartbeatComponent.h"
 
 class PluginEditorWindow : public juce::DocumentWindow, public juce::ComponentListener
 {
@@ -110,6 +111,7 @@ private:
     AnalyzerComponent analyzerDisplay;
     GeissComponent geissDisplay;
     ProjectMComponent projectMDisplay;
+    std::unique_ptr<HeartbeatComponent> heartbeatDisplay;
     juce::AudioDeviceManager deviceManager;
     juce::AudioProcessorPlayer audioPlayer;
     PluginHost pluginHost;
@@ -348,6 +350,13 @@ private:
     juce::Array<float> cpuHistory;  // rolling CPU % history for heartbeat display
     float currentCpuPercent = 0.0f;
     int currentRamMB = 0;
+    void showExpandedEkg();
+
+    // EKG sweep state
+    static constexpr int EKG_BUFFER_SIZE = 200;
+    std::array<float, EKG_BUFFER_SIZE> ekgBuffer {};  // circular EKG sample buffer
+    int ekgWritePos = 0;
+    double ekgPhase = 0.0;  // continuous phase through PQRST cycle
 
     // ── Bottom Bar ──
     juce::Label statusLabel;

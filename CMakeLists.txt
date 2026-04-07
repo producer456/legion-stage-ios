@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(Sequencer VERSION 1.3.9)
+project(Sequencer VERSION 1.4.0)
 
 # ASIO SDK path — JUCE needs this to compile ASIO support (Windows only)
 if(WIN32)
@@ -78,6 +78,7 @@ target_sources(Sequencer PRIVATE
     src/AnalyzerComponent.h
     src/GeissComponent.h
     src/ProjectMComponent.h
+    src/HeartbeatComponent.h
     src/TouchPianoComponent.h
     src/MixerComponent.h
     src/SplashComponent.h

@@ -42,6 +42,11 @@ MainComponent::MainComponent()
     projectMDisplay.setVisible(false);
     pluginHost.projectMDisplay = &projectMDisplay;
 
+    heartbeatDisplay = std::make_unique<HeartbeatComponent>(pluginHost.getEngine());
+    addAndMakeVisible(*heartbeatDisplay);
+    heartbeatDisplay->setVisible(false);
+    pluginHost.heartbeatDisplay = heartbeatDisplay.get();
+
     // Tap on small visualizer to go fullscreen
     spectrumDisplay.addMouseListener(this, false);
     lissajousDisplay.addMouseListener(this, false);
@@ -50,6 +55,7 @@ MainComponent::MainComponent()
     analyzerDisplay.addMouseListener(this, false);
     geissDisplay.addMouseListener(this, false);
     projectMDisplay.addMouseListener(this, false);
+    heartbeatDisplay->addMouseListener(this, false);
 
     if (auto* device = deviceManager.getCurrentAudioDevice())
     {
@@ -446,6 +452,7 @@ MainComponent::MainComponent()
     visSelector.addItem("Geiss", 4);
     visSelector.addItem("MilkDrop", 5);
     visSelector.addItem("Analyzer", 6);
+    visSelector.addItem("Heartbeat", 7);
     visSelector.setSelectedId(2, juce::dontSendNotification);  // Lissajous
     currentVisMode = 1;
     visSelector.onChange = [this] {
@@ -694,6 +701,7 @@ MainComponent::MainComponent()
     addAndMakeVisible(cpuLabel);
     cpuLabel.setText("CPU: 0%", juce::dontSendNotification);
     cpuLabel.setJustificationType(juce::Justification::centredLeft);
+    cpuLabel.addMouseListener(this, false);
 
     // ── Chord Detector Label ──
     addAndMakeVisible(chordLabel);
@@ -1104,8 +1112,58 @@ void MainComponent::timerCallback()
 
         // Store CPU history for heartbeat waveform
         cpuHistory.add(totalCpu);
-        if (cpuHistory.size() > 60)  // ~4 seconds at 15Hz
+        if (cpuHistory.size() > 60)
             cpuHistory.remove(0);
+
+        // Advance EKG sweep — generate PQRST samples into circular buffer
+        {
+            float cpu = totalCpu / 100.0f;
+            // Heart rate: 60 BPM at 0% CPU → 180 BPM at 100% CPU
+            // Timer runs at 15 Hz, 3 sub-samples per tick = 45 samples/sec
+            // 60 BPM = 1 cycle/sec = 1/45 phase per sample
+            // 180 BPM = 3 cycles/sec = 3/45 phase per sample
+            double beatsPerSec = (60.0 + static_cast<double>(cpu) * 120.0) / 60.0;
+            double phaseStep = beatsPerSec / 45.0;
+
+            // Generate a few samples per timer tick for smooth sweep
+            for (int s = 0; s < 3; ++s)
+            {
+                ekgPhase += phaseStep;
+                float p = static_cast<float>(std::fmod(ekgPhase, 1.0));
+
+                float v = 0.0f;
+                if (p < 0.12f) {
+                    float t = (p - 0.06f) / 0.04f;
+                    v = 0.12f * std::exp(-t * t);
+                } else if (p < 0.18f) {
+                    v = 0.0f;
+                } else if (p < 0.22f) {
+                    float t = (p - 0.20f) / 0.015f;
+                    v = -0.1f * std::exp(-t * t);
+                } else if (p < 0.28f) {
+                    float width = 0.018f + cpu * 0.01f;
+                    float t = (p - 0.25f) / width;
+                    v = (0.7f + cpu * 0.3f) * std::exp(-t * t);
+                } else if (p < 0.34f) {
+                    float t = (p - 0.31f) / 0.02f;
+                    v = -(0.15f + cpu * 0.1f) * std::exp(-t * t);
+                } else if (p < 0.48f) {
+                    v = cpu * 0.15f;
+                } else if (p < 0.64f) {
+                    float t = (p - 0.56f) / 0.05f;
+                    float tAmp = 0.2f + cpu * 0.1f;
+                    if (cpu > 0.85f) tAmp = -tAmp * 0.5f;
+                    v = tAmp * std::exp(-t * t) + cpu * 0.15f * (1.0f - (p - 0.48f) / 0.16f);
+                }
+
+                // Arrhythmia jitter at high CPU
+                if (cpu > 0.7f)
+                    v += (cpu - 0.7f) * 0.1f * std::sin(static_cast<float>(ekgWritePos) * 3.1f);
+
+                ekgBuffer[static_cast<size_t>(ekgWritePos)] = v;
+                ekgWritePos = (ekgWritePos + 1) % EKG_BUFFER_SIZE;
+            }
+        }
 
         // Repaint the CPU OLED area
         if (cpuLabel.isVisible())
@@ -3437,6 +3495,13 @@ void MainComponent::mouseDown(const juce::MouseEvent& e)
         return;
     }
 
+    // Tap on CPU OLED to open expanded EKG window
+    if (e.eventComponent == &cpuLabel)
+    {
+        showExpandedEkg();
+        return;
+    }
+
 #if JUCE_IOS
     bool isPhone = AUScanner::isIPhone() && !forceIPadLayout;
     if (isPhone)
@@ -3521,6 +3586,184 @@ void MainComponent::mouseDoubleClick(const juce::MouseEvent& e)
     }
 }
 
+void MainComponent::showExpandedEkg()
+{
+    // Create an overlay with a large EKG display
+    auto* overlay = new juce::Component();
+    overlay->setName("EkgOverlay");
+
+    auto* closeBtn = new juce::TextButton("CLOSE");
+    closeBtn->setColour(juce::TextButton::buttonColourId, juce::Colours::red.withAlpha(0.9f));
+    closeBtn->setColour(juce::TextButton::textColourOffId, juce::Colours::white);
+    closeBtn->onClick = [this] {
+        for (int i = getNumChildComponents() - 1; i >= 0; --i)
+            if (auto* child = getChildComponent(i))
+                if (child->getName() == "EkgOverlay")
+                {
+                    removeChildComponent(i);
+                    delete child;
+                    break;
+                }
+    };
+
+    // EKG display component — captures cpu data by reference
+    struct EkgDisplay : public juce::Component, public juce::Timer
+    {
+        MainComponent& owner;
+        EkgDisplay(MainComponent& o) : owner(o) { startTimerHz(15); }
+        void timerCallback() override { repaint(); }
+
+        void paint(juce::Graphics& g) override
+        {
+            auto bounds = getLocalBounds().toFloat();
+
+            // Get theme colors
+            uint32_t lcdBg = 0xff000000, lcdText = 0xffb8d8f0, red = 0xffff4444, amber = 0xffffaa44;
+            if (auto* lnf = dynamic_cast<DawLookAndFeel*>(&getLookAndFeel()))
+            {
+                auto& t = lnf->getTheme();
+                lcdBg = t.lcdBg; lcdText = t.lcdText; red = t.red; amber = t.amber;
+            }
+
+            // OLED background
+            g.setColour(juce::Colour(lcdBg));
+            g.fillRoundedRectangle(bounds, 6.0f);
+            g.setColour(juce::Colour(0xff333333));
+            g.drawRoundedRectangle(bounds, 6.0f, 1.0f);
+
+            auto inner = bounds.reduced(10.0f, 8.0f);
+            float cpu = owner.currentCpuPercent / 100.0f;
+
+            juce::Colour waveCol = cpu > 0.8f ? juce::Colour(red) :
+                                   cpu > 0.5f ? juce::Colour(amber) :
+                                   juce::Colour(lcdText);
+
+            // Grid lines
+            g.setColour(juce::Colour(lcdText).withAlpha(0.08f));
+            int gridX = static_cast<int>(inner.getWidth() / 20.0f);
+            int gridY = static_cast<int>(inner.getHeight() / 10.0f);
+            for (int i = 0; i <= 20; ++i)
+                g.drawVerticalLine(static_cast<int>(inner.getX() + i * gridX), inner.getY(), inner.getBottom());
+            for (int i = 0; i <= 10; ++i)
+                g.drawHorizontalLine(static_cast<int>(inner.getY() + i * gridY), inner.getX(), inner.getRight());
+
+            // EKG sweep trace from circular buffer (same as small OLED but bigger)
+            float waveH = inner.getHeight() * 0.4f;
+            float baselineY = inner.getCentreY();
+            float waveW = inner.getWidth();
+            int bufSize = MainComponent::EKG_BUFFER_SIZE;
+            int writePos = owner.ekgWritePos;
+            int gapSize = 8;
+
+            juce::Path wavePath;
+            bool pathStarted = false;
+
+            for (int i = 0; i < bufSize; ++i)
+            {
+                int bufIdx = (writePos + i) % bufSize;
+                int distFromCursor = (bufSize - i) % bufSize;
+                if (distFromCursor > 0 && distFromCursor <= gapSize)
+                {
+                    pathStarted = false;
+                    continue;
+                }
+
+                float x = inner.getX() + (static_cast<float>(i) / static_cast<float>(bufSize - 1)) * waveW;
+                float v = owner.ekgBuffer[static_cast<size_t>(bufIdx)];
+                float y = baselineY - v * waveH;
+
+                if (!pathStarted) { wavePath.startNewSubPath(x, y); pathStarted = true; }
+                else wavePath.lineTo(x, y);
+            }
+
+            g.setColour(waveCol.withAlpha(0.9f));
+            g.strokePath(wavePath, juce::PathStrokeType(2.0f));
+
+            // Glow dot at cursor
+            int cursorIdx = (writePos - 1 + bufSize) % bufSize;
+            float cursorFrac = static_cast<float>((cursorIdx - writePos + bufSize) % bufSize) / static_cast<float>(bufSize - 1);
+            float cursorX = inner.getX() + cursorFrac * waveW;
+            float cursorV = owner.ekgBuffer[static_cast<size_t>(cursorIdx)];
+            float cursorY = baselineY - cursorV * waveH;
+            g.setColour(waveCol.withAlpha(0.7f));
+            g.fillEllipse(cursorX - 4, cursorY - 4, 8, 8);
+
+            // Stats text
+            auto textArea = inner.removeFromBottom(20.0f);
+            g.setColour(waveCol.withAlpha(0.9f));
+            g.setFont(14.0f);
+
+            int bpm = static_cast<int>(60.0f + cpu * 120.0f);
+            juce::String status = cpu > 0.8f ? "CRITICAL" : cpu > 0.5f ? "ELEVATED" : "NORMAL";
+            g.drawText("CPU " + juce::String(static_cast<int>(owner.currentCpuPercent)) + "%   "
+                       + "RAM " + juce::String(owner.currentRamMB) + "MB   "
+                       + "HR " + juce::String(bpm) + " BPM   " + status,
+                       textArea.toNearestInt(), juce::Justification::centred);
+        }
+    };
+
+    auto* infoBtn = new juce::TextButton("?");
+    infoBtn->setColour(juce::TextButton::buttonColourId, juce::Colours::transparentBlack);
+    infoBtn->setColour(juce::TextButton::textColourOffId, juce::Colours::white.withAlpha(0.7f));
+    infoBtn->onClick = [] {
+        auto* alert = new juce::AlertWindow("CPU Health Monitor", "", juce::AlertWindow::NoIcon);
+        alert->addTextBlock(
+            "This EKG visualizes your device's CPU load as a cardiac rhythm, "
+            "using the same PQRST waveform morphology as a real electrocardiogram.\n\n"
+            "WAVEFORM COMPONENTS\n"
+            "P Wave — Small bump before the main spike. Represents baseline system "
+            "overhead (OS, background tasks). Gets larger as system load increases.\n\n"
+            "QRS Complex — The sharp spike. This is the main indicator of audio "
+            "processing load. The R wave (tall peak) grows with CPU usage. The QRS "
+            "width increases under heavy load — just like a stressed heart produces "
+            "a wider QRS complex, a struggling CPU takes longer to process each buffer.\n\n"
+            "ST Segment — The flat section after the spike. Normally at baseline, "
+            "it elevates with sustained high CPU (like ST elevation indicating "
+            "cardiac ischemia). This means the CPU has no headroom between processing cycles.\n\n"
+            "T Wave — The recovery bump. Represents the CPU's ability to recover "
+            "between audio callbacks. Inverts above 85% CPU — on a real EKG, "
+            "T wave inversion signals the heart muscle isn't recovering properly.\n\n"
+            "HEART RATE (R-R INTERVAL)\n"
+            "The spacing between beats directly maps to CPU load:\n"
+            "  0-50% = 60-90 BPM — Normal sinus rhythm. Wide spacing between "
+            "beats, clear P-QRS-T separation. Your device is relaxed.\n"
+            "  50-80% = 90-150 BPM — Sinus tachycardia. Beats get closer, "
+            "T waves start merging with the next P wave. Amber warning.\n"
+            "  80%+ = 150-180 BPM — Critical tachycardia with arrhythmia. "
+            "Irregular beat spacing, ST elevation, T inversion. Red alert. "
+            "Audio dropouts are imminent.\n\n"
+            "WHAT TO DO\n"
+            "If the EKG turns red with irregular, tightly-spaced beats:\n"
+            "- Reduce plugin count or switch to lighter plugins\n"
+            "- Increase audio buffer size (Settings > Audio)\n"
+            "- Close other apps running in the background\n"
+            "- Freeze tracks that aren't being actively edited"
+        );
+        alert->addButton("OK", 1);
+        alert->enterModalState(true, juce::ModalCallbackFunction::create(
+            [alert](int) { delete alert; }), false);
+    };
+
+    auto* ekgDisplay = new EkgDisplay(*this);
+    overlay->addAndMakeVisible(closeBtn);
+    overlay->addAndMakeVisible(infoBtn);
+    overlay->addAndMakeVisible(ekgDisplay);
+
+    int closeBarH = 40;
+    int w = juce::jmin(500, getWidth() - 40);
+    int h = 250;
+    int ox = (getWidth() - w) / 2;
+    int oy = (getHeight() - h - closeBarH) / 2;
+
+    overlay->setBounds(ox, oy, w, h + closeBarH);
+    closeBtn->setBounds(0, 0, w - 44, closeBarH);
+    infoBtn->setBounds(w - 44, 0, 44, closeBarH);
+    ekgDisplay->setBounds(0, closeBarH, w, h);
+
+    addAndMakeVisible(overlay);
+    overlay->toFront(true);
+}
+
 void MainComponent::showPhoneMenu()
 {
     juce::PopupMenu menu;
@@ -3568,6 +3811,7 @@ void MainComponent::showPhoneMenu()
     visMenu.addItem(103, "Geiss", true, currentVisMode == 3);
     visMenu.addItem(104, "MilkDrop", true, currentVisMode == 4);
     visMenu.addItem(105, "Analyzer", true, currentVisMode == 5);
+    visMenu.addItem(106, "Heartbeat", true, currentVisMode == 6);
     menu.addSubMenu("Visualizer", visMenu);
     menu.addItem(10, "Fullscreen Vis");
     menu.addSeparator();
@@ -3807,47 +4051,59 @@ void MainComponent::paint(juce::Graphics& g)
 
         auto inner = bounds.reduced(3.0f, 2.0f);
 
-        // Heartbeat waveform — top half
+        // EKG sweep — reads from circular ekgBuffer, draws like a real monitor
         float waveH = inner.getHeight() * 0.45f;
-        float waveY = inner.getY() + waveH * 0.5f;
+        float baselineY = inner.getY() + waveH * 0.55f;
         float waveW = inner.getWidth();
 
-        if (cpuHistory.size() > 1)
         {
-            // Color based on CPU load
             juce::Colour waveCol = currentCpuPercent > 80.0f ? juce::Colour(c.red) :
                                    currentCpuPercent > 50.0f ? juce::Colour(c.amber) :
                                    juce::Colour(c.lcdText);
 
+            // Draw the sweep trace from the circular buffer
+            // The write position is the "cursor" — draw everything behind it,
+            // leave a gap ahead of it (like a real cardiac monitor)
+            int gapSize = 8;  // blank gap ahead of cursor
+
             juce::Path wavePath;
-            for (int i = 0; i < cpuHistory.size(); ++i)
+            bool pathStarted = false;
+
+            for (int i = 0; i < EKG_BUFFER_SIZE; ++i)
             {
-                float x = inner.getX() + (static_cast<float>(i) / (cpuHistory.size() - 1)) * waveW;
-                float cpuVal = cpuHistory[i] / 100.0f;
+                // Read position relative to write cursor
+                int bufIdx = (ekgWritePos + i) % EKG_BUFFER_SIZE;
 
-                // ECG-style spike: flat baseline with sharp peaks proportional to CPU
-                float spike = 0.0f;
-                int mod = i % 8;
-                if (mod == 3) spike = cpuVal * 0.3f;
-                else if (mod == 4) spike = -cpuVal * 1.0f;  // main spike (inverted = upward on screen)
-                else if (mod == 5) spike = cpuVal * 0.5f;
-                else spike = cpuVal * 0.05f;  // slight baseline wobble
+                // Skip the gap zone right ahead of the cursor
+                int distFromCursor = (EKG_BUFFER_SIZE - i) % EKG_BUFFER_SIZE;
+                if (distFromCursor > 0 && distFromCursor <= gapSize)
+                {
+                    pathStarted = false;
+                    continue;
+                }
 
-                float y = waveY - spike * waveH;
+                float x = inner.getX() + (static_cast<float>(i) / static_cast<float>(EKG_BUFFER_SIZE - 1)) * waveW;
+                float v = ekgBuffer[static_cast<size_t>(bufIdx)];
+                float y = baselineY - v * waveH;
 
-                if (i == 0) wavePath.startNewSubPath(x, y);
+                // Fade out older samples
+                float age = static_cast<float>(EKG_BUFFER_SIZE - distFromCursor) / static_cast<float>(EKG_BUFFER_SIZE);
+                (void)age;  // used for future fade effect
+
+                if (!pathStarted) { wavePath.startNewSubPath(x, y); pathStarted = true; }
                 else wavePath.lineTo(x, y);
             }
 
-            g.setColour(waveCol.withAlpha(0.8f));
-            g.strokePath(wavePath, juce::PathStrokeType(1.2f));
+            g.setColour(waveCol.withAlpha(0.85f));
+            g.strokePath(wavePath, juce::PathStrokeType(1.3f));
 
-            // Glow on latest point
-            float lastX = inner.getRight();
-            float lastCpu = cpuHistory.getLast() / 100.0f;
-            float lastY = waveY + lastCpu * 0.05f * waveH;
-            g.setColour(waveCol.withAlpha(0.4f));
-            g.fillEllipse(lastX - 2, lastY - 2, 4, 4);
+            // Glow dot at the sweep cursor position
+            int cursorIdx = (ekgWritePos - 1 + EKG_BUFFER_SIZE) % EKG_BUFFER_SIZE;
+            float cursorX = inner.getX() + (static_cast<float>((cursorIdx - (ekgWritePos - EKG_BUFFER_SIZE + EKG_BUFFER_SIZE) % EKG_BUFFER_SIZE + EKG_BUFFER_SIZE) % EKG_BUFFER_SIZE) / static_cast<float>(EKG_BUFFER_SIZE - 1)) * waveW;
+            float cursorV = ekgBuffer[static_cast<size_t>(cursorIdx)];
+            float cursorY = baselineY - cursorV * waveH;
+            g.setColour(waveCol.withAlpha(0.6f));
+            g.fillEllipse(cursorX - 2.5f, cursorY - 2.5f, 5.0f, 5.0f);
         }
 
         // Text — bottom half: "CPU 12%  RAM 201MB"
@@ -4324,6 +4580,7 @@ void MainComponent::resized()
             projectMDisplay.setVisible(false);
             shaderToyDisplay.setVisible(false);
             analyzerDisplay.setVisible(false);
+            heartbeatDisplay->setVisible(false);
 
             if (currentVisMode == 0) { spectrumDisplay.setBounds(visArea); spectrumDisplay.setAlpha(1.0f); spectrumDisplay.setVisible(true); }
             else if (currentVisMode == 1) { lissajousDisplay.setBounds(visArea); lissajousDisplay.setVisible(true); }
@@ -4331,6 +4588,7 @@ void MainComponent::resized()
             else if (currentVisMode == 3) { geissDisplay.setBounds(visArea); geissDisplay.setVisible(true); }
             else if (currentVisMode == 4) { projectMDisplay.setBounds(visArea); projectMDisplay.setVisible(true); }
             else if (currentVisMode == 5) { analyzerDisplay.setBounds(visArea); analyzerDisplay.setVisible(true); }
+            else if (currentVisMode == 6) { heartbeatDisplay->setBounds(visArea); heartbeatDisplay->setVisible(true); }
 
             // Bring control bar widgets to front so they're not hidden behind the visualizer
             visExitButton.toFront(false);
@@ -4458,6 +4716,7 @@ void MainComponent::resized()
     projectMDisplay.setVisible(currentVisMode == 4);
     shaderToyDisplay.setVisible(false);
     analyzerDisplay.setVisible(currentVisMode == 5);
+    heartbeatDisplay->setVisible(currentVisMode == 6);
     visExitButton.setVisible(false);
     projectorButton.setVisible(false);
     fullscreenButton.setVisible(false);
@@ -4500,6 +4759,7 @@ void MainComponent::resized()
     geissDisplay.toBack();
     projectMDisplay.toBack();
     analyzerDisplay.toBack();
+    heartbeatDisplay->toBack();
 
     } // end restore visibility block
 
@@ -4532,6 +4792,7 @@ void MainComponent::resized()
         projectMDisplay.setVisible(false);
             shaderToyDisplay.setVisible(false);
             analyzerDisplay.setVisible(false);
+            heartbeatDisplay->setVisible(false);
         chordLabel.setVisible(false);
 
         // ── Right panel: volume knob on top (full width), then two columns ──
@@ -4771,6 +5032,11 @@ void MainComponent::resized()
     {
         analyzerDisplay.setBounds(visPanelArea);
         analyzerDisplay.setVisible(true);
+    }
+    else if (currentVisMode == 6)  // Heartbeat
+    {
+        heartbeatDisplay->setBounds(visPanelArea);
+        heartbeatDisplay->setVisible(true);
     }
     rightPanel.removeFromTop(4);
     // Vis selector overlaid on bottom of visualizer preview

@@ -14,6 +14,7 @@ class ShaderToyComponent;
 class AnalyzerComponent;
 class GeissComponent;
 class ProjectMComponent;
+class HeartbeatComponent;
 
 struct FxSlot {
     juce::AudioProcessorGraph::Node::Ptr node;
@@ -86,6 +87,7 @@ public:
     AnalyzerComponent* analyzerDisplay = nullptr;
     GeissComponent* geissDisplay = nullptr;
     ProjectMComponent* projectMDisplay = nullptr;
+    HeartbeatComponent* heartbeatDisplay = nullptr;
 
 private:
     juce::AudioPluginFormatManager formatManager;

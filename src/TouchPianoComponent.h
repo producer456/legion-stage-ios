@@ -2,6 +2,7 @@
 
 #include <JuceHeader.h>
 #include <set>
+#include <map>
 #include "DawLookAndFeel.h"
 
 // On-screen touch/click piano keyboard.
@@ -21,9 +22,10 @@ public:
 
     ~TouchPianoComponent() override
     {
-        // Release any held notes
         for (int n : activeNotes)
             if (onNote) onNote(n, false);
+        activeNotes.clear();
+        touchNotes.clear();
     }
 
     void setOctave(int oct) { baseOctave = juce::jlimit(0, 7, oct); repaint(); }
@@ -104,24 +106,34 @@ public:
         }
     }
 
-    void mouseDown(const juce::MouseEvent& e) override { handleTouch(e.position, true); }
-    void mouseDrag(const juce::MouseEvent& e) override { handleTouch(e.position, true); }
-    void mouseUp(const juce::MouseEvent&) override { releaseAll(); }
+    void mouseDown(const juce::MouseEvent& e) override
+    {
+        handleTouch(e.source.getIndex(), e.position, true);
+    }
+
+    void mouseDrag(const juce::MouseEvent& e) override
+    {
+        handleTouch(e.source.getIndex(), e.position, true);
+    }
+
+    void mouseUp(const juce::MouseEvent& e) override
+    {
+        releaseTouch(e.source.getIndex());
+    }
 
 private:
     int baseOctave = 3;
     int numOctaves = 2;
     std::set<int> activeNotes;
-    int lastDragNote = -1;
+    std::map<int, int> touchNotes;  // source index → note currently held by that touch
 
     // Map white key index to MIDI note
     int whiteKeyToNote(int whiteIndex) const
     {
-        // White keys within an octave: C D E F G A B = offsets 0,2,4,5,7,9,11
         static const int offsets[] = { 0, 2, 4, 5, 7, 9, 11 };
         int octave = whiteIndex / 7;
         int keyInOctave = whiteIndex % 7;
-        return (baseOctave + octave + 1) * 12 + offsets[keyInOctave]; // +1 for MIDI C convention
+        return (baseOctave + octave + 1) * 12 + offsets[keyInOctave];
     }
 
     int noteAtPoint(juce::Point<float> pos) const
@@ -154,36 +166,62 @@ private:
         return whiteKeyToNote(whiteIndex);
     }
 
-    void handleTouch(juce::Point<float> pos, bool down)
+    void handleTouch(int sourceIndex, juce::Point<float> pos, bool down)
     {
         int note = noteAtPoint(pos);
         if (note < 0 || note > 127) return;
 
-        if (down && note != lastDragNote)
-        {
-            // Release old drag note
-            if (lastDragNote >= 0 && activeNotes.count(lastDragNote))
-            {
-                activeNotes.erase(lastDragNote);
-                if (onNote) onNote(lastDragNote, false);
-            }
+        if (!down) return;
 
-            if (!activeNotes.count(note))
+        // Check if this touch source already has a note
+        auto it = touchNotes.find(sourceIndex);
+        int prevNote = (it != touchNotes.end()) ? it->second : -1;
+
+        if (note == prevNote) return;  // same note, nothing to do
+
+        // Release previous note for this touch (drag to new key)
+        if (prevNote >= 0)
+        {
+            // Only release if no other touch is also holding this note
+            bool otherTouchHolding = false;
+            for (auto& [src, n] : touchNotes)
+                if (src != sourceIndex && n == prevNote) { otherTouchHolding = true; break; }
+
+            if (!otherTouchHolding)
             {
-                activeNotes.insert(note);
-                if (onNote) onNote(note, true);
+                activeNotes.erase(prevNote);
+                if (onNote) onNote(prevNote, false);
             }
-            lastDragNote = note;
-            repaint();
         }
+
+        // Press new note
+        touchNotes[sourceIndex] = note;
+        if (!activeNotes.count(note))
+        {
+            activeNotes.insert(note);
+            if (onNote) onNote(note, true);
+        }
+        repaint();
     }
 
-    void releaseAll()
+    void releaseTouch(int sourceIndex)
     {
-        for (int n : activeNotes)
-            if (onNote) onNote(n, false);
-        activeNotes.clear();
-        lastDragNote = -1;
+        auto it = touchNotes.find(sourceIndex);
+        if (it == touchNotes.end()) return;
+
+        int note = it->second;
+        touchNotes.erase(it);
+
+        // Only send note-off if no other touch is holding the same note
+        bool otherTouchHolding = false;
+        for (auto& [src, n] : touchNotes)
+            if (n == note) { otherTouchHolding = true; break; }
+
+        if (!otherTouchHolding && activeNotes.count(note))
+        {
+            activeNotes.erase(note);
+            if (onNote) onNote(note, false);
+        }
         repaint();
     }
 
