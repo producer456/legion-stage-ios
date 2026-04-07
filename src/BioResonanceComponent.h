@@ -120,6 +120,7 @@ public:
         float maxR = juce::jmin(bounds.getWidth(), bounds.getHeight()) * 0.42f;
 
         double musicBpm = engine.getBpm();
+        if (musicBpm < 1.0) musicBpm = 120.0;
         double hrBpm = heartRate.heartRateBpm.load();
         if (hrBpm < 30.0) hrBpm = 72.0;
 

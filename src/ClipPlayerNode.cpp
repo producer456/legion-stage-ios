@@ -6,6 +6,10 @@ ClipPlayerNode::ClipPlayerNode(SequencerEngine& eng)
                      .withOutput("Output", juce::AudioChannelSet::stereo(), true)),
       engine(eng)
 {
+    // Pre-allocate full capacity so audio thread never triggers a resize
+    slots.resize(static_cast<size_t>(MAX_SLOTS));
+    wasInsideClip.resize(static_cast<size_t>(MAX_SLOTS), false);
+    slotCount.store(0);  // start with 0 logical slots — grow as needed
 }
 
 void ClipPlayerNode::prepareToPlay(double sampleRate, int /*samplesPerBlock*/)
@@ -22,15 +26,15 @@ void ClipPlayerNode::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBu
     {
         killActiveNotes(midi, 0, true);
         lastPositionInBeats = -1.0;
-        wasInsideClip.fill(false);
+        std::fill(wasInsideClip.begin(), wasInsideClip.end(), false);
     }
 
     // Check if we should start recording (not during count-in)
-    if (engine.isPlaying() && engine.isRecording() && !engine.isInCountIn() && armed.load() && recordingSlot < 0)
+    if (engine.isPlaying() && engine.isRecording() && !engine.isInCountIn() && armed.load() && atomicRecordingSlot < 0)
     {
         // First check for explicitly armed slots
         int targetSlot = -1;
-        for (int i = 0; i < NUM_SLOTS; ++i)
+        for (int i = 0; i < getNumSlots(); ++i)
         {
             if (slots[static_cast<size_t>(i)].state.load() == ClipSlot::Armed)
             {
@@ -42,18 +46,7 @@ void ClipPlayerNode::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBu
         // If no slot is armed, auto-find an empty/available slot
         if (targetSlot < 0)
         {
-            for (int i = 0; i < NUM_SLOTS; ++i)
-            {
-                auto& s = slots[static_cast<size_t>(i)];
-                auto state = s.state.load();
-                if (state == ClipSlot::Empty ||
-                    (state == ClipSlot::Stopped && !s.hasContent()) ||
-                    (state == ClipSlot::Stopped && s.clip == nullptr))
-                {
-                    targetSlot = i;
-                    break;
-                }
-            }
+            targetSlot = findOrCreateEmptySlot();
         }
 
         if (targetSlot >= 0)
@@ -106,12 +99,12 @@ void ClipPlayerNode::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBu
             }
 
             slot.state.store(ClipSlot::Recording);
-            recordingSlot = targetSlot;
+            atomicRecordingSlot = targetSlot;
         }
     }
 
     // Handle recording
-    if (recordingSlot >= 0 && engine.isPlaying())
+    if (atomicRecordingSlot >= 0 && engine.isPlaying())
     {
         if (audioMode)
             processAudioRecording(buffer, numSamples);
@@ -129,11 +122,11 @@ void ClipPlayerNode::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBu
         if (positionJumped)
         {
             killActiveNotes(midi, 0);
-            wasInsideClip.fill(false);
+            std::fill(wasInsideClip.begin(), wasInsideClip.end(), false);
         }
 
         // Run clip playback for all playing slots
-        for (int i = 0; i < NUM_SLOTS; ++i)
+        for (int i = 0; i < getNumSlots(); ++i)
         {
             if (slots[static_cast<size_t>(i)].state.load() == ClipSlot::Playing)
             {
@@ -205,10 +198,10 @@ void ClipPlayerNode::processClipPlayback(int slotIndex, juce::MidiBuffer& midi, 
 
 void ClipPlayerNode::processRecording(const juce::MidiBuffer& incomingMidi, int numSamples)
 {
-    if (recordingSlot < 0 || recordingSlot >= NUM_SLOTS) return;
+    if (atomicRecordingSlot < 0 || atomicRecordingSlot >= getNumSlots()) return;
 
-    auto& slot = slots[static_cast<size_t>(recordingSlot)];
-    if (slot.clip == nullptr) { recordingSlot = -1; return; }
+    auto& slot = slots[static_cast<size_t>(atomicRecordingSlot)];
+    if (slot.clip == nullptr) { atomicRecordingSlot = -1; return; }
 
     double bpm = engine.getBpm();
     double beatsPerSample = (bpm / 60.0) / currentSampleRate;
@@ -248,7 +241,7 @@ void ClipPlayerNode::processRecording(const juce::MidiBuffer& incomingMidi, int 
 
 void ClipPlayerNode::triggerSlot(int slotIndex)
 {
-    if (slotIndex < 0 || slotIndex >= NUM_SLOTS) return;
+    if (slotIndex < 0 || slotIndex >= getNumSlots()) return;
 
     auto& slot = slots[static_cast<size_t>(slotIndex)];
     auto currentState = slot.state.load();
@@ -266,7 +259,7 @@ void ClipPlayerNode::triggerSlot(int slotIndex)
     if (currentState == ClipSlot::Recording)
     {
         // Click recording slot → stop recording, auto-set to Playing
-        recordingSlot = -1;
+        atomicRecordingSlot = -1;
         if (slot.clip != nullptr)
         {
             slot.clip->events.sort();
@@ -307,7 +300,7 @@ void ClipPlayerNode::triggerSlot(int slotIndex)
             }
 
             slot.state.store(ClipSlot::Recording);
-            recordingSlot = slotIndex;
+            atomicRecordingSlot = slotIndex;
         }
         else
         {
@@ -329,7 +322,7 @@ void ClipPlayerNode::triggerSlot(int slotIndex)
 
 void ClipPlayerNode::stopSlot(int slotIndex)
 {
-    if (slotIndex < 0 || slotIndex >= NUM_SLOTS) return;
+    if (slotIndex < 0 || slotIndex >= getNumSlots()) return;
 
     auto& slot = slots[static_cast<size_t>(slotIndex)];
     auto state = slot.state.load();
@@ -353,7 +346,7 @@ void ClipPlayerNode::stopSlot(int slotIndex)
 
     if (state == ClipSlot::Recording)
     {
-        recordingSlot = -1;
+        atomicRecordingSlot = -1;
         if (slot.clip != nullptr)
         {
             slot.clip->events.sort();
@@ -376,7 +369,7 @@ void ClipPlayerNode::stopSlot(int slotIndex)
 
 void ClipPlayerNode::stopAllSlots()
 {
-    for (int i = 0; i < NUM_SLOTS; ++i)
+    for (int i = 0; i < getNumSlots(); ++i)
         stopSlot(i);
 }
 
@@ -432,9 +425,9 @@ void ClipPlayerNode::killActiveNotes(juce::MidiBuffer& midi, int sampleOffset, b
 // ── Audio clip recording ──
 void ClipPlayerNode::processAudioRecording(const juce::AudioBuffer<float>& inputBuffer, int numSamples)
 {
-    if (recordingSlot < 0 || recordingSlot >= NUM_SLOTS) return;
-    auto& slot = slots[static_cast<size_t>(recordingSlot)];
-    if (slot.audioClip == nullptr) { recordingSlot = -1; return; }
+    if (atomicRecordingSlot < 0 || atomicRecordingSlot >= getNumSlots()) return;
+    auto& slot = slots[static_cast<size_t>(atomicRecordingSlot)];
+    if (slot.audioClip == nullptr) { atomicRecordingSlot = -1; return; }
 
     auto& clip = *slot.audioClip;
     double bpm = engine.getBpm();

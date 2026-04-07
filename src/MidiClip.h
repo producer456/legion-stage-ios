@@ -62,6 +62,19 @@ struct ClipSlot
     std::unique_ptr<AudioClip> audioClip;
     std::atomic<State> state { Empty };
 
+    ClipSlot() = default;
+    ClipSlot(ClipSlot&& other) noexcept
+        : clip(std::move(other.clip)),
+          audioClip(std::move(other.audioClip)),
+          state(other.state.load()) {}
+    ClipSlot& operator=(ClipSlot&& other) noexcept
+    {
+        clip = std::move(other.clip);
+        audioClip = std::move(other.audioClip);
+        state.store(other.state.load());
+        return *this;
+    }
+
     bool hasContent() const
     {
         if (clip != nullptr && clip->events.getNumEvents() > 0) return true;

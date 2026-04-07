@@ -1192,7 +1192,7 @@ void MainComponent::timerCallback()
         {
             auto& track = pluginHost.getTrack(t);
             if (track.clipPlayer)
-                for (int s = 0; s < ClipPlayerNode::NUM_SLOTS; ++s)
+                for (int s = 0; s < track.clipPlayer->getNumSlots(); ++s)
                 {
                     auto& slot = track.clipPlayer->getSlot(s);
                     if (slot.clip)
@@ -1297,7 +1297,7 @@ void MainComponent::timerCallback()
     {
         auto* cp = pluginHost.getTrack(t).clipPlayer;
         if (cp != nullptr)
-            for (int s = 0; s < ClipPlayerNode::NUM_SLOTS; ++s)
+            for (int s = 0; s < cp->getNumSlots(); ++s)
                 if (cp->getSlot(s).state.load() == ClipSlot::Recording)
                     isRec = true;
     }
@@ -1414,7 +1414,7 @@ void MainComponent::updateTrackDisplay()
     {
         int clipCount = 0;
         int totalNotes = 0;
-        for (int s = 0; s < ClipPlayerNode::NUM_SLOTS; ++s)
+        for (int s = 0; s < track.clipPlayer->getNumSlots(); ++s)
         {
             auto& slot = track.clipPlayer->getSlot(s);
             if (slot.hasContent() && slot.clip != nullptr)
@@ -2554,7 +2554,7 @@ static bool projectHasClips(PluginHost& host)
     {
         auto& track = host.getTrack(t);
         if (track.clipPlayer == nullptr) continue;
-        for (int s = 0; s < ClipPlayerNode::NUM_SLOTS; ++s)
+        for (int s = 0; s < track.clipPlayer->getNumSlots(); ++s)
             if (track.clipPlayer->getSlot(s).hasContent())
                 return true;
     }
@@ -2769,26 +2769,7 @@ void MainComponent::performCapture()
     auto& track = pluginHost.getTrack(selectedTrackIndex);
     if (track.clipPlayer == nullptr) return;
 
-    int emptySlot = -1;
-    for (int s = 0; s < ClipPlayerNode::NUM_SLOTS; ++s)
-    {
-        auto& slot = track.clipPlayer->getSlot(s);
-        if (!slot.hasContent() && slot.clip == nullptr)
-        {
-            emptySlot = s;
-            break;
-        }
-    }
-    if (emptySlot < 0)
-    {
-        statusLabel.setText("No empty slots", juce::dontSendNotification);
-        juce::Component::SafePointer<MainComponent> safeThis(this);
-        juce::Timer::callAfterDelay(2000, [safeThis] {
-            if (auto* self = safeThis.getComponent())
-                self->statusLabel.setText("", juce::dontSendNotification);
-        });
-        return;
-    }
+    int emptySlot = track.clipPlayer->findOrCreateEmptySlot();
 
     takeSnapshot();
 
@@ -2873,7 +2854,7 @@ void MainComponent::takeSnapshot()
         auto* cp = pluginHost.getTrack(t).clipPlayer;
         if (cp == nullptr) continue;
 
-        for (int s = 0; s < ClipPlayerNode::NUM_SLOTS; ++s)
+        for (int s = 0; s < cp->getNumSlots(); ++s)
         {
             auto& slot = cp->getSlot(s);
             if (slot.clip != nullptr && slot.hasContent())
@@ -2954,7 +2935,7 @@ void MainComponent::restoreSnapshot(const ProjectSnapshot& snap)
         auto* cp = pluginHost.getTrack(t).clipPlayer;
         if (cp == nullptr) continue;
 
-        for (int s = 0; s < ClipPlayerNode::NUM_SLOTS; ++s)
+        for (int s = 0; s < cp->getNumSlots(); ++s)
         {
             auto& slot = cp->getSlot(s);
             slot.clip = nullptr;
@@ -3100,7 +3081,7 @@ void MainComponent::saveProject()
             auto* cp = track.clipPlayer;
             if (cp == nullptr) continue;
 
-            for (int s = 0; s < ClipPlayerNode::NUM_SLOTS; ++s)
+            for (int s = 0; s < cp->getNumSlots(); ++s)
             {
                 auto& slot = cp->getSlot(s);
                 if (!slot.hasContent()) continue;
@@ -3185,7 +3166,7 @@ void MainComponent::loadProject()
                 pluginHost.unloadFx(t, fx);
             auto* cp = pluginHost.getTrack(t).clipPlayer;
             if (cp == nullptr) continue;
-            for (int s = 0; s < ClipPlayerNode::NUM_SLOTS; ++s)
+            for (int s = 0; s < cp->getNumSlots(); ++s)
             {
                 cp->getSlot(s).clip = nullptr;
                 cp->getSlot(s).audioClip = nullptr;
@@ -3315,7 +3296,8 @@ void MainComponent::loadProject()
             for (auto* clipXml : trackXml->getChildWithTagNameIterator("Clip"))
             {
                 int s = clipXml->getIntAttribute("slot", -1);
-                if (s < 0 || s >= ClipPlayerNode::NUM_SLOTS) continue;
+                if (s < 0) continue;
+                cp->ensureSlots(s + 1);
 
                 auto& slot = cp->getSlot(s);
                 slot.clip = std::make_unique<MidiClip>();
@@ -3346,7 +3328,8 @@ void MainComponent::loadProject()
             for (auto* audioXml : trackXml->getChildWithTagNameIterator("AudioClip"))
             {
                 int s = audioXml->getIntAttribute("slot", -1);
-                if (s < 0 || s >= ClipPlayerNode::NUM_SLOTS) continue;
+                if (s < 0) continue;
+                cp->ensureSlots(s + 1);
 
                 auto& slot = cp->getSlot(s);
                 slot.audioClip = std::make_unique<AudioClip>();
@@ -3624,9 +3607,9 @@ void MainComponent::showExpandedEkg()
     // EKG display component — captures cpu data by reference
     struct EkgDisplay : public juce::Component, public juce::Timer
     {
-        MainComponent& owner;
-        EkgDisplay(MainComponent& o) : owner(o) { startTimerHz(15); }
-        void timerCallback() override { repaint(); }
+        juce::Component::SafePointer<MainComponent> owner;
+        EkgDisplay(MainComponent& o) : owner(&o) { startTimerHz(15); }
+        void timerCallback() override { if (owner) repaint(); else stopTimer(); }
 
         void paint(juce::Graphics& g) override
         {
@@ -3647,7 +3630,8 @@ void MainComponent::showExpandedEkg()
             g.drawRoundedRectangle(bounds, 6.0f, 1.0f);
 
             auto inner = bounds.reduced(10.0f, 8.0f);
-            float cpu = owner.currentCpuPercent / 100.0f;
+            if (!owner) return;
+            float cpu = owner->currentCpuPercent / 100.0f;
 
             juce::Colour waveCol = cpu > 0.75f ? juce::Colour(red) :
                                    cpu > 0.33f ? juce::Colour(amber) :
@@ -3667,7 +3651,7 @@ void MainComponent::showExpandedEkg()
             float baselineY = inner.getCentreY();
             float waveW = inner.getWidth();
             int bufSize = MainComponent::EKG_BUFFER_SIZE;
-            int writePos = owner.ekgWritePos;
+            int writePos = owner->ekgWritePos;
             int gapSize = 8;
 
             juce::Path wavePath;
@@ -3684,7 +3668,7 @@ void MainComponent::showExpandedEkg()
                 }
 
                 float x = inner.getX() + (static_cast<float>(i) / static_cast<float>(bufSize - 1)) * waveW;
-                float v = owner.ekgBuffer[static_cast<size_t>(bufIdx)];
+                float v = owner->ekgBuffer[static_cast<size_t>(bufIdx)];
                 float y = baselineY - v * waveH;
 
                 if (!pathStarted) { wavePath.startNewSubPath(x, y); pathStarted = true; }
@@ -3698,7 +3682,7 @@ void MainComponent::showExpandedEkg()
             int cursorIdx = (writePos - 1 + bufSize) % bufSize;
             float cursorFrac = static_cast<float>((cursorIdx - writePos + bufSize) % bufSize) / static_cast<float>(bufSize - 1);
             float cursorX = inner.getX() + cursorFrac * waveW;
-            float cursorV = owner.ekgBuffer[static_cast<size_t>(cursorIdx)];
+            float cursorV = owner->ekgBuffer[static_cast<size_t>(cursorIdx)];
             float cursorY = baselineY - cursorV * waveH;
             g.setColour(waveCol.withAlpha(0.7f));
             g.fillEllipse(cursorX - 4, cursorY - 4, 8, 8);
@@ -3710,8 +3694,8 @@ void MainComponent::showExpandedEkg()
 
             int bpm = static_cast<int>(60.0f + cpu * 120.0f);
             juce::String status = cpu > 0.75f ? "CRITICAL" : cpu > 0.33f ? "TACHYCARDIA" : "NORMAL";
-            g.drawText("CPU " + juce::String(static_cast<int>(owner.currentCpuPercent)) + "%   "
-                       + "RAM " + juce::String(owner.currentRamMB) + "MB   "
+            g.drawText("CPU " + juce::String(static_cast<int>(owner->currentCpuPercent)) + "%   "
+                       + "RAM " + juce::String(owner->currentRamMB) + "MB   "
                        + "HR " + juce::String(bpm) + " BPM   " + status,
                        textArea.toNearestInt(), juce::Justification::centred);
         }
@@ -5638,7 +5622,7 @@ void MainComponent::applyTrackInput(int id)
     bool newIsAudio = (id == 1);
     if (currentIsAudio != newIsAudio && track.clipPlayer != nullptr)
     {
-        for (int s = 0; s < ClipPlayerNode::NUM_SLOTS; ++s)
+        for (int s = 0; s < track.clipPlayer->getNumSlots(); ++s)
         {
             if (track.clipPlayer->getSlot(s).hasContent())
             {

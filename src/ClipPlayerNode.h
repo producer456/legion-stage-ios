@@ -3,12 +3,13 @@
 #include <JuceHeader.h>
 #include "MidiClip.h"
 #include "SequencerEngine.h"
-#include <array>
+#include <vector>
 #include <cstring>
 
 class ClipPlayerNode : public juce::AudioProcessor
 {
 public:
+    // Legacy constant kept for backward compatibility — no longer a hard limit
     static constexpr int NUM_SLOTS = 4;
 
     ClipPlayerNode(SequencerEngine& engine);
@@ -33,8 +34,35 @@ public:
     bool producesMidi() const override { return true; }
     double getTailLengthSeconds() const override { return 0.0; }
 
-    // Clip slot access
+    // Clip slot access — pre-allocated, effectively unlimited
+    // Uses a fixed-capacity vector to avoid audio-thread resize crashes.
+    // slotCount tracks how many slots are logically in use.
+    int getNumSlots() const { return slotCount.load(); }
     ClipSlot& getSlot(int index) { return slots[static_cast<size_t>(index)]; }
+
+    // Find first empty slot, or grow if none available (UI thread only)
+    int findOrCreateEmptySlot()
+    {
+        int n = slotCount.load();
+        for (int i = 0; i < n; ++i)
+            if (!slots[static_cast<size_t>(i)].hasContent() && slots[static_cast<size_t>(i)].clip == nullptr)
+                return i;
+        // Grow by one — safe because we pre-allocated MAX_SLOTS capacity
+        if (n < MAX_SLOTS)
+        {
+            slotCount.store(n + 1);
+            return n;
+        }
+        return -1;  // truly full (256 clips on one track)
+    }
+
+    // Ensure at least `count` slots exist (UI thread only, for project load)
+    void ensureSlots(int count)
+    {
+        int c = juce::jmin(count, MAX_SLOTS);
+        if (c > slotCount.load())
+            slotCount.store(c);
+    }
 
     // Trigger actions (called from UI thread)
     void triggerSlot(int slotIndex);   // play or record
@@ -51,16 +79,21 @@ public:
     // Audio track mode — set by PluginHost when track type changes
     bool audioMode = false;
 
+    static constexpr int MAX_SLOTS = 256;
+
 private:
     SequencerEngine& engine;
-    std::array<ClipSlot, NUM_SLOTS> slots;
+    std::vector<ClipSlot> slots;
+    std::atomic<int> slotCount { 0 };
 
     double currentSampleRate = 44100.0;
     double lastPositionInBeats = 0.0;
-    std::array<bool, NUM_SLOTS> wasInsideClip {}; // track clip exit for note-off
+    std::vector<bool> wasInsideClip;
+
+    // Recording slot — atomic for thread safety
+    std::atomic<int> atomicRecordingSlot { -1 };
 
     // Recording state
-    int recordingSlot = -1;
     double recordStartBeat = 0.0;
 
     // Track active notes so we can send explicit note-offs on loop wrap

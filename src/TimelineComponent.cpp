@@ -66,7 +66,7 @@ TimelineComponent::ClipRef TimelineComponent::hitTestClip(float x, float y) cons
     auto* cp = pluginHost.getTrack(trackIdx).clipPlayer;
     if (cp == nullptr) return {};
 
-    for (int s = 0; s < ClipPlayerNode::NUM_SLOTS; ++s)
+    for (int s = 0; s < cp->getNumSlots(); ++s)
     {
         auto rect = getClipRect(trackIdx, s);
         if (!rect.isEmpty() && rect.contains(x, y))
@@ -398,7 +398,7 @@ void TimelineComponent::mouseDrag(const juce::MouseEvent& e)
             if (srcCp != nullptr && dstCp != nullptr)
             {
                 int emptySlot = -1;
-                for (int s = 0; s < ClipPlayerNode::NUM_SLOTS; ++s)
+                for (int s = 0; s < dstCp->getNumSlots(); ++s)
                 {
                     if (!dstCp->getSlot(s).hasContent() && dstCp->getSlot(s).clip == nullptr && dstCp->getSlot(s).audioClip == nullptr)
                     {
@@ -710,7 +710,7 @@ void TimelineComponent::duplicateSelectedClip()
 
     // Find empty slot on same track
     int emptySlot = -1;
-    for (int s = 0; s < ClipPlayerNode::NUM_SLOTS; ++s)
+    for (int s = 0; s < cp->getNumSlots(); ++s)
     {
         if (!cp->getSlot(s).hasContent() && cp->getSlot(s).clip == nullptr)
         {
@@ -755,7 +755,7 @@ void TimelineComponent::splitClipAtBeat(const ClipRef& ref, double beat)
 
     // Find empty slot for the second half
     int emptySlot = -1;
-    for (int s = 0; s < ClipPlayerNode::NUM_SLOTS; ++s)
+    for (int s = 0; s < cp->getNumSlots(); ++s)
     {
         if (!cp->getSlot(s).hasContent() && cp->getSlot(s).clip == nullptr)
         {
@@ -910,7 +910,7 @@ void TimelineComponent::createEmptyClip(int trackIndex, double beatPos)
     if (cp == nullptr) return;
 
     int emptySlot = -1;
-    for (int s = 0; s < ClipPlayerNode::NUM_SLOTS; ++s)
+    for (int s = 0; s < cp->getNumSlots(); ++s)
     {
         if (!cp->getSlot(s).hasContent() && cp->getSlot(s).clip == nullptr)
         {
@@ -1239,7 +1239,7 @@ void TimelineComponent::drawClips(juce::Graphics& g)
         auto* cp = pluginHost.getTrack(t).clipPlayer;
         if (cp == nullptr) continue;
 
-        for (int s = 0; s < ClipPlayerNode::NUM_SLOTS; ++s)
+        for (int s = 0; s < cp->getNumSlots(); ++s)
         {
             auto& slot = cp->getSlot(s);
             if (slot.clip == nullptr && slot.audioClip == nullptr) continue;
@@ -1564,7 +1564,7 @@ void TimelineComponent::showClipContextMenu(const ClipRef& ref)
                 auto* cp = pluginHost.getTrack(ref.trackIndex).clipPlayer;
                 if (cp == nullptr) return;
                 // Find empty slot
-                for (int s = 0; s < ClipPlayerNode::NUM_SLOTS; ++s)
+                for (int s = 0; s < cp->getNumSlots(); ++s)
                 {
                     auto& slot = cp->getSlot(s);
                     if (!slot.hasContent() && slot.clip == nullptr)

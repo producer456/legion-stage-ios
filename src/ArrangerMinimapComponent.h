@@ -53,7 +53,7 @@ public:
             float trackY = h * static_cast<float>(t) / PluginHost::NUM_TRACKS;
             float trackH = h / PluginHost::NUM_TRACKS;
 
-            for (int s = 0; s < ClipPlayerNode::NUM_SLOTS; ++s)
+            for (int s = 0; s < track.clipPlayer->getNumSlots(); ++s)
             {
                 auto& slot = track.clipPlayer->getSlot(s);
                 if (!slot.hasContent()) continue;
