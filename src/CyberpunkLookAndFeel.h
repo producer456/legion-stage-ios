@@ -64,7 +64,7 @@ public:
         theme.clipDefault   = 0xff102028;  // dark cyan
         theme.clipRecording = 0xff300818;  // magenta
         theme.clipQueued    = 0xff282808;  // acid yellow tint
-        theme.clipPlaying   = 0xff083020;  // bright cyan-green
+        theme.clipPlaying   = 0xff18704a;  // visible cyan-green
 
         // ── Playhead — hot neon cyan ──
         theme.playhead     = 0xee00e8f0;

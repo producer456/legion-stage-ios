@@ -77,7 +77,7 @@ public:
         theme.clipDefault   = 0xff2a2620;  // warm suede clip
         theme.clipRecording = 0xff3a1818;  // red recording
         theme.clipQueued    = 0xff302c18;  // amber queued
-        theme.clipPlaying   = 0xff1e2e1a;  // green playing
+        theme.clipPlaying   = 0xff2a6040;  // visible green
 
         // ── Playhead — bright amber gauge needle ──
         theme.playhead     = 0xdde8a040;

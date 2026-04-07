@@ -5507,8 +5507,8 @@ void MainComponent::openFxEditor(int slotIndex)
 
     int edW = editor->getWidth();
     int edH = editor->getHeight();
-    if (edW <= 0) edW = 600;
-    if (edH <= 0) edH = 400;
+    if (edW < 400) edW = 400;
+    if (edH < 300) edH = 300;
 
     int closeBarH = 44;
     int ew = juce::jmin(edW, getWidth() - 20);

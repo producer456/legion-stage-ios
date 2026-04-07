@@ -21,23 +21,51 @@
 #include "ChordDetector.h"
 #include "ArrangerMinimapComponent.h"
 
-class PluginEditorWindow : public juce::DocumentWindow
+class PluginEditorWindow : public juce::DocumentWindow, public juce::ComponentListener
 {
 public:
     PluginEditorWindow(const juce::String& name, juce::AudioProcessorEditor* editor,
                        std::function<void()> onClose)
         : DocumentWindow(name, juce::Colours::darkgrey, DocumentWindow::closeButton),
-          closeCallback(std::move(onClose))
+          closeCallback(std::move(onClose)), pluginEditor(editor)
     {
         setUsingNativeTitleBar(true);
+
+        // Enforce minimum usable size for AUv3 plugins that report tiny initial sizes
+        int w = juce::jmax(400, editor->getWidth());
+        int h = juce::jmax(300, editor->getHeight());
+        editor->setSize(w, h);
+
         setContentNonOwned(editor, true);
-        setResizable(true, false);
+        setResizable(true, true);
+        centreWithSize(w, h);
         setVisible(true);
-        centreWithSize(getWidth(), getHeight());
+
+        // Listen for editor resizes (AUv3 plugins may resize after async loading)
+        editor->addComponentListener(this);
     }
+
+    ~PluginEditorWindow() override
+    {
+        if (pluginEditor) pluginEditor->removeComponentListener(this);
+    }
+
     void closeButtonPressed() override { if (closeCallback) closeCallback(); }
+
+    void componentMovedOrResized(juce::Component& comp, bool, bool wasResized) override
+    {
+        if (wasResized && &comp == pluginEditor && pluginEditor != nullptr)
+        {
+            int w = juce::jmax(400, pluginEditor->getWidth());
+            int h = juce::jmax(300, pluginEditor->getHeight());
+            setContentNonOwned(pluginEditor, true);
+            centreWithSize(w, h);
+        }
+    }
+
 private:
     std::function<void()> closeCallback;
+    juce::AudioProcessorEditor* pluginEditor = nullptr;
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PluginEditorWindow)
 };
 

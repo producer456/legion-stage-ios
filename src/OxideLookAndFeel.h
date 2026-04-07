@@ -96,7 +96,7 @@ public:
         theme.clipDefault   = 0xff283038;  // neutral steel
         theme.clipRecording = 0xff3a1818;  // red = recording
         theme.clipQueued    = 0xff302810;  // amber = queued
-        theme.clipPlaying   = 0xff103830;  // cyan-green = playing
+        theme.clipPlaying   = 0xff207050;  // visible cyan-green
 
         // ── Playhead — bright amber needle ──
         theme.playhead     = 0xeee8a030;

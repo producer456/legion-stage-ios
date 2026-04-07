@@ -76,7 +76,7 @@ public:
         theme.clipDefault   = 0xff2a3844;  // dark teal clip
         theme.clipRecording = 0xff3a2020;  // dark rose
         theme.clipQueued    = 0xff303428;  // dark warm
-        theme.clipPlaying   = 0xff203828;  // dark sage
+        theme.clipPlaying   = 0xff3a7850;  // visible sage green
 
         // ── Playhead — bright teal ──
         theme.playhead     = 0xcc6a8a9a;

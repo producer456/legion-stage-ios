@@ -10,84 +10,84 @@ class KeystageLookAndFeel : public DawLookAndFeel
 public:
     KeystageLookAndFeel()
     {
-        // ── Surfaces — matte black with warm oak undertone ──
-        theme.body        = 0xff12100e;  // matte black with warm tint
-        theme.bodyLight   = 0xff1e1a16;  // warm dark oak
-        theme.bodyDark    = 0xff0a0908;  // near-black
-        theme.border      = 0xff3a3530;  // cool oak border
-        theme.borderLight = 0xff4a4440;  // lighter cool border
+        // ── Surfaces — matte black with neutral grey ──
+        theme.body        = 0xff111111;  // matte black
+        theme.bodyLight   = 0xff1c1c1c;  // dark grey
+        theme.bodyDark    = 0xff0a0a0a;  // near-black
+        theme.border      = 0xff383838;  // neutral grey border
+        theme.borderLight = 0xff484848;  // lighter grey border
 
         // ── Text — crisp OLED white ──
-        theme.textPrimary   = 0xfff0ece6;  // warm white
-        theme.textSecondary = 0xff8a7e6e;  // oak-tinted grey
+        theme.textPrimary   = 0xfff0f0f0;  // clean white
+        theme.textSecondary = 0xff888888;  // neutral grey
         theme.textBright    = 0xffffffff;  // pure white (OLED bright)
 
         // ── Accent — ice blue OLED only (no colored buttons) ──
         theme.red       = 0xffb8d8f0;  // ice blue replaces red
-        theme.redDark   = 0xff1a1714;  // dark matte
-        theme.amber     = 0xffd6cbb8;  // pale white oak for non-button accents
-        theme.amberDark = 0xff9e9484;
+        theme.redDark   = 0xff1a1a1a;  // dark matte
+        theme.amber     = 0xffc0c0c0;  // silver grey for non-button accents
+        theme.amberDark = 0xff909090;
         theme.green     = 0xffb8d8f0;  // ice blue replaces green
-        theme.greenDark = 0xff1a1714;  // dark matte
+        theme.greenDark = 0xff1a1a1a;  // dark matte
 
         // ── LCD — OLED style: black bg, ice blue text ──
         theme.lcdBg    = 0xff000000;
         theme.lcdText  = 0xffb8d8f0;  // ice blue OLED
         theme.lcdAmber = 0xffb8d8f0;  // ice blue for values
 
-        // ── Buttons — uniform dark matte, ice blue when active ──
-        theme.buttonFace  = 0xff1a1714;
-        theme.buttonHover = 0xff222018;
-        theme.buttonDown  = 0xff0e0d0c;
+        // ── Buttons — uniform dark matte grey, ice blue when active ──
+        theme.buttonFace  = 0xff1a1a1a;
+        theme.buttonHover = 0xff222222;
+        theme.buttonDown  = 0xff0e0e0e;
 
-        theme.btnStop       = 0xff1a1714;
-        theme.btnMetronome  = 0xff1a1714;
+        theme.btnStop       = 0xff1a1a1a;
+        theme.btnMetronome  = 0xff1a1a1a;
         theme.btnMetronomeOn = 0xff162838;  // ice blue tint when on
-        theme.btnCountIn    = 0xff1a1714;
+        theme.btnCountIn    = 0xff1a1a1a;
         theme.btnCountInOn  = 0xff162838;
-        theme.btnNewClip    = 0xff1a1714;
-        theme.btnDeleteClip = 0xff1a1714;
-        theme.btnDuplicate  = 0xff1a1714;
-        theme.btnSplit      = 0xff1a1714;
-        theme.btnQuantize   = 0xff1a1714;
-        theme.btnEditNotes  = 0xff1a1714;
-        theme.btnNav        = 0xff1a1714;
-        theme.btnSave       = 0xff1a1714;
-        theme.btnLoad       = 0xff1a1714;
-        theme.btnUndoRedo   = 0xff1a1714;
-        theme.btnMidi2      = 0xff1a1714;
+        theme.btnNewClip    = 0xff1a1a1a;
+        theme.btnDeleteClip = 0xff1a1a1a;
+        theme.btnDuplicate  = 0xff1a1a1a;
+        theme.btnSplit      = 0xff1a1a1a;
+        theme.btnQuantize   = 0xff1a1a1a;
+        theme.btnEditNotes  = 0xff1a1a1a;
+        theme.btnNav        = 0xff1a1a1a;
+        theme.btnSave       = 0xff1a1a1a;
+        theme.btnLoad       = 0xff1a1a1a;
+        theme.btnUndoRedo   = 0xff1a1a1a;
+        theme.btnMidi2      = 0xff1a1a1a;
         theme.btnMidi2On    = 0xff162838;
-        theme.btnLoop       = 0xff1a1714;
+        theme.btnLoop       = 0xff1a1a1a;
         theme.btnLoopOn     = 0xff162838;
-        theme.loopRegion    = 0x28d6cbb8;  // white oak translucent
-        theme.loopBorder    = 0xffb0a898;  // pale oak border
+        theme.loopRegion    = 0x28b8d8f0;  // ice blue translucent
+        theme.loopBorder    = 0xffa0a0a0;  // grey border
 
-        // ── Timeline — black with warm oak grid ──
-        theme.timelineBg         = 0xff0c0b0a;
-        theme.timelineAltRow     = 0xff141210;
-        theme.timelineSelectedRow = 0xff241e18;  // warm oak selection
-        theme.timelineGridMajor  = 0xff7a7468;  // cool oak grid lines
-        theme.timelineGridMinor  = 0xff3a3228;
-        theme.timelineGridFaint  = 0xff1e1a14;
-        theme.timelineGridBeat   = 0xff302a22;
+        // ── Timeline — black with neutral grey grid ──
+        theme.timelineBg         = 0xff0c0c0c;
+        theme.timelineAltRow     = 0xff141414;
+        theme.timelineSelectedRow = 0xff222222;  // grey selection
+        theme.timelineGridMajor  = 0xff686868;  // grey grid lines
+        theme.timelineGridMinor  = 0xff343434;
+        theme.timelineGridFaint  = 0xff1c1c1c;
+        theme.timelineGridBeat   = 0xff2c2c2c;
 
-        // ── Clips — dark with warm oak fills ──
-        theme.clipDefault   = 0xff282018;  // warm oak clip
+        // ── Clips — dark grey fills ──
+        theme.clipDefault   = 0xff252525;  // grey clip
         theme.clipRecording = 0xff3a2020;
-        theme.clipQueued    = 0xff2e2818;
-        theme.clipPlaying   = 0xff1e2e1a;
+        theme.clipQueued    = 0xff2e2e20;
+        theme.clipPlaying   = 0xff2a6040;  // visible green
 
         // ── Playhead — bright white OLED style ──
         theme.playhead     = 0xddffffff;
         theme.playheadGlow = 0x22ffffff;
 
-        theme.accentStripe = 0xffd6cbb8;  // white oak stripe
+        theme.accentStripe = 0xffc0c0c0;  // silver grey stripe
 
-        theme.trackSelected = 0xff241e18;
+        theme.trackSelected = 0xff222222;
         theme.trackArmed    = 0xff162838;  // ice blue tint
         theme.trackMuteOn   = 0xffb8d8f0;  // ice blue
         theme.trackSoloOn   = 0xffb8d8f0;  // ice blue
-        theme.trackSoloText = 0xff0a0908;
+        theme.trackSoloText = 0xff0a0a0a;
 
         applyThemeColors();
 
