@@ -28,6 +28,11 @@ if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
     # Skip storyboard compilation (use UILaunchScreen plist key instead)
     # Works around ibtool "iOS Platform Not Installed" issue in Xcode 26 beta
     set_target_properties(Sequencer PROPERTIES JUCE_SHOULD_ADD_STORYBOARD FALSE)
+    # HealthKit usage descriptions — inject into JUCE-generated Info.plist
+    add_custom_command(TARGET Sequencer POST_BUILD
+        COMMAND /usr/libexec/PlistBuddy -c "Add :NSHealthShareUsageDescription string 'Legion Stage uses your heart rate to create bio-resonance visualizations that sync your heartbeat with your music.'" "$<TARGET_BUNDLE_DIR:Sequencer>/Info.plist" 2>/dev/null || true
+        COMMAND /usr/libexec/PlistBuddy -c "Add :NSHealthUpdateUsageDescription string 'Legion Stage does not write health data.'" "$<TARGET_BUNDLE_DIR:Sequencer>/Info.plist" 2>/dev/null || true
+    )
     # Add app icon xcassets
     set(XCASSETS "${CMAKE_CURRENT_SOURCE_DIR}/resources/Images.xcassets")
     target_sources(Sequencer PRIVATE "${XCASSETS}")
