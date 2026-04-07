@@ -1508,6 +1508,7 @@ void MainComponent::loadSelectedPlugin()
             juce::Timer::callAfterDelay(500, [safeThis] {
                 if (auto* self = safeThis.getComponent())
                 {
+                    self->paramPageOffset = 0;
                     self->updateParamSliders();
                     self->updateFxDisplay();
                     self->updatePresetList();
@@ -2448,15 +2449,36 @@ static double detectLoopLength(const juce::MidiMessageSequence& events, double t
 // ── Soft Quantize (80% strength to 1/16 grid) ──
 static void softQuantize(juce::MidiMessageSequence& events, double gridSize = 0.25)
 {
-    constexpr double strength = 0.8;  // 80% — cleans up timing, retains human feel
+    constexpr double strength = 0.8;
+
+    events.updateMatchedPairs();
 
     for (int i = 0; i < events.getNumEvents(); ++i)
     {
-        auto& msg = events.getEventPointer(i)->message;
-        double t = msg.getTimeStamp();
-        double nearest = std::round(t / gridSize) * gridSize;
-        double nudged = t + (nearest - t) * strength;
-        msg.setTimeStamp(nudged);
+        auto* evt = events.getEventPointer(i);
+        auto& msg = evt->message;
+
+        if (msg.isNoteOn())
+        {
+            double t = msg.getTimeStamp();
+            double nearest = std::round(t / gridSize) * gridSize;
+            double nudged = t + (nearest - t) * strength;
+            double shift = nudged - t;
+            msg.setTimeStamp(nudged);
+
+            // Shift the paired note-off by the same amount to preserve duration
+            if (evt->noteOffObject != nullptr)
+                evt->noteOffObject->message.setTimeStamp(
+                    evt->noteOffObject->message.getTimeStamp() + shift);
+        }
+        else if (!msg.isNoteOff())
+        {
+            // Quantize CC/PB independently
+            double t = msg.getTimeStamp();
+            double nearest = std::round(t / gridSize) * gridSize;
+            msg.setTimeStamp(t + (nearest - t) * strength);
+        }
+        // Note-offs are moved with their paired note-on above
     }
 }
 
@@ -2541,7 +2563,9 @@ void MainComponent::performCapture()
 
     // ── 4. Downbeat Estimation ──
     double downbeatOffset = estimateDownbeatOffset(phrase);
-    // downbeatOffset is negative if the first note is a pickup
+    // Clamp offset to prevent pathological values (max 1 beat pickup)
+    double maxPickupSeconds = 60.0 / bpm;  // 1 beat in seconds
+    downbeatOffset = juce::jlimit(-maxPickupSeconds, 0.0, downbeatOffset);
 
     double phraseStartTime = phrase.getFirst().absTime;
     double phraseEndTime = phrase.getLast().absTime;
@@ -2604,11 +2628,19 @@ void MainComponent::performCapture()
     if (lengthInBeats < 8.0) lengthInBeats = 8.0;
 
     // ── 7. Wrap negative beat positions (pickup notes) to end of clip ──
+    beatEvents.updateMatchedPairs();
     for (int i = 0; i < beatEvents.getNumEvents(); ++i)
     {
-        auto& msg = beatEvents.getEventPointer(i)->message;
-        if (msg.getTimeStamp() < 0.0)
-            msg.setTimeStamp(msg.getTimeStamp() + lengthInBeats);
+        auto* evt = beatEvents.getEventPointer(i);
+        if (evt->message.getTimeStamp() < 0.0)
+        {
+            double shift = lengthInBeats;
+            evt->message.setTimeStamp(evt->message.getTimeStamp() + shift);
+            // Also wrap the paired note-off to keep the pair together
+            if (evt->message.isNoteOn() && evt->noteOffObject != nullptr)
+                evt->noteOffObject->message.setTimeStamp(
+                    evt->noteOffObject->message.getTimeStamp() + shift);
+        }
     }
     beatEvents.updateMatchedPairs();
 
@@ -2648,7 +2680,27 @@ void MainComponent::performCapture()
         lengthInBeats = loopLen;
     }
 
-    // ── 9. Create clip ──
+    // ── 9. Close any unclosed notes at clip boundary ──
+    {
+        beatEvents.updateMatchedPairs();
+        std::set<int> openNotes;
+        for (int i = 0; i < beatEvents.getNumEvents(); ++i)
+        {
+            auto& msg = beatEvents.getEventPointer(i)->message;
+            if (msg.isNoteOn()) openNotes.insert(msg.getNoteNumber());
+            else if (msg.isNoteOff()) openNotes.erase(msg.getNoteNumber());
+        }
+        for (int note : openNotes)
+        {
+            auto noteOff = juce::MidiMessage::noteOff(1, note);
+            noteOff.setTimeStamp(lengthInBeats - 0.01);
+            beatEvents.addEvent(noteOff);
+        }
+        if (!openNotes.empty())
+            beatEvents.updateMatchedPairs();
+    }
+
+    // ── 10. Create clip ──
     auto& track = pluginHost.getTrack(selectedTrackIndex);
     if (track.clipPlayer == nullptr) return;
 
@@ -4956,6 +5008,24 @@ void MainComponent::sendNoteOn(int note)
     msg.setTimeStamp(juce::Time::getMillisecondCounterHiRes() * 0.001);
     pluginHost.getMidiCollector().addMessageToQueue(msg);
     chordDetector.noteOn(note);
+
+    // Buffer for capture ring (touch piano + computer keyboard)
+    if (!pluginHost.getEngine().isRecording())
+    {
+        CaptureEvent evt;
+        evt.absTime = juce::Time::getMillisecondCounterHiRes() * 0.001;
+        evt.type = CaptureEvent::NoteOn;
+        evt.channel = 1;
+        evt.data1 = static_cast<uint8_t>(note);
+        evt.data2 = 100;
+        evt.pitchBend = 0;
+        int pos = captureWritePos.load(std::memory_order_relaxed);
+        captureRing[static_cast<size_t>(pos)] = evt;
+        captureWritePos.store((pos + 1) % CAPTURE_RING_SIZE, std::memory_order_release);
+        int cnt = captureCount.load(std::memory_order_relaxed);
+        if (cnt < CAPTURE_RING_SIZE)
+            captureCount.store(cnt + 1, std::memory_order_relaxed);
+    }
 }
 
 void MainComponent::sendNoteOff(int note)
@@ -4964,6 +5034,24 @@ void MainComponent::sendNoteOff(int note)
     msg.setTimeStamp(juce::Time::getMillisecondCounterHiRes() * 0.001);
     pluginHost.getMidiCollector().addMessageToQueue(msg);
     chordDetector.noteOff(note);
+
+    // Buffer for capture ring
+    if (!pluginHost.getEngine().isRecording())
+    {
+        CaptureEvent evt;
+        evt.absTime = juce::Time::getMillisecondCounterHiRes() * 0.001;
+        evt.type = CaptureEvent::NoteOff;
+        evt.channel = 1;
+        evt.data1 = static_cast<uint8_t>(note);
+        evt.data2 = 0;
+        evt.pitchBend = 0;
+        int pos = captureWritePos.load(std::memory_order_relaxed);
+        captureRing[static_cast<size_t>(pos)] = evt;
+        captureWritePos.store((pos + 1) % CAPTURE_RING_SIZE, std::memory_order_release);
+        int cnt = captureCount.load(std::memory_order_relaxed);
+        if (cnt < CAPTURE_RING_SIZE)
+            captureCount.store(cnt + 1, std::memory_order_relaxed);
+    }
 }
 
 bool MainComponent::keyPressed(const juce::KeyPress& key)
@@ -5349,6 +5437,7 @@ void MainComponent::loadPreset(int index)
 {
     auto& track = pluginHost.getTrack(selectedTrackIndex);
     if (track.plugin == nullptr) return;
+    if (index < 0 || index >= track.plugin->getNumPrograms()) return;
 
     track.plugin->setCurrentProgram(index);
     presetSelector.setSelectedId(index + 2, juce::dontSendNotification);
