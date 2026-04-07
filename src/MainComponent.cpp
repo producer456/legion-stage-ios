@@ -278,11 +278,21 @@ MainComponent::MainComponent()
 
     addAndMakeVisible(editClipButton);
     editClipButton.onClick = [this] {
+        // On iPhone, toggle the piano roll (no native close button available)
+        if (activePianoRoll != nullptr)
+        {
+            activePianoRoll->closeButtonPressed();
+            activePianoRoll = nullptr;
+            return;
+        }
         if (timelineComponent)
         {
             auto* clip = timelineComponent->getSelectedClip();
             if (clip != nullptr)
-                new PianoRollWindow("Piano Roll", *clip, pluginHost.getEngine());
+            {
+                auto* win = new PianoRollWindow("Piano Roll", *clip, pluginHost.getEngine());
+                activePianoRoll = win;
+            }
         }
     };
 
@@ -3890,19 +3900,49 @@ void MainComponent::resized()
 
         settingsButton.setVisible(false);
 
-        // ── Row 2: Clip tools, save/load, vis/piano/mixer ──
+        // ── Row 2: Presets, clip tools, capture ──
         // Right side first
         fullscreenButton.setVisible(false);
         pianoToggleButton.setBounds(row2.removeFromRight(42));
         row2.removeFromRight(gap);
         mixerButton.setBounds(row2.removeFromRight(36));
         row2.removeFromRight(gap);
+        captureButton.setVisible(true);
+        captureButton.setButtonText("CAPT");
+        captureButton.setBounds(row2.removeFromRight(42));
+        row2.removeFromRight(gap);
 
         // Fill remaining with evenly-spaced buttons
         int r2w = row2.getWidth();
-        int numR2Btns = 10;  // Save, Load, Undo, Redo, New, Delete, Dupe, Split, Edit, Quant
+        int numR2Btns = 11;  // Preset<, Preset>, New, Delete, Split, Edit, Quant, Save, Load, Undo, Redo
         int r2bw = (r2w - (numR2Btns - 1) * gap) / numR2Btns;
 
+        presetDownButton.setVisible(true);
+        presetDownButton.setBounds(row2.removeFromLeft(r2bw));
+        row2.removeFromLeft(gap);
+        presetUpButton.setVisible(true);
+        presetUpButton.setBounds(row2.removeFromLeft(r2bw));
+        row2.removeFromLeft(gap);
+        newClipButton.setVisible(true);
+        newClipButton.setButtonText("New");
+        newClipButton.setBounds(row2.removeFromLeft(r2bw));
+        row2.removeFromLeft(gap);
+        deleteClipButton.setVisible(true);
+        deleteClipButton.setButtonText("Del");
+        deleteClipButton.setBounds(row2.removeFromLeft(r2bw));
+        row2.removeFromLeft(gap);
+        splitClipButton.setVisible(true);
+        splitClipButton.setButtonText("Split");
+        splitClipButton.setBounds(row2.removeFromLeft(r2bw));
+        row2.removeFromLeft(gap);
+        editClipButton.setVisible(true);
+        editClipButton.setButtonText("Edit");
+        editClipButton.setBounds(row2.removeFromLeft(r2bw));
+        row2.removeFromLeft(gap);
+        quantizeButton.setVisible(true);
+        quantizeButton.setButtonText("Quant");
+        quantizeButton.setBounds(row2.removeFromLeft(r2bw));
+        row2.removeFromLeft(gap);
         saveButton.setVisible(true);
         saveButton.setButtonText("Save");
         saveButton.setBounds(row2.removeFromLeft(r2bw));
@@ -3917,31 +3957,8 @@ void MainComponent::resized()
         row2.removeFromLeft(gap);
         redoButton.setVisible(true);
         redoButton.setButtonText("Redo");
-        redoButton.setBounds(row2.removeFromLeft(r2bw));
-        row2.removeFromLeft(gap);
-        newClipButton.setVisible(true);
-        newClipButton.setButtonText("New");
-        newClipButton.setBounds(row2.removeFromLeft(r2bw));
-        row2.removeFromLeft(gap);
-        deleteClipButton.setVisible(true);
-        deleteClipButton.setButtonText("Delete");
-        deleteClipButton.setBounds(row2.removeFromLeft(r2bw));
-        row2.removeFromLeft(gap);
+        redoButton.setBounds(row2.removeFromLeft(row2.getWidth()));
         duplicateClipButton.setVisible(false);
-        duplicateClipButton.setButtonText("Dupe");
-        duplicateClipButton.setBounds(row2.removeFromLeft(r2bw));
-        row2.removeFromLeft(gap);
-        splitClipButton.setVisible(true);
-        splitClipButton.setButtonText("Split");
-        splitClipButton.setBounds(row2.removeFromLeft(r2bw));
-        row2.removeFromLeft(gap);
-        editClipButton.setVisible(true);
-        editClipButton.setButtonText("Edit");
-        editClipButton.setBounds(row2.removeFromLeft(r2bw));
-        row2.removeFromLeft(gap);
-        quantizeButton.setVisible(true);
-        quantizeButton.setButtonText("Quant");
-        quantizeButton.setBounds(row2.removeFromLeft(row2.getWidth()));  // take the rest
 
         // Hide BPM +/- buttons on iPhone (use label tap instead)
         bpmDownButton.setVisible(false);

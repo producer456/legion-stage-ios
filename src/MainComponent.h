@@ -331,6 +331,9 @@ private:
     std::unique_ptr<juce::AudioProcessorEditor> currentEditor;
     std::unique_ptr<PluginEditorWindow> editorWindow;
 
+    // Piano roll window (tracked for iPhone toggle)
+    juce::Component::SafePointer<PianoRollWindow> activePianoRoll;
+
     // Data
     juce::Array<juce::PluginDescription> pluginDescriptions;  // instruments
     juce::Array<juce::PluginDescription> fxDescriptions;      // effects
