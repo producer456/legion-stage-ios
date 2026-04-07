@@ -1,6 +1,7 @@
 #include "HeartRateManager.h"
+#import <TargetConditionals.h>
 
-#if JUCE_IOS
+#if TARGET_OS_IOS || TARGET_OS_MACCATALYST
 #import <HealthKit/HealthKit.h>
 
 @interface HeartRateObserver : NSObject
