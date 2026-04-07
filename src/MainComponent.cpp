@@ -52,8 +52,13 @@ MainComponent::MainComponent()
     bioResonanceDisplay->setVisible(false);
     pluginHost.bioResonanceDisplay = bioResonanceDisplay.get();
 
-    // Request heart rate access from HealthKit
-    heartRateManager.requestAuthorization();
+    // Request heart rate access from HealthKit — delay until app is visible
+    // iOS silently drops permission prompts fired before the UI is ready
+    juce::Component::SafePointer<MainComponent> safeThis(this);
+    juce::Timer::callAfterDelay(2000, [safeThis] {
+        if (auto* self = safeThis.getComponent())
+            self->heartRateManager.requestAuthorization();
+    });
 
     // Tap on small visualizer to go fullscreen
     spectrumDisplay.addMouseListener(this, false);

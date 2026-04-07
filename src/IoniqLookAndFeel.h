@@ -77,7 +77,7 @@ public:
         theme.clipRecording = 0xffe0c0c0;  // soft rose recording
         theme.clipQueued    = 0xffd8d4c0;  // warm cream queued
         theme.clipPlaying   = 0xffc4dcc8;  // sage green playing
-        theme.clipNotePreview = 0xdde8a840;  // warm amber note preview
+        theme.clipNotePreview = 0xcc000000;  // black notes on light clips
 
         // ── Playhead — dark slate needle ──
         theme.playhead     = 0xcc2a3038;
