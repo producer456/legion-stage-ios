@@ -28,11 +28,20 @@ public:
         connectButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff334455));
         connectButton.setColour(juce::TextButton::textColourOffId, juce::Colours::white.withAlpha(0.8f));
         connectButton.onClick = [this] {
+            if (!heartRate.available.load())
+            {
+                auto* alert = new juce::AlertWindow("HealthKit Not Available",
+                    "Health data is not available on this device. "
+                    "Make sure you have an Apple Watch paired with your iPhone, "
+                    "and that the Health app is set up.",
+                    juce::AlertWindow::WarningIcon);
+                alert->addButton("OK", 1);
+                alert->enterModalState(true, juce::ModalCallbackFunction::create(
+                    [alert](int) { delete alert; }), false);
+                return;
+            }
             heartRate.requestAuthorization();
-            // After auth, start observing
-            juce::Timer::callAfterDelay(1000, [this] {
-                heartRate.startObserving();
-            });
+            connectButton.setButtonText("Connecting...");
         };
         addAndMakeVisible(connectButton);
 

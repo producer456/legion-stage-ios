@@ -39,21 +39,39 @@
 
 - (void)requestAuthorization
 {
-    if (!_healthStore) return;
+    NSLog(@"HealthKit: requestAuthorization called, healthStore=%@, available=%d",
+          _healthStore, [HKHealthStore isHealthDataAvailable]);
+
+    if (!_healthStore)
+    {
+        NSLog(@"HealthKit: No health store — health data not available on this device");
+        return;
+    }
 
     HKQuantityType* heartRateType = [HKQuantityType quantityTypeForIdentifier:HKQuantityTypeIdentifierHeartRate];
+    if (!heartRateType)
+    {
+        NSLog(@"HealthKit: Failed to create heart rate quantity type");
+        return;
+    }
+
     NSSet<HKObjectType*>* readTypes = [NSSet setWithObject:heartRateType];
+    NSLog(@"HealthKit: Requesting authorization for heart rate read access...");
 
     [_healthStore requestAuthorizationToShareTypes:nil readTypes:readTypes completion:^(BOOL success, NSError* error) {
         if (success)
         {
             self->_authorized->store(true);
-            NSLog(@"HealthKit heart rate authorization granted");
+            NSLog(@"HealthKit: Authorization granted! Starting observation...");
+            [self startObserving];
         }
         else
         {
             self->_authorized->store(false);
-            if (error) NSLog(@"HealthKit auth error: %@", error.localizedDescription);
+            if (error)
+                NSLog(@"HealthKit: Auth error: %@", error.localizedDescription);
+            else
+                NSLog(@"HealthKit: Auth denied (no error object)");
         }
     }];
 }
