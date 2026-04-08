@@ -64,7 +64,9 @@
         {
             self->_authorized->store(true);
             NSLog(@"HealthKit: Authorization granted! Starting observation...");
-            [self startObserving];
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [self startObserving];
+            });
         }
         else
         {
@@ -86,28 +88,40 @@
 
     HKQuantityType* heartRateType = [HKQuantityType quantityTypeForIdentifier:HKQuantityTypeIdentifierHeartRate];
 
-    // Use anchored query to get new samples as they arrive
-    HKQueryAnchor* anchor = [HKQueryAnchor anchorWithValue:HKAnchoredObjectQueryNoAnchor];
+    // Only get samples from the last 5 minutes to avoid loading entire history
+    NSDate* fiveMinAgo = [NSDate dateWithTimeIntervalSinceNow:-300];
+    NSPredicate* predicate = [HKQuery predicateForSamplesWithStartDate:fiveMinAgo
+                                                              endDate:nil
+                                                              options:HKQueryOptionStrictStartDate];
 
     _heartRateQuery = [[HKAnchoredObjectQuery alloc]
         initWithType:heartRateType
-           predicate:nil
-              anchor:anchor
-               limit:HKObjectQueryNoLimit
+           predicate:predicate
+              anchor:nil
+               limit:5  // only need the most recent few
       resultsHandler:^(HKAnchoredObjectQuery* query, NSArray<HKSample*>* samples,
                        NSArray<HKDeletedObject*>* deleted, HKQueryAnchor* newAnchor, NSError* error)
     {
+        if (error) { NSLog(@"HealthKit query error: %@", error.localizedDescription); return; }
         [self processHeartRateSamples:samples];
     }];
 
     // Update handler for ongoing samples
+    __unsafe_unretained typeof(self) weakSelf = self;
     _heartRateQuery.updateHandler = ^(HKAnchoredObjectQuery* query, NSArray<HKSample*>* added,
                                       NSArray<HKDeletedObject*>* deleted, HKQueryAnchor* newAnchor, NSError* error)
     {
-        [self processHeartRateSamples:added];
+        if (error) return;
+        [weakSelf processHeartRateSamples:added];
     };
 
-    [_healthStore executeQuery:_heartRateQuery];
+    @try {
+        [_healthStore executeQuery:_heartRateQuery];
+        NSLog(@"HealthKit: Query started successfully");
+    } @catch (NSException* e) {
+        NSLog(@"HealthKit: Query execution failed: %@", e.reason);
+        _heartRateQuery = nil;
+    }
 }
 
 - (void)processHeartRateSamples:(NSArray<HKSample*>*)samples
