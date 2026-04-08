@@ -113,6 +113,41 @@ public:
         rms = std::sqrt(rms / static_cast<float>(juce::jmax(1, numSamples)));
         currentPeak.store(peak);
         currentRms.store(rms);
+
+        // Onset detection for live BPM
+        float energy = rms;
+        float prevEnergy = onsetPrevEnergy;
+        onsetPrevEnergy = energy;
+
+        // Detect onset: energy spike above threshold and cooldown expired
+        bool onset = (energy > prevEnergy * 2.5f) && (energy > 0.02f) && (onsetCooldown <= 0);
+        if (onset)
+        {
+            double now = juce::Time::getMillisecondCounterHiRes() * 0.001;
+            if (lastOnsetTime > 0.0)
+            {
+                double interval = now - lastOnsetTime;
+                if (interval > 0.2 && interval < 2.0)  // 30-300 BPM range
+                {
+                    // Store in circular buffer
+                    onsetIntervals[onsetWritePos % MAX_ONSET_INTERVALS] = interval;
+                    onsetWritePos++;
+                    int count = juce::jmin(onsetWritePos, MAX_ONSET_INTERVALS);
+
+                    // Calculate average interval from recent onsets
+                    double sum = 0.0;
+                    for (int i = 0; i < count; ++i)
+                        sum += onsetIntervals[i];
+                    double avgInterval = sum / count;
+
+                    if (avgInterval > 0.0)
+                        detectedBpm.store(60.0 / avgInterval);
+                }
+            }
+            lastOnsetTime = now;
+            onsetCooldown = 4;  // ~4 audio blocks cooldown to avoid double-triggers
+        }
+        if (onsetCooldown > 0) onsetCooldown--;
     }
 
     void timerCallback() override
@@ -122,8 +157,12 @@ public:
         smoothPeak = smoothPeak * 0.8f + peak * 0.2f;
         smoothRms = smoothRms * 0.8f + rms * 0.2f;
 
-        // Advance phases
+        // Advance phases — use detected BPM when playing live (transport stopped)
         double musicBpm = engine.getBpm();
+        double liveBpm = detectedBpm.load();
+        if (!engine.isPlaying() && liveBpm > 30.0)
+            musicBpm = liveBpm;  // live onset detection overrides when transport is off
+
         double hrBpm = heartRate.heartRateBpm.load();
         if (hrBpm < 30.0) hrBpm = 72.0;  // fallback resting rate if no data
 
@@ -152,6 +191,9 @@ public:
         float maxR = juce::jmin(bounds.getWidth(), bounds.getHeight()) * 0.42f;
 
         double musicBpm = engine.getBpm();
+        double liveBpm = detectedBpm.load();
+        if (!engine.isPlaying() && liveBpm > 30.0)
+            musicBpm = liveBpm;
         if (musicBpm < 1.0) musicBpm = 120.0;
         double hrBpm = heartRate.heartRateBpm.load();
         if (hrBpm < 30.0) hrBpm = 72.0;
@@ -283,14 +325,17 @@ public:
         juce::String ratioStr = juce::String(nearestNum) + ":" + juce::String(nearestDen);
         juce::String coherenceStr = juce::String(static_cast<int>(coherence * 100)) + "%";
 
+        bool usingLiveBpm = !engine.isPlaying() && detectedBpm.load() > 30.0;
+        juce::String bpmSource = usingLiveBpm ? "Live " : "Music ";
+
         juce::String info;
         if (hasHR)
             info = "HR " + juce::String(static_cast<int>(hrBpm)) + " BPM   "
-                   + "Music " + juce::String(static_cast<int>(musicBpm)) + " BPM   "
+                   + bpmSource + juce::String(static_cast<int>(musicBpm)) + " BPM   "
                    + "Ratio " + ratioStr + "   Coherence " + coherenceStr;
         else
             info = "No heart rate data - wear Apple Watch   "
-                   + juce::String("Music ") + juce::String(static_cast<int>(musicBpm)) + " BPM   "
+                   + bpmSource + juce::String(static_cast<int>(musicBpm)) + " BPM   "
                    + "(using 72 BPM fallback)";
 
         g.drawText(info, textArea.toNearestInt(), juce::Justification::centred);
@@ -304,6 +349,15 @@ private:
     std::atomic<float> currentRms { 0.0f };
     float smoothPeak = 0.0f;
     float smoothRms = 0.0f;
+
+    // Live BPM detection from audio onsets
+    std::atomic<double> detectedBpm { 0.0 };
+    float onsetPrevEnergy = 0.0f;
+    double lastOnsetTime = 0.0;
+    int onsetCooldown = 0;
+    static constexpr int MAX_ONSET_INTERVALS = 16;
+    double onsetIntervals[MAX_ONSET_INTERVALS] = {};
+    int onsetWritePos = 0;
 
     double musicPhase = 0.0;
     double heartPhase = 0.0;

@@ -4059,8 +4059,9 @@ void MainComponent::paint(juce::Graphics& g)
         auto inner = bounds.reduced(3.0f, 2.0f);
 
         // EKG sweep — reads from circular ekgBuffer, draws like a real monitor
-        float waveH = inner.getHeight() * 0.45f;
-        float baselineY = inner.getY() + waveH * 0.55f;
+        // Center the waveform in the top half with equal padding above and below text
+        float waveH = inner.getHeight() * 0.35f;
+        float baselineY = inner.getCentreY() - inner.getHeight() * 0.08f;
         float waveW = inner.getWidth();
 
         {
