@@ -478,6 +478,8 @@ MainComponent::MainComponent()
         projectorMode = false;
         fullscreenButton.setToggleState(false, juce::dontSendNotification);
         projectorButton.setToggleState(false, juce::dontSendNotification);
+        // Re-assert MIDI routing after exiting fullscreen
+        pluginHost.setSelectedTrack(selectedTrackIndex);
         resized();
         repaint();
         grabKeyboardFocus();
