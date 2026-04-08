@@ -12,13 +12,18 @@ static std::atomic<bool> g_observing { false };
 static std::atomic<bool> g_authorized { false };
 static std::atomic<double>* g_bpmOut = nullptr;
 
+static int g_pollCount = 0;
+
 static void pollLatestHeartRate()
 {
     if (!g_healthStore || !g_bpmOut) return;
 
+    g_pollCount++;
+
     HKQuantityType* hrType = [HKQuantityType quantityTypeForIdentifier:HKQuantityTypeIdentifierHeartRate];
     NSSortDescriptor* sortByDate = [[NSSortDescriptor alloc] initWithKey:HKSampleSortIdentifierEndDate ascending:NO];
 
+    // Get the most recent sample — no time predicate so we always get something
     HKSampleQuery* query = [[HKSampleQuery alloc]
         initWithSampleType:hrType
                  predicate:nil
@@ -26,13 +31,19 @@ static void pollLatestHeartRate()
            sortDescriptors:@[sortByDate]
             resultsHandler:^(HKSampleQuery* q, NSArray<__kindof HKSample*>* results, NSError* error)
     {
-        if (error || !results || results.count == 0) return;
+        if (error) { NSLog(@"HealthKit poll error: %@", error); return; }
+        if (!results || results.count == 0) { NSLog(@"HealthKit poll: no results"); return; }
 
         HKQuantitySample* sample = (HKQuantitySample*)results.firstObject;
         if (![sample isKindOfClass:[HKQuantitySample class]]) return;
 
         HKUnit* bpmUnit = [[HKUnit countUnit] unitDividedByUnit:[HKUnit minuteUnit]];
         double bpm = [sample.quantity doubleValueForUnit:bpmUnit];
+
+        // Log the sample age so we can see if we're getting fresh data
+        NSTimeInterval age = [[NSDate date] timeIntervalSinceDate:sample.endDate];
+        NSLog(@"HealthKit poll #%d: HR=%.0f BPM, sample age=%.0fs", g_pollCount, bpm, age);
+
         if (g_bpmOut) g_bpmOut->store(bpm);
     }];
 
