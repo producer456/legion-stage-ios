@@ -4,6 +4,9 @@
 #if TARGET_OS_IOS || TARGET_OS_MACCATALYST
 #import <HealthKit/HealthKit.h>
 
+// Stored globally per HeartRateManager instance so ARC manages lifetime
+static NSMutableDictionary<NSValue*, id>* g_observers = nil;
+
 @interface HeartRateObserver : NSObject
 @property (nonatomic, strong) HKHealthStore* healthStore;
 @property (nonatomic, strong) HKAnchoredObjectQuery* heartRateQuery;
@@ -29,10 +32,12 @@
         {
             _healthStore = [[HKHealthStore alloc] init];
             avail->store(true);
+            NSLog(@"HealthKit: Health data IS available, store created");
         }
         else
         {
             avail->store(false);
+            NSLog(@"HealthKit: Health data NOT available on this device");
         }
     }
     return self;
@@ -40,30 +45,19 @@
 
 - (void)requestAuthorization
 {
-    NSLog(@"HealthKit: requestAuthorization called, healthStore=%@, available=%d",
-          _healthStore, [HKHealthStore isHealthDataAvailable]);
-
-    if (!_healthStore)
-    {
-        NSLog(@"HealthKit: No health store — health data not available on this device");
-        return;
-    }
+    if (!_healthStore) return;
 
     HKQuantityType* heartRateType = [HKQuantityType quantityTypeForIdentifier:HKQuantityTypeIdentifierHeartRate];
-    if (!heartRateType)
-    {
-        NSLog(@"HealthKit: Failed to create heart rate quantity type");
-        return;
-    }
+    if (!heartRateType) return;
 
     NSSet<HKObjectType*>* readTypes = [NSSet setWithObject:heartRateType];
-    NSLog(@"HealthKit: Requesting authorization for heart rate read access...");
+    NSLog(@"HealthKit: Requesting authorization...");
 
     [_healthStore requestAuthorizationToShareTypes:nil readTypes:readTypes completion:^(BOOL success, NSError* error) {
+        NSLog(@"HealthKit: Auth completion — success=%d, error=%@", success, error);
         if (success)
         {
             self->_authorized->store(true);
-            NSLog(@"HealthKit: Authorization granted! Starting observation...");
             dispatch_async(dispatch_get_main_queue(), ^{
                 [self startObserving];
             });
@@ -71,10 +65,6 @@
         else
         {
             self->_authorized->store(false);
-            if (error)
-                NSLog(@"HealthKit: Auth error: %@", error.localizedDescription);
-            else
-                NSLog(@"HealthKit: Auth denied (no error object)");
         }
     }];
 }
@@ -82,15 +72,14 @@
 - (void)startObserving
 {
     if (!_healthStore || !_authorized->load()) return;
-    if (_heartRateQuery != nil) return;  // already observing
+    if (_heartRateQuery != nil) return;
 
     NSLog(@"HealthKit: Starting heart rate observation...");
 
     HKQuantityType* heartRateType = [HKQuantityType quantityTypeForIdentifier:HKQuantityTypeIdentifierHeartRate];
 
-    // Only get samples from the last 5 minutes to avoid loading entire history
-    NSDate* fiveMinAgo = [NSDate dateWithTimeIntervalSinceNow:-300];
-    NSPredicate* predicate = [HKQuery predicateForSamplesWithStartDate:fiveMinAgo
+    NSDate* recent = [NSDate dateWithTimeIntervalSinceNow:-300];
+    NSPredicate* predicate = [HKQuery predicateForSamplesWithStartDate:recent
                                                               endDate:nil
                                                               options:HKQueryOptionStrictStartDate];
 
@@ -98,37 +87,34 @@
         initWithType:heartRateType
            predicate:predicate
               anchor:nil
-               limit:5  // only need the most recent few
+               limit:5
       resultsHandler:^(HKAnchoredObjectQuery* query, NSArray<HKSample*>* samples,
                        NSArray<HKDeletedObject*>* deleted, HKQueryAnchor* newAnchor, NSError* error)
     {
-        if (error) { NSLog(@"HealthKit query error: %@", error.localizedDescription); return; }
-        [self processHeartRateSamples:samples];
+        if (!error && samples)
+            [self processHeartRateSamples:samples];
     }];
 
-    // Update handler for ongoing samples
-    __unsafe_unretained typeof(self) weakSelf = self;
     _heartRateQuery.updateHandler = ^(HKAnchoredObjectQuery* query, NSArray<HKSample*>* added,
                                       NSArray<HKDeletedObject*>* deleted, HKQueryAnchor* newAnchor, NSError* error)
     {
-        if (error) return;
-        [weakSelf processHeartRateSamples:added];
+        if (!error && added)
+            [self processHeartRateSamples:added];
     };
 
     @try {
         [_healthStore executeQuery:_heartRateQuery];
-        NSLog(@"HealthKit: Query started successfully");
+        NSLog(@"HealthKit: Query started OK");
     } @catch (NSException* e) {
-        NSLog(@"HealthKit: Query execution failed: %@", e.reason);
+        NSLog(@"HealthKit: Query failed: %@", e.reason);
         _heartRateQuery = nil;
     }
 }
 
 - (void)processHeartRateSamples:(NSArray<HKSample*>*)samples
 {
-    if (samples.count == 0) return;
+    if (!samples || samples.count == 0) return;
 
-    // Get the most recent sample
     HKQuantitySample* latest = nil;
     for (HKSample* sample in samples)
     {
@@ -140,11 +126,12 @@
         }
     }
 
-    if (latest)
+    if (latest && _heartRateBpm)
     {
         HKUnit* bpmUnit = [[HKUnit countUnit] unitDividedByUnit:[HKUnit minuteUnit]];
         double bpm = [latest.quantity doubleValueForUnit:bpmUnit];
         _heartRateBpm->store(bpm);
+        NSLog(@"HealthKit: Heart rate = %.0f BPM", bpm);
     }
 }
 
@@ -159,20 +146,28 @@
 
 @end
 
-// C++ wrapper implementation
+// C++ wrapper — uses global dictionary to let ARC manage the observer lifetime
 HeartRateManager::HeartRateManager()
 {
-    auto* observer = [[HeartRateObserver alloc] initWithAtomics:&heartRateBpm auth:&authorized avail:&available];
-    impl = (__bridge_retained void*)observer;
+    if (!g_observers)
+        g_observers = [NSMutableDictionary new];
+
+    HeartRateObserver* observer = [[HeartRateObserver alloc] initWithAtomics:&heartRateBpm auth:&authorized avail:&available];
+    NSValue* key = [NSValue valueWithPointer:this];
+    g_observers[key] = observer;
+    impl = (__bridge void*)observer;
 }
 
 HeartRateManager::~HeartRateManager()
 {
     if (impl)
     {
-        auto* observer = (__bridge_transfer HeartRateObserver*)impl;
+        HeartRateObserver* observer = (__bridge HeartRateObserver*)impl;
         [observer stopObserving];
-        (void)observer;  // ARC releases
+
+        NSValue* key = [NSValue valueWithPointer:this];
+        [g_observers removeObjectForKey:key];
+        impl = nullptr;
     }
 }
 

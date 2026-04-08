@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(Sequencer VERSION 1.5.7)
+project(Sequencer VERSION 1.5.8)
 
 # ASIO SDK path — JUCE needs this to compile ASIO support (Windows only)
 if(WIN32)
@@ -102,6 +102,9 @@ target_sources(Sequencer PRIVATE
     src/AUScanner.h
     src/AUScanner.mm
 )
+
+# Force ARC for HeartRateManager.mm — HealthKit needs proper Obj-C memory management
+set_source_files_properties(src/HeartRateManager.mm PROPERTIES COMPILE_FLAGS "-fobjc-arc")
 
 target_compile_definitions(Sequencer PRIVATE
     JUCE_WEB_BROWSER=0
