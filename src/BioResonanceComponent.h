@@ -498,7 +498,7 @@ public:
                 // Small subtle BPM text
                 g.setColour(juce::Colours::white.withAlpha(0.35f + centerGlow));
                 g.setFont(juce::jmax(10.0f, innerR * 0.25f));
-                g.drawText(juce::String(static_cast<int>(hrBpm)) + " bpm",
+                g.drawText(juce::String(static_cast<int>(hrBpm)),
                            static_cast<int>(cx - innerR * 0.4f), static_cast<int>(cy - innerR * 0.12f),
                            static_cast<int>(innerR * 0.8f), static_cast<int>(innerR * 0.25f),
                            juce::Justification::centred);

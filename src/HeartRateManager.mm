@@ -59,6 +59,33 @@ HeartRateManager::HeartRateManager()
         if (!g_healthStore)
             g_healthStore = [[HKHealthStore alloc] init];
         available.store(true);
+
+        // Check if already authorized and auto-start polling
+        HKQuantityType* hrType = [HKQuantityType quantityTypeForIdentifier:HKQuantityTypeIdentifierHeartRate];
+        HKAuthorizationStatus status = [g_healthStore authorizationStatusForType:hrType];
+        NSLog(@"HealthKit: init auth status = %ld", (long)status);
+
+        // status == HKAuthorizationStatusSharingAuthorized means we can write (not relevant)
+        // For reading, HealthKit doesn't reveal read auth status (privacy).
+        // So just try an initial poll — if it returns data, we're authorized.
+        pollLatestHeartRate();
+
+        // Wait briefly then check if we got data — if so, start continuous polling
+        std::atomic<bool>* authPtr = &authorized;
+        HeartRateManager* mgr = this;
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            if (g_bpmOut && g_bpmOut->load() > 0.0)
+            {
+                NSLog(@"HealthKit: Auto-detected authorization, starting polling");
+                g_authorized.store(true);
+                if (authPtr) authPtr->store(true);
+                mgr->startObserving();
+            }
+            else
+            {
+                NSLog(@"HealthKit: No data from initial poll — user needs to tap Connect Watch");
+            }
+        });
     }
     else
     {
