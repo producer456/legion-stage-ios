@@ -90,7 +90,7 @@ void HeartRateManager::requestAuthorization()
                         @autoreleasepool {
                             pollLatestHeartRate();
                         }
-                        [NSThread sleepForTimeInterval:5.0];
+                        [NSThread sleepForTimeInterval:3.0];
                     }
                 });
             }
@@ -109,7 +109,7 @@ void HeartRateManager::startObserving()
             @autoreleasepool {
                 pollLatestHeartRate();
             }
-            [NSThread sleepForTimeInterval:5.0];
+            [NSThread sleepForTimeInterval:3.0];
         }
     });
 }

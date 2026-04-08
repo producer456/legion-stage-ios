@@ -255,196 +255,252 @@ public:
         float innerR = maxR * 0.30f;
         float midR = (innerR + outerR) * 0.5f;
 
-        // ── 1. Heart pulse ripples (expanding circles from center) ──
+        float fc = static_cast<float>(frameCount);
+        float twoPi = juce::MathConstants<float>::twoPi;
+        float halfPi = juce::MathConstants<float>::halfPi;
+
+        // ── 1. Background bloom — subtle radial glow that breathes with heart ──
+        {
+            float breathe = 0.03f + std::exp(-hPhase * 4.0f) * 0.06f;
+            juce::ColourGradient bg(heartCol.withAlpha(breathe), cx, cy,
+                                    juce::Colours::transparentBlack, cx, cy + maxR * 1.2f, true);
+            g.setGradientFill(bg);
+            g.fillRect(bounds);
+        }
+
+        // ── 2. Heart pulse ripples (expanding shockwaves) ──
         for (int i = 0; i < MAX_RIPPLES; ++i)
         {
             if (rippleAlpha[i] > 0.01f)
             {
-                float r = innerR + ripplePhase[i] * (outerR - innerR) * 1.5f;
-                g.setColour(heartCol.withAlpha(rippleAlpha[i] * 0.3f));
-                g.drawEllipse(cx - r, cy - r, r * 2, r * 2, 1.0f + rippleAlpha[i]);
+                float r = innerR * 0.5f + ripplePhase[i] * maxR * 1.8f;
+                float thickness = 2.0f * rippleAlpha[i];
+                g.setColour(heartCol.withAlpha(rippleAlpha[i] * 0.25f));
+                g.drawEllipse(cx - r, cy - r, r * 2, r * 2, thickness);
+                // Second ring slightly offset for depth
+                float r2 = r * 1.05f;
+                g.setColour(accentCol.withAlpha(rippleAlpha[i] * 0.1f));
+                g.drawEllipse(cx - r2, cy - r2, r2 * 2, r2 * 2, thickness * 0.5f);
             }
         }
 
-        // ── 2. Audio waveform ring (radial oscilloscope around outer ring) ──
+        // ── 3. Audio waveform ring — radial oscilloscope ──
         {
-            juce::Path wavePath;
+            juce::Path wavePath, wavePathInner;
             int wp = waveWritePos;
             for (int i = 0; i < WAVE_RING_SIZE; ++i)
             {
-                float angle = static_cast<float>(i) / WAVE_RING_SIZE * juce::MathConstants<float>::twoPi
-                              - juce::MathConstants<float>::halfPi;
+                float angle = static_cast<float>(i) / WAVE_RING_SIZE * twoPi - halfPi;
                 int idx = (wp + i) % WAVE_RING_SIZE;
                 float sample = waveRing[idx];
-                float r = outerR + sample * maxR * 0.2f;
-                float x = cx + std::cos(angle) * r;
-                float y = cy + std::sin(angle) * r;
-                if (i == 0) wavePath.startNewSubPath(x, y);
-                else wavePath.lineTo(x, y);
+                float rOuter = outerR + sample * maxR * 0.25f;
+                float rInner = innerR + sample * maxR * 0.15f;
+                float cosA = std::cos(angle), sinA = std::sin(angle);
+
+                if (i == 0) { wavePath.startNewSubPath(cx + cosA * rOuter, cy + sinA * rOuter);
+                              wavePathInner.startNewSubPath(cx + cosA * rInner, cy + sinA * rInner); }
+                else { wavePath.lineTo(cx + cosA * rOuter, cy + sinA * rOuter);
+                       wavePathInner.lineTo(cx + cosA * rInner, cy + sinA * rInner); }
             }
             wavePath.closeSubPath();
-            g.setColour(baseCol.withAlpha(0.25f));
-            g.strokePath(wavePath, juce::PathStrokeType(1.0f));
+            wavePathInner.closeSubPath();
+            g.setColour(baseCol.withAlpha(0.2f + smoothPeak * 0.2f));
+            g.strokePath(wavePath, juce::PathStrokeType(1.0f + smoothPeak));
+            g.setColour(heartCol.withAlpha(0.12f + smoothPeak * 0.1f));
+            g.strokePath(wavePathInner, juce::PathStrokeType(0.8f));
         }
 
-        // ── 3. Frequency band rings (bass=outer, mid=middle, high=inner) ──
+        // ── 4. Frequency band visuals ──
         {
-            // Bass ring — thick, pulsing
-            float bassR = outerR * (0.95f + smoothBass * 2.0f);
-            g.setColour(bassCol.withAlpha(juce::jmin(0.3f, smoothBass * 3.0f)));
-            g.drawEllipse(cx - bassR, cy - bassR, bassR * 2, bassR * 2, 1.5f + smoothBass * 4.0f);
+            // Bass: thick pulsing outer glow
+            float bassR = outerR * (1.0f + smoothBass * 3.0f);
+            float bassAlpha = juce::jmin(0.35f, smoothBass * 4.0f);
+            g.setColour(bassCol.withAlpha(bassAlpha));
+            g.drawEllipse(cx - bassR, cy - bassR, bassR * 2, bassR * 2, 2.0f + smoothBass * 6.0f);
 
-            // Mid frequency ring
-            float midRing = midR * (1.0f + smoothMid * 1.5f);
-            g.setColour(midCol.withAlpha(juce::jmin(0.25f, smoothMid * 3.0f)));
-            g.drawEllipse(cx - midRing, cy - midRing, midRing * 2, midRing * 2, 1.0f + smoothMid * 2.0f);
+            // Bass radial spokes on beats
+            if (smoothBass > 0.02f)
+            {
+                int numSpokes = 8;
+                for (int i = 0; i < numSpokes; ++i)
+                {
+                    float angle = static_cast<float>(i) / numSpokes * twoPi + mPhase * twoPi;
+                    float r1 = outerR;
+                    float r2 = outerR + smoothBass * maxR * 0.4f;
+                    g.setColour(bassCol.withAlpha(smoothBass * 2.0f));
+                    g.drawLine(cx + std::cos(angle) * r1, cy + std::sin(angle) * r1,
+                               cx + std::cos(angle) * r2, cy + std::sin(angle) * r2,
+                               1.0f + smoothBass * 3.0f);
+                }
+            }
 
-            // High frequency sparkles
-            int numSparkles = static_cast<int>(smoothHigh * 60.0f);
+            // Mid: golden arc segments that rotate
+            if (smoothMid > 0.01f)
+            {
+                float midRing = midR * (1.0f + smoothMid * 1.5f);
+                int numArcs = 6;
+                for (int i = 0; i < numArcs; ++i)
+                {
+                    float startAngle = static_cast<float>(i) / numArcs * twoPi + fc * 0.015f;
+                    float arcLen = 0.3f + smoothMid * 0.5f;
+                    juce::Path arc;
+                    arc.addCentredArc(cx, cy, midRing, midRing, 0, startAngle, startAngle + arcLen, true);
+                    g.setColour(midCol.withAlpha(juce::jmin(0.4f, smoothMid * 4.0f)));
+                    g.strokePath(arc, juce::PathStrokeType(1.5f + smoothMid * 2.0f));
+                }
+            }
+
+            // High: constellation of sparkles that scatter outward
+            int numSparkles = static_cast<int>(smoothHigh * 100.0f);
             for (int i = 0; i < numSparkles; ++i)
             {
-                float angle = static_cast<float>(i) / juce::jmax(1, numSparkles) * juce::MathConstants<float>::twoPi
-                              + static_cast<float>(frameCount) * 0.1f;
-                float r = innerR * 0.8f + smoothHigh * maxR * 0.3f;
-                float sx = cx + std::cos(angle) * r;
-                float sy = cy + std::sin(angle) * r;
-                g.setColour(highCol.withAlpha(0.4f + smoothHigh));
-                g.fillEllipse(sx - 1.5f, sy - 1.5f, 3.0f, 3.0f);
+                float angle = static_cast<float>(i) * 2.399f + fc * 0.08f;  // golden angle
+                float r = innerR + (outerR - innerR) * (0.2f + 0.6f * static_cast<float>(i) / juce::jmax(1, numSparkles));
+                float jitter = smoothHigh * 8.0f * std::sin(fc * 0.2f + i * 1.7f);
+                float sx = cx + std::cos(angle) * (r + jitter);
+                float sy = cy + std::sin(angle) * (r + jitter);
+                float sparkSize = 1.0f + smoothHigh * 3.0f * (1.0f - static_cast<float>(i) / juce::jmax(1, numSparkles));
+                g.setColour(highCol.withAlpha(0.3f + smoothHigh * 0.5f));
+                g.fillEllipse(sx - sparkSize, sy - sparkSize, sparkSize * 2, sparkSize * 2);
             }
         }
 
-        // ── 4. Outer ring with beat markers ──
+        // ── 5. Outer ring with reactive beat markers ──
         {
-            float pulseAlpha = std::exp(-mPhase * 8.0f) * 0.6f;
-            g.setColour(baseCol.withAlpha(0.15f + pulseAlpha));
-            g.drawEllipse(cx - outerR, cy - outerR, outerR * 2, outerR * 2, 1.5f);
+            float pulseAlpha = std::exp(-mPhase * 6.0f) * 0.7f;
+            g.setColour(baseCol.withAlpha(0.12f + pulseAlpha));
+            g.drawEllipse(cx - outerR, cy - outerR, outerR * 2, outerR * 2, 1.5f + pulseAlpha * 2.0f);
 
-            for (int i = 0; i < 4; ++i)
+            // Beat flash ring
+            if (mPhase < 0.1f)
             {
-                float angle = static_cast<float>(i) / 4 * juce::MathConstants<float>::twoPi
-                              - juce::MathConstants<float>::halfPi + mPhase * juce::MathConstants<float>::twoPi;
-                float mx = cx + std::cos(angle) * outerR;
-                float my = cy + std::sin(angle) * outerR;
-                float dotSize = (i == 0) ? 8.0f + smoothPeak * 6.0f : 3.0f + smoothPeak * 2.0f;
-                g.setColour(accentCol.withAlpha(0.8f));
+                float flashR = outerR * (1.0f + mPhase * 0.5f);
+                g.setColour(accentCol.withAlpha(0.15f * (1.0f - mPhase / 0.1f)));
+                g.drawEllipse(cx - flashR, cy - flashR, flashR * 2, flashR * 2, 2.0f);
+            }
+
+            for (int i = 0; i < 8; ++i)
+            {
+                float angle = static_cast<float>(i) / 8.0f * twoPi - halfPi + mPhase * twoPi;
+                float dotR = outerR + smoothPeak * 4.0f;
+                float mx = cx + std::cos(angle) * dotR;
+                float my = cy + std::sin(angle) * dotR;
+                float dotSize = (i % 2 == 0) ? 6.0f + smoothPeak * 8.0f : 2.5f + smoothPeak * 3.0f;
+                g.setColour(accentCol.withAlpha(0.6f + smoothPeak * 0.3f));
                 g.fillEllipse(mx - dotSize / 2, my - dotSize / 2, dotSize, dotSize);
             }
         }
 
-        // ── 5. Inner heart ring with pulse glow ──
+        // ── 6. Inner heart ring with multi-layer glow ──
         {
-            float heartPulseAlpha = std::exp(-hPhase * 6.0f) * 0.8f;
-            g.setColour(heartCol.withAlpha(0.2f + heartPulseAlpha));
-            g.drawEllipse(cx - innerR, cy - innerR, innerR * 2, innerR * 2, 2.0f);
+            float heartPulse = std::exp(-hPhase * 5.0f);
+            g.setColour(heartCol.withAlpha(0.15f + heartPulse * 0.5f));
+            g.drawEllipse(cx - innerR, cy - innerR, innerR * 2, innerR * 2, 1.5f + heartPulse * 3.0f);
 
-            // Pulsing glow burst on heartbeat
-            if (hPhase < 0.2f)
+            if (hPhase < 0.25f)
             {
-                float glowIntensity = 1.0f - hPhase / 0.2f;
-                for (int layer = 0; layer < 3; ++layer)
+                float intensity = 1.0f - hPhase / 0.25f;
+                for (int layer = 0; layer < 5; ++layer)
                 {
-                    float glowR = innerR * (1.0f + hPhase * (2.0f + layer));
-                    g.setColour(heartCol.withAlpha(0.1f * glowIntensity / (layer + 1)));
+                    float glowR = innerR * (1.0f + hPhase * (1.5f + layer * 0.8f));
+                    g.setColour(heartCol.withAlpha(0.08f * intensity / (layer * 0.5f + 1)));
                     g.drawEllipse(cx - glowR, cy - glowR, glowR * 2, glowR * 2, 1.5f);
                 }
             }
         }
 
-        // ── 6. Lissajous connecting geometry (multiple layers) ──
+        // ── 7. Lissajous geometry (3 layers with different ratios) ──
         {
             float audioMod = 0.3f + smoothRms * 0.7f;
 
-            // Layer 1: main Lissajous curve
-            for (int layer = 0; layer < 2; ++layer)
+            for (int layer = 0; layer < 3; ++layer)
             {
-                int numPoints = 300;
+                int numPoints = 400;
                 juce::Path geoPath;
-                float layerOffset = layer * 0.5f;
+                float layerMul = 1.0f + layer * 0.5f;
+                float layerPhase = layer * 1.047f;  // 60 degree offset
 
                 for (int i = 0; i < numPoints; ++i)
                 {
                     float t = static_cast<float>(i) / static_cast<float>(numPoints);
-                    float musicAngle = t * juce::MathConstants<float>::twoPi * static_cast<float>(nearestDen)
-                                       + static_cast<float>(musicPhase) * juce::MathConstants<float>::twoPi;
-                    float heartAngle = t * juce::MathConstants<float>::twoPi * static_cast<float>(nearestNum)
-                                       + static_cast<float>(heartPhase) * juce::MathConstants<float>::twoPi + layerOffset;
+                    float mA = t * twoPi * static_cast<float>(nearestDen) * layerMul
+                               + static_cast<float>(musicPhase) * twoPi;
+                    float hA = t * twoPi * static_cast<float>(nearestNum) * layerMul
+                               + static_cast<float>(heartPhase) * twoPi + layerPhase;
 
-                    // Modulate radius with audio bands
-                    float bassWave = smoothBass * 0.3f * std::sin(heartAngle * 2.0f);
-                    float highWave = smoothHigh * 0.15f * std::sin(musicAngle * 4.0f);
-                    float r = innerR + (outerR - innerR) * (0.5f + 0.5f * std::sin(heartAngle) + bassWave + highWave) * audioMod;
+                    float bassW = smoothBass * 0.4f * std::sin(hA * 2.0f);
+                    float midW = smoothMid * 0.2f * std::sin(mA * 3.0f);
+                    float highW = smoothHigh * 0.15f * std::sin(mA * 5.0f + hA);
+                    float r = innerR + (outerR - innerR) * (0.5f + 0.5f * std::sin(hA) + bassW + midW + highW) * audioMod;
 
-                    float x = cx + std::cos(musicAngle) * r;
-                    float y = cy + std::sin(musicAngle) * r;
+                    float x = cx + std::cos(mA) * r;
+                    float y = cy + std::sin(mA) * r;
 
                     if (i == 0) geoPath.startNewSubPath(x, y);
                     else geoPath.lineTo(x, y);
                 }
                 geoPath.closeSubPath();
 
-                float layerAlpha = (layer == 0) ? 0.4f : 0.15f;
-                g.setColour(baseCol.withAlpha(layerAlpha * audioMod));
-                g.strokePath(geoPath, juce::PathStrokeType(1.5f - layer * 0.5f + coherence * 1.5f));
+                float layerAlpha = (layer == 0) ? 0.35f : (layer == 1) ? 0.15f : 0.08f;
+                juce::Colour layerCol = (layer == 0) ? baseCol : (layer == 1) ? accentCol : heartCol;
+                g.setColour(layerCol.withAlpha(layerAlpha * audioMod));
+                g.strokePath(geoPath, juce::PathStrokeType(2.0f - layer * 0.5f + coherence * 2.0f));
 
-                if (coherence > 0.6f && layer == 0)
+                if (coherence > 0.5f && layer == 0)
                 {
-                    g.setColour(accentCol.withAlpha(0.03f * coherence));
+                    g.setColour(accentCol.withAlpha(0.04f * coherence));
                     g.fillPath(geoPath);
                 }
             }
         }
 
-        // ── 7. Resonance particles with trails ──
+        // ── 8. Resonance particles with longer trails ──
         {
-            float resonancePhase = static_cast<float>(std::fmod(musicPhase * nearestDen - heartPhase * nearestNum, 1.0));
-            float resonanceStrength = coherence * smoothPeak;
+            float resPhase = static_cast<float>(std::fmod(musicPhase * nearestDen - heartPhase * nearestNum, 1.0));
+            float resStrength = coherence * (smoothPeak + smoothBass);
 
-            int numParticles = static_cast<int>(12 + coherence * 24);
+            int numParticles = static_cast<int>(16 + coherence * 32 + smoothPeak * 16);
             for (int i = 0; i < numParticles; ++i)
             {
-                float pAngle = (static_cast<float>(i) / numParticles + resonancePhase)
-                               * juce::MathConstants<float>::twoPi;
-                float pR = innerR + (outerR - innerR) * (0.3f + 0.4f * std::sin(pAngle * nearestNum + frameCount * 0.02f));
+                float pAngle = (static_cast<float>(i) / numParticles + resPhase) * twoPi;
+                float pR = innerR + (outerR - innerR) * (0.2f + 0.5f * std::sin(pAngle * nearestNum + fc * 0.025f));
                 float px = cx + std::cos(pAngle) * pR;
                 float py = cy + std::sin(pAngle) * pR;
 
-                // Trail
-                for (int t = 1; t <= 3; ++t)
+                // Longer trailing afterimages
+                for (int t = 1; t <= 5; ++t)
                 {
-                    float trailAngle = pAngle - t * 0.03f;
-                    float trailR = innerR + (outerR - innerR) * (0.3f + 0.4f * std::sin(trailAngle * nearestNum + frameCount * 0.02f));
-                    float tx = cx + std::cos(trailAngle) * trailR;
-                    float ty = cy + std::sin(trailAngle) * trailR;
-                    g.setColour(accentCol.withAlpha(resonanceStrength * 0.15f / t));
-                    g.fillEllipse(tx - 1.5f, ty - 1.5f, 3.0f, 3.0f);
+                    float tAngle = pAngle - t * 0.025f;
+                    float tR = innerR + (outerR - innerR) * (0.2f + 0.5f * std::sin(tAngle * nearestNum + fc * 0.025f));
+                    g.setColour(accentCol.withAlpha(resStrength * 0.1f / t));
+                    g.fillEllipse(cx + std::cos(tAngle) * tR - 1.5f, cy + std::sin(tAngle) * tR - 1.5f, 3.0f, 3.0f);
                 }
 
-                float pSize = 2.5f + resonanceStrength * 5.0f;
-                g.setColour(accentCol.withAlpha(0.3f + resonanceStrength * 0.5f));
+                float pSize = 2.0f + resStrength * 6.0f;
+                g.setColour(accentCol.withAlpha(0.4f + resStrength * 0.4f));
                 g.fillEllipse(px - pSize / 2, py - pSize / 2, pSize, pSize);
+
+                // Bright core
+                g.setColour(juce::Colours::white.withAlpha(resStrength * 0.3f));
+                g.fillEllipse(px - 1.0f, py - 1.0f, 2.0f, 2.0f);
             }
         }
 
-        // ── 8. Center heart rate display ──
+        // ── 9. Center — subtle heart rate with inner waveform ──
         {
             bool hasHR = heartRate.heartRateBpm.load() >= 30.0;
+            float centerGlow = std::exp(-hPhase * 5.0f) * 0.2f;
+            g.setColour(heartCol.withAlpha(0.03f + centerGlow));
+            g.fillEllipse(cx - innerR * 0.6f, cy - innerR * 0.6f, innerR * 1.2f, innerR * 1.2f);
+
             if (hasHR)
             {
-                float centerGlow = std::exp(-hPhase * 5.0f) * 0.3f;
-                g.setColour(heartCol.withAlpha(0.05f + centerGlow));
-                g.fillEllipse(cx - innerR * 0.7f, cy - innerR * 0.7f, innerR * 1.4f, innerR * 1.4f);
-
-                g.setColour(juce::Colours::white.withAlpha(0.8f + centerGlow * 0.2f));
-                g.setFont(juce::jmax(14.0f, innerR * 0.4f));
-                g.drawText(juce::String(static_cast<int>(hrBpm)),
-                           static_cast<int>(cx - innerR * 0.5f), static_cast<int>(cy - innerR * 0.25f),
-                           static_cast<int>(innerR), static_cast<int>(innerR * 0.4f),
-                           juce::Justification::centred);
-                g.setFont(juce::jmax(9.0f, innerR * 0.2f));
-                g.setColour(juce::Colours::white.withAlpha(0.5f));
-                g.drawText("BPM",
-                           static_cast<int>(cx - innerR * 0.5f), static_cast<int>(cy + innerR * 0.05f),
-                           static_cast<int>(innerR), static_cast<int>(innerR * 0.25f),
+                // Small subtle BPM text
+                g.setColour(juce::Colours::white.withAlpha(0.35f + centerGlow));
+                g.setFont(juce::jmax(10.0f, innerR * 0.25f));
+                g.drawText(juce::String(static_cast<int>(hrBpm)) + " bpm",
+                           static_cast<int>(cx - innerR * 0.4f), static_cast<int>(cy - innerR * 0.12f),
+                           static_cast<int>(innerR * 0.8f), static_cast<int>(innerR * 0.25f),
                            juce::Justification::centred);
             }
         }
