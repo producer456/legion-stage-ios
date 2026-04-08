@@ -125,10 +125,12 @@ void ClipPlayerNode::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBu
             std::fill(wasInsideClip.begin(), wasInsideClip.end(), false);
         }
 
-        // Run clip playback for all playing slots
+        // Run clip playback for all playing and recording slots
+        // Recording slots also play back so the user hears first-pass notes during loop recording
         for (int i = 0; i < getNumSlots(); ++i)
         {
-            if (slots[static_cast<size_t>(i)].state.load() == ClipSlot::Playing)
+            auto slotState = slots[static_cast<size_t>(i)].state.load();
+            if (slotState == ClipSlot::Playing || slotState == ClipSlot::Recording)
             {
                 if (audioMode && slots[static_cast<size_t>(i)].audioClip != nullptr)
                     processAudioClipPlayback(i, buffer, numSamples);
@@ -216,7 +218,9 @@ void ClipPlayerNode::processRecording(const juce::MidiBuffer& incomingMidi, int 
             msg.isAftertouch() || msg.isChannelPressure())
         {
             double beatTimestamp = (pos - recordStartBeat) + (metadata.samplePosition * beatsPerSample);
-            if (beatTimestamp < 0.0) beatTimestamp = 0.0;
+
+            // Don't record notes that arrive before the loop/clip start
+            if (beatTimestamp < 0.0) continue;
 
             // In loop mode the clip length is fixed to the loop region.
             // Skip any notes that fall at or beyond the clip end — they belong

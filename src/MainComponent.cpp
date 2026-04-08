@@ -2995,7 +2995,7 @@ void MainComponent::restoreSnapshot(const ProjectSnapshot& snap)
             slot.audioClip = nullptr;  // ensure only one type
         }
 
-        slot.state.store(ClipSlot::Stopped);
+        slot.state.store(ClipSlot::Playing);
     }
 
     updateTrackDisplay();
@@ -3340,7 +3340,7 @@ void MainComponent::loadProject()
                 }
 
                 slot.clip->events.updateMatchedPairs();
-                slot.state.store(ClipSlot::Stopped);
+                slot.state.store(ClipSlot::Playing);
             }
 
             // Load AudioClips
@@ -3372,7 +3372,7 @@ void MainComponent::loadProject()
                             slot.audioClip->samples.setSample(ch, si, *ptr++);
                 }
 
-                slot.state.store(ClipSlot::Stopped);
+                slot.state.store(ClipSlot::Playing);
             }
 
             // Load automation lanes
@@ -5708,15 +5708,35 @@ void MainComponent::updatePresetList()
     }
 
     int numPresets = track.plugin->getNumPrograms();
-    for (int i = 0; i < numPresets; ++i)
-    {
-        juce::String name = track.plugin->getProgramName(i);
-        if (name.isEmpty()) name = "Preset " + juce::String(i + 1);
-        presetSelector.addItem(name, i + 2);
-    }
 
-    int current = track.plugin->getCurrentProgram();
-    presetSelector.setSelectedId(current + 2, juce::dontSendNotification);
+    // Some AUv3 plugins report 1 program with empty name — treat as no presets
+    bool hasRealPresets = numPresets > 1 || (numPresets == 1 && track.plugin->getProgramName(0).isNotEmpty());
+
+    if (hasRealPresets)
+    {
+        for (int i = 0; i < numPresets; ++i)
+        {
+            juce::String name = track.plugin->getProgramName(i);
+            if (name.isEmpty()) name = "Preset " + juce::String(i + 1);
+            presetSelector.addItem(name, i + 2);
+        }
+
+        int current = track.plugin->getCurrentProgram();
+        presetSelector.setSelectedId(current + 2, juce::dontSendNotification);
+    }
+    else
+    {
+        // Retry after a delay — some AUv3 plugins populate presets asynchronously
+        juce::Component::SafePointer<MainComponent> safeThis(this);
+        juce::Timer::callAfterDelay(1500, [safeThis] {
+            if (auto* self = safeThis.getComponent())
+            {
+                auto& t = self->pluginHost.getTrack(self->selectedTrackIndex);
+                if (t.plugin != nullptr && t.plugin->getNumPrograms() > 1)
+                    self->updatePresetList();
+            }
+        });
+    }
 }
 
 void MainComponent::loadPreset(int index)
