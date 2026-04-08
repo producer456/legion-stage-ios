@@ -19,6 +19,20 @@
 class BioResonanceComponent : public juce::Component, public juce::Timer
 {
 public:
+    // Thresholds and fallbacks
+    static constexpr double MIN_HR_THRESHOLD = 30.0;
+    static constexpr double FALLBACK_REST_HR = 72.0;
+    static constexpr double FALLBACK_BPM = 120.0;
+    static constexpr float ONSET_THRESHOLD_MULT = 2.5f;
+    static constexpr float ONSET_MIN_ENERGY = 0.02f;
+    static constexpr double MIN_ONSET_INTERVAL = 0.2;
+    static constexpr double MAX_ONSET_INTERVAL = 2.0;
+
+    // Colors
+    static constexpr uint32_t COLOR_HEART = 0xffff4466;
+
+    bool hasValidHeartRate() const { return heartRate.heartRateBpm.load() >= MIN_HR_THRESHOLD; }
+
     BioResonanceComponent(SequencerEngine& eng, HeartRateManager& hrm)
         : engine(eng), heartRate(hrm)
     {
@@ -93,7 +107,7 @@ public:
         infoButton.setBounds(getWidth() - 34, 4, 30, 30);
 
         // Show Connect button only when no heart rate data
-        bool hasHR = heartRate.heartRateBpm.load() >= 30.0;
+        bool hasHR = hasValidHeartRate();
         connectButton.setVisible(!hasHR);
         if (!hasHR)
             connectButton.setBounds(getWidth() / 2 - 70, getHeight() - 50, 140, 30);
@@ -141,14 +155,14 @@ public:
         onsetPrevEnergy = energy;
 
         // Detect onset: energy spike above threshold and cooldown expired
-        bool onset = (energy > prevEnergy * 2.5f) && (energy > 0.02f) && (onsetCooldown <= 0);
+        bool onset = (energy > prevEnergy * ONSET_THRESHOLD_MULT) && (energy > ONSET_MIN_ENERGY) && (onsetCooldown <= 0);
         if (onset)
         {
             double now = juce::Time::getMillisecondCounterHiRes() * 0.001;
             if (lastOnsetTime > 0.0)
             {
                 double interval = now - lastOnsetTime;
-                if (interval > 0.2 && interval < 2.0)  // 30-300 BPM range
+                if (interval > MIN_ONSET_INTERVAL && interval < MAX_ONSET_INTERVAL)
                 {
                     // Store in circular buffer
                     onsetIntervals[onsetWritePos % MAX_ONSET_INTERVALS] = interval;
@@ -188,7 +202,7 @@ public:
             musicBpm = liveBpm;  // live onset detection overrides when transport is off
 
         double hrBpm = heartRate.heartRateBpm.load();
-        if (hrBpm < 30.0) hrBpm = 72.0;  // fallback resting rate if no data
+        if (hrBpm < MIN_HR_THRESHOLD) hrBpm = FALLBACK_REST_HR;  // fallback resting rate if no data
 
         // Phase advances per timer tick (30 Hz)
         musicPhase += (musicBpm / 60.0) / 30.0;
@@ -212,7 +226,7 @@ public:
         }
 
         // Hide connect button once HR data is available
-        bool hasHR = heartRate.heartRateBpm.load() >= 30.0;
+        bool hasHR = hasValidHeartRate();
         if (hasHR && connectButton.isVisible())
             connectButton.setVisible(false);
 
@@ -232,9 +246,9 @@ public:
         double musicBpm = engine.getBpm();
         double liveBpm = detectedBpm.load();
         if (!engine.isPlaying() && liveBpm > 30.0) musicBpm = liveBpm;
-        if (musicBpm < 1.0) musicBpm = 120.0;
+        if (musicBpm < 1.0) musicBpm = FALLBACK_BPM;
         double hrBpm = heartRate.heartRateBpm.load();
-        if (hrBpm < 30.0) hrBpm = 72.0;
+        if (hrBpm < MIN_HR_THRESHOLD) hrBpm = FALLBACK_REST_HR;
 
         double ratio = hrBpm / musicBpm;
         auto [nearestNum, nearestDen, coherence] = findNearestHarmonic(ratio);
@@ -244,7 +258,7 @@ public:
         float bright = 0.5f + coherence * 0.5f;
         juce::Colour baseCol = juce::Colour::fromHSV(hue, sat, bright, 1.0f);
         juce::Colour accentCol = juce::Colour::fromHSV(hue - 0.1f, sat * 0.5f, 1.0f, 1.0f);
-        juce::Colour heartCol(0xffff4466);
+        juce::Colour heartCol(COLOR_HEART);
         juce::Colour bassCol = juce::Colour::fromHSV(0.0f, 0.8f, 0.7f, 1.0f);   // warm red
         juce::Colour midCol = juce::Colour::fromHSV(0.15f, 0.7f, 0.9f, 1.0f);    // gold
         juce::Colour highCol = juce::Colour::fromHSV(0.55f, 0.6f, 0.9f, 1.0f);   // cyan
@@ -488,7 +502,7 @@ public:
 
         // ── 9. Center — subtle heart rate with inner waveform ──
         {
-            bool hasHR = heartRate.heartRateBpm.load() >= 30.0;
+            bool hasHR = hasValidHeartRate();
             float centerGlow = std::exp(-hPhase * 5.0f) * 0.2f;
             g.setColour(heartCol.withAlpha(0.03f + centerGlow));
             g.fillEllipse(cx - innerR * 0.6f, cy - innerR * 0.6f, innerR * 1.2f, innerR * 1.2f);
@@ -510,7 +524,7 @@ public:
         g.setColour(juce::Colours::white.withAlpha(0.6f));
         g.setFont(11.0f);
 
-        bool hasHR = heartRate.heartRateBpm.load() >= 30.0;
+        bool hasHR = hasValidHeartRate();
         juce::String ratioStr = juce::String(nearestNum) + ":" + juce::String(nearestDen);
         juce::String coherenceStr = juce::String(static_cast<int>(coherence * 100)) + "%";
 
