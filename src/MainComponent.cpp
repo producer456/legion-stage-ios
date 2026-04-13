@@ -5564,10 +5564,6 @@ void MainComponent::resized()
 #if JUCE_IOS
             area.removeFromBottom(20); // home indicator safe area
 #endif
-            // Wider track labels when right panel is hidden — bigger M/S buttons
-            // Interpolate with panel slide so it doesn't snap
-            int labelW = 140 + (int)(40.0f * (1.0f - panelSlideProgress));
-            timelineComponent->setTrackLabelWidth(labelW);
             timelineComponent->setVisible(true);
             timelineComponent->setBounds(area);
         }
@@ -6024,6 +6020,16 @@ void MainComponent::updatePresetList()
     // Some AUv3 plugins report 1 program with empty name — treat as no presets
     bool hasRealPresets = numPresets > 1 || (numPresets == 1 && track.plugin->getProgramName(0).isNotEmpty());
 
+    // Also check if names are all empty (some plugins report count but no names yet)
+    if (hasRealPresets)
+    {
+        int emptyCount = 0;
+        for (int i = 0; i < juce::jmin(numPresets, 5); ++i)
+            if (track.plugin->getProgramName(i).isEmpty()) emptyCount++;
+        if (emptyCount >= juce::jmin(numPresets, 5))
+            hasRealPresets = false;  // all names empty — retry later
+    }
+
     if (hasRealPresets)
     {
         for (int i = 0; i < numPresets; ++i)
@@ -6038,16 +6044,27 @@ void MainComponent::updatePresetList()
     }
     else
     {
-        // Retry after a delay — some AUv3 plugins populate presets asynchronously
+        // Retry with increasing delays — AUv3 plugins may load presets asynchronously
         juce::Component::SafePointer<MainComponent> safeThis(this);
-        juce::Timer::callAfterDelay(1500, [safeThis] {
-            if (auto* self = safeThis.getComponent())
-            {
-                auto& t = self->pluginHost.getTrack(self->selectedTrackIndex);
-                if (t.plugin != nullptr && t.plugin->getNumPrograms() > 1)
-                    self->updatePresetList();
-            }
-        });
+        int trackIdx = selectedTrackIndex;
+        for (int delay : { 500, 1500, 3000, 5000 })
+        {
+            juce::Timer::callAfterDelay(delay, [safeThis, trackIdx] {
+                if (auto* self = safeThis.getComponent())
+                {
+                    // Only retry if we're still on the same track and presets still empty
+                    if (self->selectedTrackIndex != trackIdx) return;
+                    auto& t = self->pluginHost.getTrack(trackIdx);
+                    if (t.plugin == nullptr) return;
+                    int n = t.plugin->getNumPrograms();
+                    bool hasNames = false;
+                    for (int i = 0; i < juce::jmin(n, 3); ++i)
+                        if (t.plugin->getProgramName(i).isNotEmpty()) hasNames = true;
+                    if (n > 1 || hasNames)
+                        self->updatePresetList();
+                }
+            });
+        }
     }
 }
 

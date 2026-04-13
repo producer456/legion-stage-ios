@@ -78,6 +78,7 @@ target_sources(Sequencer PRIVATE
     src/CyberpunkLookAndFeel.h
     src/OxideLookAndFeel.h
     src/LiquidGlassLookAndFeel.h
+    src/LiquidGlassLightLookAndFeel.h
     src/DeviceMotion.h
     src/DeviceMotion.mm
     src/SpectrumComponent.h
