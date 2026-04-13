@@ -3291,8 +3291,10 @@ void MainComponent::saveProject()
             }
         }
 
-        xml->writeTo(file);
-        statusLabel.setText("Saved: " + file.getFileName(), juce::dontSendNotification);
+        if (xml->writeTo(file))
+            statusLabel.setText("Saved: " + file.getFileName(), juce::dontSendNotification);
+        else
+            statusLabel.setText("SAVE FAILED — check storage space", juce::dontSendNotification);
     });
 }
 
@@ -3382,6 +3384,9 @@ void MainComponent::loadProject()
             }
         }
 
+        // Track load errors for reporting
+        juce::StringArray loadErrors;
+
         // First pass: restore mixer settings and clips only (no plugin loading)
         for (auto* trackXml : xml->getChildWithTagNameIterator("Track"))
         {
@@ -3403,6 +3408,7 @@ void MainComponent::loadProject()
             auto* pluginXml = trackXml->getChildByName("Plugin");
             if (pluginXml != nullptr)
             {
+                bool pluginLoaded = false;
                 for (auto* descXml : pluginXml->getChildIterator())
                 {
                     juce::PluginDescription desc;
@@ -3419,15 +3425,21 @@ void MainComponent::loadProject()
                                 pluginHost.getTrack(t).plugin->setStateInformation(
                                     state.getData(), static_cast<int>(state.getSize()));
                             }
+                            pluginLoaded = true;
                         }
+                        else
+                            loadErrors.add("Track " + juce::String(t + 1) + ": " + desc.name + " — " + err);
                         break;
                     }
                 }
+                if (!pluginLoaded && pluginXml->getNumChildElements() > 0)
+                    loadErrors.add("Track " + juce::String(t + 1) + ": plugin not found");
             }
             for (auto* fxXml : trackXml->getChildWithTagNameIterator("FX"))
             {
                 int fxSlot = fxXml->getIntAttribute("slot", -1);
                 if (fxSlot < 0 || fxSlot >= Track::NUM_FX_SLOTS) continue;
+                bool fxLoaded = false;
                 for (auto* descXml : fxXml->getChildIterator())
                 {
                     juce::PluginDescription desc;
@@ -3445,10 +3457,15 @@ void MainComponent::loadProject()
                                     state.getData(), static_cast<int>(state.getSize()));
                             }
                             pluginHost.setFxBypassed(t, fxSlot, fxXml->getBoolAttribute("bypassed", false));
+                            fxLoaded = true;
                         }
+                        else
+                            loadErrors.add("Track " + juce::String(t + 1) + " FX" + juce::String(fxSlot + 1) + ": " + desc.name + " — " + err);
                         break;
                     }
                 }
+                if (!fxLoaded && fxXml->getNumChildElements() > 0)
+                    loadErrors.add("Track " + juce::String(t + 1) + " FX" + juce::String(fxSlot + 1) + ": effect not found");
             }
 #endif
 
@@ -3543,6 +3560,7 @@ void MainComponent::loadProject()
         auto fileName = file.getFileName();
         juce::MessageManager::callAsync([this, xmlCopy, fileName] {
             audioPlayer.setProcessor(nullptr);
+            juce::StringArray loadErrors;
             for (auto* trackXml : xmlCopy->getChildWithTagNameIterator("Track"))
             {
                 int t = trackXml->getIntAttribute("index", -1);
@@ -3569,6 +3587,8 @@ void MainComponent::loadProject()
                                         plugin->setStateInformation(state.getData(), static_cast<int>(state.getSize()));
                                 }
                             }
+                            else
+                                loadErrors.add("Track " + juce::String(t + 1) + ": " + desc.name + " — " + err);
                             break;
                         }
                     }
@@ -3598,6 +3618,8 @@ void MainComponent::loadProject()
                                 }
                                 pluginHost.setFxBypassed(t, fxSlot, fxXml->getBoolAttribute("bypassed", false));
                             }
+                            else
+                                loadErrors.add("Track " + juce::String(t + 1) + " FX" + juce::String(fxSlot + 1) + ": " + fxDesc.name + " — " + err);
                             break;
                         }
                     }
@@ -3606,7 +3628,10 @@ void MainComponent::loadProject()
             audioPlayer.setProcessor(&pluginHost);
             updateTrackDisplay();
             if (timelineComponent) timelineComponent->repaint();
-            statusLabel.setText("Loaded: " + fileName, juce::dontSendNotification);
+            if (loadErrors.isEmpty())
+                statusLabel.setText("Loaded: " + fileName, juce::dontSendNotification);
+            else
+                statusLabel.setText("Loaded with " + juce::String(loadErrors.size()) + " error(s): " + loadErrors.joinIntoString("; "), juce::dontSendNotification);
             takeSnapshot();
         });
 #else
@@ -3615,7 +3640,14 @@ void MainComponent::loadProject()
 
         updateTrackDisplay();
         if (timelineComponent) timelineComponent->repaint();
-        statusLabel.setText("Loaded: " + file.getFileName(), juce::dontSendNotification);
+#if !JUCE_IOS
+        if (loadErrors.isEmpty())
+            statusLabel.setText("Loaded: " + file.getFileName(), juce::dontSendNotification);
+        else
+            statusLabel.setText("Loaded with " + juce::String(loadErrors.size()) + " error(s): " + loadErrors.joinIntoString("; "), juce::dontSendNotification);
+#else
+        statusLabel.setText("Loading: " + file.getFileName() + "...", juce::dontSendNotification);
+#endif
 
         // Take snapshot for undo
         takeSnapshot();
