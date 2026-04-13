@@ -1085,11 +1085,22 @@ void MainComponent::timerCallback()
         }
     }
 
-    // Liquid Glass: repaint for tilt-reactive specular highlights
+    // Liquid Glass: trigger button/slider repaint for tilt-reactive specular
     if (themeManager.getCurrentTheme() == ThemeManager::LiquidGlass
         && DeviceMotion::getInstance().isRunning())
     {
-        repaint();
+        // Repaint all visible buttons and sliders so their drawButtonBackground
+        // and drawRotarySlider pick up the new tilt values
+        std::function<void(juce::Component*)> repaintControls = [&](juce::Component* comp) {
+            if (comp->isVisible())
+            {
+                if (dynamic_cast<juce::Button*>(comp) || dynamic_cast<juce::Slider*>(comp))
+                    comp->repaint();
+                for (int i = 0; i < comp->getNumChildComponents(); ++i)
+                    repaintControls(comp->getChildComponent(i));
+            }
+        };
+        repaintControls(this);
     }
 
     auto& eng = pluginHost.getEngine();

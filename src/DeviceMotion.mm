@@ -23,6 +23,7 @@ void DeviceMotion::start()
 
     if ([mm isDeviceMotionAvailable])
     {
+        // Use device motion (gravity vector — best quality)
         mm.deviceMotionUpdateInterval = 1.0 / 30.0;
         [mm startDeviceMotionUpdatesToQueue:[NSOperationQueue mainQueue]
                                 withHandler:^(CMDeviceMotion* motion, NSError* error) {
@@ -30,6 +31,22 @@ void DeviceMotion::start()
             {
                 float gx = (float)motion.gravity.x;
                 float gy = (float)motion.gravity.y;
+                this->tiltX.store(fmaxf(-1.0f, fminf(1.0f, gx * 1.5f)), std::memory_order_relaxed);
+                this->tiltY.store(fmaxf(-1.0f, fminf(1.0f, gy * 1.5f)), std::memory_order_relaxed);
+            }
+        }];
+        running.store(true);
+    }
+    else if ([mm isAccelerometerAvailable])
+    {
+        // Fallback: raw accelerometer (noisier but works on all devices)
+        mm.accelerometerUpdateInterval = 1.0 / 30.0;
+        [mm startAccelerometerUpdatesToQueue:[NSOperationQueue mainQueue]
+                                withHandler:^(CMAccelerometerData* data, NSError* error) {
+            if (data && !error)
+            {
+                float gx = (float)data.acceleration.x;
+                float gy = (float)data.acceleration.y;
                 this->tiltX.store(fmaxf(-1.0f, fminf(1.0f, gx * 1.5f)), std::memory_order_relaxed);
                 this->tiltY.store(fmaxf(-1.0f, fminf(1.0f, gy * 1.5f)), std::memory_order_relaxed);
             }
@@ -44,6 +61,7 @@ void DeviceMotion::stop()
 
     CMMotionManager* mm = (__bridge_transfer CMMotionManager*)motionManager;
     [mm stopDeviceMotionUpdates];
+    [mm stopAccelerometerUpdates];
     motionManager = nullptr;
     running.store(false);
 }

@@ -32,6 +32,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
     add_custom_command(TARGET Sequencer POST_BUILD
         COMMAND /usr/libexec/PlistBuddy -c "Add :NSHealthShareUsageDescription string 'Legion Stage uses your heart rate to create bio-resonance visualizations that sync your heartbeat with your music.'" "$<TARGET_BUNDLE_DIR:Sequencer>/Info.plist" 2>/dev/null || true
         COMMAND /usr/libexec/PlistBuddy -c "Add :NSHealthUpdateUsageDescription string 'Legion Stage does not write health data.'" "$<TARGET_BUNDLE_DIR:Sequencer>/Info.plist" 2>/dev/null || true
+        COMMAND /usr/libexec/PlistBuddy -c "Add :NSMotionUsageDescription string 'Legion Stage uses device motion for tilt-reactive visual effects in the Liquid Glass theme.'" "$<TARGET_BUNDLE_DIR:Sequencer>/Info.plist" 2>/dev/null || true
     )
     # Add app icon xcassets
     set(XCASSETS "${CMAKE_CURRENT_SOURCE_DIR}/resources/Images.xcassets")
