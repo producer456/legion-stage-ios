@@ -6007,53 +6007,64 @@ void MainComponent::applyTrackInput(int id)
 void MainComponent::updatePresetList()
 {
     presetSelector.clear(juce::dontSendNotification);
-    presetSelector.addItem("-- Preset --", 1);
 
     auto& track = pluginHost.getTrack(selectedTrackIndex);
     if (track.plugin == nullptr)
     {
+        presetSelector.addItem("-- No Plugin --", 1);
         presetSelector.setSelectedId(1, juce::dontSendNotification);
         return;
     }
 
-    // Use AUPresetHelper to get names (handles empty-name AUv3 plugins)
     auto presetNames = AUPresetHelper::getPresetNames(track.plugin);
     int numPresets = presetNames.size();
 
-    bool hasRealPresets = numPresets > 1 ||
-        (numPresets == 1 && presetNames[0] != "Preset 1");
+    // Check if we got real named presets vs just numbered fallbacks
+    bool hasNamedPresets = false;
+    for (auto& n : presetNames)
+        if (!n.startsWith("Preset ")) { hasNamedPresets = true; break; }
 
-    if (hasRealPresets)
+    if (numPresets > 1 && hasNamedPresets)
     {
+        // Plugin has named presets — show them
+        presetSelector.addItem("-- Preset --", 1);
         for (int i = 0; i < numPresets; ++i)
             presetSelector.addItem(presetNames[i], i + 2);
 
         int current = track.plugin->getCurrentProgram();
         presetSelector.setSelectedId(current + 2, juce::dontSendNotification);
     }
+    else if (numPresets > 1)
+    {
+        // Plugin has presets but no names — show count, use editor for selection
+        presetSelector.addItem("-- " + juce::String(numPresets) + " presets (use editor) --", 1);
+        presetSelector.setSelectedId(1, juce::dontSendNotification);
+
+        // Still add numbered items so up/down buttons work
+        for (int i = 0; i < numPresets; ++i)
+            presetSelector.addItem(juce::String(i + 1) + " / " + juce::String(numPresets), i + 2);
+
+        int current = track.plugin->getCurrentProgram();
+        presetSelector.setSelectedId(current + 2, juce::dontSendNotification);
+    }
     else
     {
-        // Retry with increasing delays — AUv3 plugins may load presets asynchronously
+        // No presets — plugin manages presets internally
+        presetSelector.addItem("-- Use plugin editor --", 1);
+        presetSelector.setSelectedId(1, juce::dontSendNotification);
+
+        // Retry in case presets load async
         juce::Component::SafePointer<MainComponent> safeThis(this);
         int trackIdx = selectedTrackIndex;
-        for (int delay : { 500, 1500, 3000, 5000 })
-        {
-            juce::Timer::callAfterDelay(delay, [safeThis, trackIdx] {
-                if (auto* self = safeThis.getComponent())
-                {
-                    // Only retry if we're still on the same track and presets still empty
-                    if (self->selectedTrackIndex != trackIdx) return;
-                    auto& t = self->pluginHost.getTrack(trackIdx);
-                    if (t.plugin == nullptr) return;
-                    int n = t.plugin->getNumPrograms();
-                    bool hasNames = false;
-                    for (int i = 0; i < juce::jmin(n, 3); ++i)
-                        if (t.plugin->getProgramName(i).isNotEmpty()) hasNames = true;
-                    if (n > 1 || hasNames)
-                        self->updatePresetList();
-                }
-            });
-        }
+        juce::Timer::callAfterDelay(2000, [safeThis, trackIdx] {
+            if (auto* self = safeThis.getComponent())
+            {
+                if (self->selectedTrackIndex != trackIdx) return;
+                auto& t = self->pluginHost.getTrack(trackIdx);
+                if (t.plugin != nullptr && t.plugin->getNumPrograms() > 1)
+                    self->updatePresetList();
+            }
+        });
     }
 }
 
