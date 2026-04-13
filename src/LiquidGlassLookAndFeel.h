@@ -217,33 +217,36 @@ public:
             return;
         }
 
-        // ── Glass fill — enough opacity for readability ──
+        // ── Glass fill with gradient depth ──
         {
-            float alpha = isDown ? 0.22f : (isHighlighted ? 0.18f : 0.14f);
-            if (on) alpha = 0.20f;
-            g.setColour(juce::Colours::white.withAlpha(alpha));
+            float topAlpha = isDown ? 0.28f : (isHighlighted ? 0.24f : 0.18f);
+            float botAlpha = topAlpha * 0.5f;
+            if (on) { topAlpha = 0.25f; botAlpha = 0.12f; }
+            g.setGradientFill(juce::ColourGradient(
+                juce::Colours::white.withAlpha(topAlpha), bounds.getX(), bounds.getY(),
+                juce::Colours::white.withAlpha(botAlpha), bounds.getX(), bounds.getBottom(), false));
             g.fillRoundedRectangle(bounds, radius);
         }
 
-        // ── Subtle blue tint on active/pressed ──
+        // ── Ice blue tint on active/pressed ──
         if (isDown || on)
         {
-            float blueAlpha = isDown ? 0.15f : 0.08f;
+            float blueAlpha = isDown ? 0.18f : 0.10f;
             g.setColour(juce::Colour(0xffc0dfff).withAlpha(blueAlpha));
             g.fillRoundedRectangle(bounds, radius);
         }
 
-        // ── Static specular highlight ──
+        // ── Top specular edge ──
         if (!isDown)
         {
-            g.setColour(juce::Colours::white.withAlpha(0.08f));
+            g.setColour(juce::Colours::white.withAlpha(0.15f));
             g.fillRoundedRectangle(bounds.getX() + radius * 0.3f, bounds.getY() + 0.5f,
-                                   bounds.getWidth() * 0.45f, 1.0f, 0.5f);
+                                   bounds.getWidth() * 0.5f, 1.5f, 0.75f);
         }
 
-        // ── Hairline border ──
-        g.setColour(juce::Colours::white.withAlpha(on ? 0.18f : 0.08f));
-        g.drawRoundedRectangle(bounds, radius, 0.5f);
+        // ── Border — brighter for definition ──
+        g.setColour(juce::Colours::white.withAlpha(on ? 0.22f : 0.12f));
+        g.drawRoundedRectangle(bounds, radius, 0.8f);
     }
 
     // ── Glass combo box ──
@@ -253,13 +256,20 @@ public:
         auto bounds = juce::Rectangle<float>(0, 0, (float)width, (float)height).reduced(1.0f);
         float radius = juce::jmin(bounds.getHeight() / 2.0f, 10.0f);
 
-        // Minimal glass fill
-        g.setColour(juce::Colours::white.withAlpha(isDown ? 0.14f : 0.08f));
+        // Glass fill with gradient
+        g.setGradientFill(juce::ColourGradient(
+            juce::Colours::white.withAlpha(isDown ? 0.20f : 0.14f), 0, 0,
+            juce::Colours::white.withAlpha(isDown ? 0.10f : 0.06f), 0, (float)height, false));
         g.fillRoundedRectangle(bounds, radius);
 
-        // Hairline border
-        g.setColour(juce::Colours::white.withAlpha(0.08f));
-        g.drawRoundedRectangle(bounds, radius, 0.5f);
+        // Top specular
+        g.setColour(juce::Colours::white.withAlpha(0.12f));
+        g.fillRoundedRectangle(bounds.getX() + radius * 0.3f, bounds.getY() + 0.5f,
+                               bounds.getWidth() * 0.4f, 1.0f, 0.5f);
+
+        // Border
+        g.setColour(juce::Colours::white.withAlpha(0.12f));
+        g.drawRoundedRectangle(bounds, radius, 0.8f);
 
         // Arrow
         float arrowX = (float)width - 18.0f;
@@ -280,20 +290,25 @@ public:
         float centreY = y + height * 0.5f;
         float angle = rotaryStartAngle + sliderPos * (rotaryEndAngle - rotaryStartAngle);
 
-        // Minimal glass knob body
-        g.setColour(juce::Colours::white.withAlpha(0.08f));
-        g.fillEllipse(centreX - radius, centreY - radius, radius * 2, radius * 2);
-
-        // Hairline border
-        g.setColour(juce::Colours::white.withAlpha(0.10f));
-        g.drawEllipse(centreX - radius, centreY - radius, radius * 2, radius * 2, 0.5f);
-
-        // Static specular crescent
+        // Glass knob body with gradient
         {
-            float hlR = radius * 0.4f;
+            juce::ColourGradient grad(
+                juce::Colours::white.withAlpha(0.18f), centreX, centreY - radius,
+                juce::Colours::white.withAlpha(0.06f), centreX, centreY + radius, false);
+            g.setGradientFill(grad);
+            g.fillEllipse(centreX - radius, centreY - radius, radius * 2, radius * 2);
+        }
+
+        // Border
+        g.setColour(juce::Colours::white.withAlpha(0.15f));
+        g.drawEllipse(centreX - radius, centreY - radius, radius * 2, radius * 2, 0.8f);
+
+        // Specular crescent
+        {
+            float hlR = radius * 0.45f;
             float hlY = centreY - radius * 0.3f;
-            g.setColour(juce::Colours::white.withAlpha(0.10f));
-            g.fillEllipse(centreX - hlR, hlY - hlR * 0.3f, hlR * 2, hlR * 0.6f);
+            g.setColour(juce::Colours::white.withAlpha(0.14f));
+            g.fillEllipse(centreX - hlR, hlY - hlR * 0.4f, hlR * 2, hlR * 0.8f);
         }
 
         // Value arc — thin, clean
