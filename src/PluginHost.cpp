@@ -27,6 +27,9 @@ PluginHost::PluginHost()
     }
 
     setupGraph();
+
+    // Provide AudioPlayHead so plugins get BPM, position, transport state
+    setPlayHead(&hostPlayHead);
 }
 
 PluginHost::~PluginHost()
@@ -518,12 +521,17 @@ void PluginHost::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer
 {
     midiCollector.removeNextBlockOfMessages(midiMessages, buffer.getNumSamples());
 
+    // Snapshot position before advance (for loop wrap detection)
+    double posBeforeAdvance = engine.getPositionInBeats();
+
     // Advance transport
     engine.advancePosition(buffer.getNumSamples(), storedSampleRate);
 
+    // Snapshot PlayHead state once for consistent use by all plugins this block
+    hostPlayHead.captureState(storedSampleRate);
+    bool isPlaying = hostPlayHead.isPlayingCached();
+
     // ── MIDI Clock ──
-    // Send start/stop messages on transport state changes
-    bool isPlaying = engine.isPlaying() && !engine.isInCountIn();
     if (isPlaying && !midiClockWasPlaying)
     {
         // Send Song Position Pointer then Start
@@ -538,12 +546,24 @@ void PluginHost::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer
         midiMessages.addEvent(juce::MidiMessage(0xFC), 0); // Stop
         midiClockPulseAccum = 0.0;
     }
+    // Loop wrap re-sync: if position jumped backward, send SPP to re-sync plugins
+    else if (isPlaying && midiClockWasPlaying)
+    {
+        double posAfter = engine.getPositionInBeats();
+        if (posAfter < posBeforeAdvance - 0.5) // wrapped backward (loop)
+        {
+            int midiBeats = static_cast<int>(posAfter * 6.0);
+            midiMessages.addEvent(juce::MidiMessage::songPositionPointer(midiBeats), 0);
+            midiMessages.addEvent(juce::MidiMessage(0xFB), 0); // Continue (not Start, to avoid retriggering)
+        }
+    }
     midiClockWasPlaying = isPlaying;
 
     // Send clock pulses (0xF8) at 24 PPQN while playing
     if (isPlaying)
     {
         double bpm = engine.getBpm();
+        if (bpm <= 0.0) bpm = 120.0;
         double pulsesPerSecond = (bpm / 60.0) * 24.0;
         double pulsesThisBlock = pulsesPerSecond * (static_cast<double>(buffer.getNumSamples()) / storedSampleRate);
         midiClockPulseAccum += pulsesThisBlock;
@@ -552,7 +572,6 @@ void PluginHost::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer
         if (numPulses > 0)
         {
             midiClockPulseAccum -= numPulses;
-            // Spread pulses evenly across the block
             double samplesPerPulse = static_cast<double>(buffer.getNumSamples()) / numPulses;
             for (int p = 0; p < numPulses; ++p)
             {

@@ -42,6 +42,76 @@ struct Track {
     FxSlot fxSlots[NUM_FX_SLOTS];
 };
 
+// Provides real-time transport/timing info to all hosted plugins.
+// Snapshot is captured once per processBlock for consistency.
+class HostPlayHead : public juce::AudioPlayHead
+{
+public:
+    HostPlayHead(SequencerEngine& eng) : engine(eng) {}
+
+    // Called once at the start of each processBlock to snapshot state
+    void captureState(double sr)
+    {
+        cachedBpm = engine.getBpm();
+        if (cachedBpm <= 0.0) cachedBpm = 120.0; // guard div-by-zero
+        cachedPosition = engine.getPositionInBeats();
+        cachedPlaying = engine.isPlaying() && !engine.isInCountIn();
+        cachedRecording = engine.isRecording();
+        cachedLooping = engine.isLoopEnabled() && engine.hasLoopRegion();
+        cachedLoopStart = engine.getLoopStart();
+        cachedLoopEnd = engine.getLoopEnd();
+        cachedSampleRate = sr;
+    }
+
+    // Plugins call this from the audio thread — uses cached snapshot
+    juce::Optional<PositionInfo> getPosition() const override
+    {
+        PositionInfo info;
+        info.setBpm(cachedBpm);
+
+        double timeInSec = cachedPosition * 60.0 / cachedBpm;
+        info.setTimeInSamples(static_cast<juce::int64>(timeInSec * cachedSampleRate));
+        info.setTimeInSeconds(timeInSec);
+        info.setPpqPosition(cachedPosition);
+        info.setIsPlaying(cachedPlaying);
+        info.setIsRecording(cachedRecording);
+        info.setIsLooping(cachedLooping);
+
+        if (cachedLooping)
+        {
+            LoopPoints loop;
+            loop.ppqStart = cachedLoopStart;
+            loop.ppqEnd = cachedLoopEnd;
+            info.setLoopPoints(loop);
+        }
+
+        juce::AudioPlayHead::TimeSignature ts;
+        ts.numerator = 4;
+        ts.denominator = 4;
+        info.setTimeSignature(ts);
+
+        int bar = static_cast<int>(cachedPosition / 4.0);
+        info.setBarCount(bar);
+        info.setPpqPositionOfLastBarStart(bar * 4.0);
+
+        return info;
+    }
+
+    // Cached state — consistent within one processBlock call
+    bool isPlayingCached() const { return cachedPlaying; }
+
+private:
+    SequencerEngine& engine;
+    double cachedBpm = 120.0;
+    double cachedPosition = 0.0;
+    bool cachedPlaying = false;
+    bool cachedRecording = false;
+    bool cachedLooping = false;
+    double cachedLoopStart = 0.0;
+    double cachedLoopEnd = 0.0;
+    double cachedSampleRate = 44100.0;
+};
+
 class PluginHost : public juce::AudioProcessorGraph
 {
 public:
@@ -107,6 +177,9 @@ private:
 
     double storedSampleRate = 44100.0;
     int storedBlockSize = 512;
+
+    // AudioPlayHead — provides BPM, position, transport state to plugins
+    HostPlayHead hostPlayHead { engine };
 
     // MIDI clock state
     bool midiClockWasPlaying = false;
