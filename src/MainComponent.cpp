@@ -753,6 +753,23 @@ MainComponent::MainComponent()
         repaint();
     };
 
+    // ── Loop Set Mode ──
+    addAndMakeVisible(loopSetButton);
+    loopSetButton.setClickingTogglesState(true);
+    loopSetButton.onClick = [this] {
+        if (timelineComponent)
+        {
+            bool active = loopSetButton.getToggleState();
+            timelineComponent->loopSetMode = active;
+            timelineComponent->loopSetTapCount = 0;
+            if (active)
+                statusLabel.setText("Tap loop start point...", juce::dontSendNotification);
+            else
+                updateStatusLabel();
+            timelineComponent->repaint();
+        }
+    };
+
     // ── Right Panel Toggle ──
     addAndMakeVisible(panelToggleButton);
     panelToggleButton.onClick = [this] { toggleRightPanel(); };
@@ -937,6 +954,15 @@ MainComponent::MainComponent()
     // ── Timeline (arrangement view — always visible) ──
     timelineComponent = std::make_unique<TimelineComponent>(pluginHost);
     timelineComponent->onBeforeEdit = [this] { takeSnapshot(); };
+    timelineComponent->onLoopSetProgress = [this](int tapCount) {
+        if (tapCount == 1)
+            statusLabel.setText("Tap loop end point...", juce::dontSendNotification);
+        else
+        {
+            loopSetButton.setToggleState(false, juce::dontSendNotification);
+            updateStatusLabel();
+        }
+    };
     addAndMakeVisible(*timelineComponent);
 
     arrangerMinimap = std::make_unique<ArrangerMinimapComponent>(pluginHost);
@@ -1008,19 +1034,34 @@ MainComponent::~MainComponent()
 
 void MainComponent::timerCallback()
 {
-    // ── Right Panel slide animation ──
+    // ── Right Panel slide animation (time-based, independent of timer rate) ──
     if (panelAnimating)
     {
-        float speed = 0.30f; // lerp factor per frame (~15Hz timer, finishes in ~8 frames)
-        panelSlideProgress += (panelSlideTarget - panelSlideProgress) * speed;
-        // Snap when close enough
-        if (std::abs(panelSlideProgress - panelSlideTarget) < 0.01f)
+        double now = juce::Time::getMillisecondCounterHiRes() * 0.001;
+        double elapsed = now - panelAnimStartTime;
+        double duration = 0.35; // 350ms total animation
+        float t = (float)juce::jlimit(0.0, 1.0, elapsed / duration);
+        // Smooth ease-out curve
+        float eased = 1.0f - (1.0f - t) * (1.0f - t);
+
+        panelSlideProgress = panelAnimStartValue + (panelSlideTarget - panelAnimStartValue) * eased;
+
+        if (t >= 1.0f)
         {
             panelSlideProgress = panelSlideTarget;
             panelAnimating = false;
+            startTimerHz(15);
         }
         resized();
         repaint();
+    }
+
+    // When running at 60Hz for animation, only run the rest at ~15Hz to keep
+    // flash counters, CPU polling, etc. at their normal rate
+    if (panelAnimating)
+    {
+        if (++panelAnimFrameSkip < 4) return;  // skip 3 of every 4 frames
+        panelAnimFrameSkip = 0;
     }
 
     auto& eng = pluginHost.getEngine();
@@ -2089,12 +2130,14 @@ void MainComponent::disableCurrentMidiDevice()
 
 void MainComponent::toggleRightPanel()
 {
-    // Fix #6: Ignore if already animating to prevent double-tap corruption
     if (panelAnimating) return;
 
     rightPanelVisible = !rightPanelVisible;
     panelSlideTarget = rightPanelVisible ? 1.0f : 0.0f;
+    panelAnimStartValue = panelSlideProgress;
+    panelAnimStartTime = juce::Time::getMillisecondCounterHiRes() * 0.001;
     panelAnimating = true;
+    startTimerHz(60); // boost frame rate for smooth animation
     panelToggleButton.setButtonText(rightPanelVisible
         ? juce::String::charToString(0x25C0)   // ◀ (hide)
         : juce::String::charToString(0x25B6));  // ▶ (show)
@@ -5068,6 +5111,7 @@ void MainComponent::resized()
     captureButton.setBounds(toolbar.removeFromLeft(55));
     captureButton.setVisible(true);
     toolbar.removeFromLeft(4);
+    loopSetButton.setVisible(false);
     // CPU label — takes remaining toolbar space (expands when panel hidden)
     auto cpuArea = toolbar;
     cpuLabel.setBounds(cpuArea.getX(), captureButton.getY(), cpuArea.getWidth(), captureButton.getHeight());

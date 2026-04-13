@@ -350,9 +350,15 @@ private:
     bool rightPanelVisible = true;
     float panelSlideProgress = 1.0f;   // 1.0 = fully open, 0.0 = fully closed
     float panelSlideTarget = 1.0f;
+    float panelAnimStartValue = 1.0f;
+    double panelAnimStartTime = 0.0;
     bool panelAnimating = false;
+    int panelAnimFrameSkip = 0;
     juce::TextButton panelToggleButton { juce::String::charToString(0x25C0) }; // ◀
     void toggleRightPanel();
+
+    // ── Loop Set Mode ──
+    juce::TextButton loopSetButton { "LOOP SET" };
 
     // ── Right Panel — Mix + Info ──
     juce::Slider volumeSlider;

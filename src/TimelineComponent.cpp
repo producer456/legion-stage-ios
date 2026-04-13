@@ -187,6 +187,61 @@ void TimelineComponent::mouseDown(const juce::MouseEvent& e)
     float mx = static_cast<float>(e.x);
     float my = static_cast<float>(e.y);
 
+    // ── Loop Set Mode: two-tap workflow ──
+    if (loopSetMode && e.x >= trackLabelWidth)
+    {
+        double beat = snapToGrid(xToBeat(mx));
+        if (beat < 0.0) beat = 0.0;
+
+        if (loopSetTapCount == 0)
+        {
+            loopSetStartBeat = beat;
+            loopSetTapCount = 1;
+            if (onLoopSetProgress) onLoopSetProgress(1);
+            repaint();
+        }
+        else
+        {
+            double ls = juce::jmin(loopSetStartBeat, beat);
+            double le = juce::jmax(loopSetStartBeat, beat);
+            if (le - ls > 0.1)
+                pluginHost.getEngine().setLoopRegion(ls, le);
+            loopSetMode = false;
+            loopSetTapCount = 0;
+            if (onLoopSetProgress) onLoopSetProgress(0);
+            repaint();
+        }
+        return;
+    }
+
+    // ── Check for loop handle drag — header only, not clip area ──
+    if (e.y < headerHeight && e.x >= trackLabelWidth)
+    {
+        auto& engine = pluginHost.getEngine();
+        if (engine.hasLoopRegion())
+        {
+            float lx = beatToX(engine.getLoopStart());
+            float rx = beatToX(engine.getLoopEnd());
+
+            // When handles are very close, prefer the nearest one
+            float distL = std::abs(mx - lx);
+            float distR = std::abs(mx - rx);
+
+            if (distL < loopHandleHitZone && distL <= distR)
+            {
+                loopHandleDrag = DragLoopStart;
+                repaint();
+                return;
+            }
+            if (distR < loopHandleHitZone)
+            {
+                loopHandleDrag = DragLoopEnd;
+                repaint();
+                return;
+            }
+        }
+    }
+
     // Click on header — start loop drag or jump playhead
     if (e.y < headerHeight && e.x >= trackLabelWidth)
     {
@@ -271,8 +326,8 @@ void TimelineComponent::mouseDrag(const juce::MouseEvent& e)
     if (e.source.getIndex() == 0)
         firstFingerPos = e.position;
 
-    // Two-finger touch scroll + pinch zoom
-    if (touchScrolling && e.source.getIndex() > 0)
+    // Two-finger touch scroll + pinch zoom (skip if dragging a loop handle)
+    if (touchScrolling && e.source.getIndex() > 0 && loopHandleDrag == NoHandle)
     {
         float dx = e.position.x - touchScrollStart.x;
         float dy = e.position.y - touchScrollStart.y;
@@ -305,6 +360,30 @@ void TimelineComponent::mouseDrag(const juce::MouseEvent& e)
         int maxScroll = juce::jmax(0, totalContent - (getHeight() - headerHeight));
         scrollY = juce::jlimit(0, maxScroll, touchScrollStartY - static_cast<int>(dy));
 
+        repaint();
+        return;
+    }
+
+    // Loop handle drag — adjust existing loop start or end
+    if (loopHandleDrag != NoHandle)
+    {
+        float mx = static_cast<float>(e.x);
+        double beat = snapToGrid(xToBeat(mx));
+        if (beat < 0.0) beat = 0.0;
+
+        auto& engine = pluginHost.getEngine();
+        double ls = engine.getLoopStart();
+        double le = engine.getLoopEnd();
+
+        if (loopHandleDrag == DragLoopStart)
+        {
+            ls = juce::jmin(beat, le - 0.25); // keep minimum 1/4 beat
+        }
+        else
+        {
+            le = juce::jmax(beat, ls + 0.25);
+        }
+        engine.setLoopRegion(ls, le);
         repaint();
         return;
     }
@@ -492,6 +571,7 @@ void TimelineComponent::mouseUp(const juce::MouseEvent& e)
 
     panning = false;
     draggingLoop = false;
+    loopHandleDrag = NoHandle;
 
     // Handle clip click pending — short tap selects, long press already handled in timerCallback
     if (clipClickPending)
@@ -941,8 +1021,22 @@ void TimelineComponent::paint(juce::Graphics& g)
     drawTrackLanes(g);
     drawClips(g);
     drawLoopRegion(g);
+    drawLoopHandles(g);
     drawAutomation(g);
     drawPlayhead(g);
+
+    // Loop Set Mode indicator
+    if (loopSetMode)
+    {
+        g.setColour(juce::Colours::orange.withAlpha(0.15f));
+        g.fillRect(getLocalBounds());
+        g.setColour(juce::Colours::orange);
+        g.setFont(16.0f);
+        juce::String msg = loopSetTapCount == 0
+            ? "Tap to set LOOP START"
+            : "Tap to set LOOP END";
+        g.drawText(msg, getLocalBounds().withHeight(headerHeight), juce::Justification::centred);
+    }
 }
 
 void TimelineComponent::resized()
@@ -1497,6 +1591,47 @@ void TimelineComponent::drawLoopRegion(juce::Graphics& g)
     g.setFont(10.0f);
     g.drawText("L", static_cast<int>(x1) + 2, 1, 12, headerHeight - 2, juce::Justification::topLeft);
     g.drawText("R", static_cast<int>(x2) - 14, 1, 12, headerHeight - 2, juce::Justification::topRight);
+}
+
+void TimelineComponent::drawLoopHandles(juce::Graphics& g)
+{
+    auto& engine = pluginHost.getEngine();
+    if (!engine.hasLoopRegion()) return;
+
+    float x1 = beatToX(engine.getLoopStart());
+    float x2 = beatToX(engine.getLoopEnd());
+
+    // Skip if entirely off-screen
+    float minX = static_cast<float>(trackLabelWidth);
+    float maxX = static_cast<float>(getWidth());
+    if (x1 > maxX && x2 > maxX) return;
+    if (x1 < minX && x2 < minX) return;
+
+    uint32_t handleColor = 0xff4488cc;
+    if (auto* lnf = dynamic_cast<DawLookAndFeel*>(&getLookAndFeel()))
+        handleColor = lnf->getTheme().loopBorder;
+
+    auto col = juce::Colour(handleColor);
+    int handleW = 10;
+    int handleH = headerHeight;
+
+    auto drawHandle = [&](float x) {
+        // Clamp to visible area
+        if (x < minX - handleW || x > maxX + handleW) return;
+
+        auto rect = juce::Rectangle<float>(x - handleW / 2.0f, 0.0f,
+                                            (float)handleW, (float)handleH);
+        g.setColour(col.withAlpha(0.9f));
+        g.fillRoundedRectangle(rect, 3.0f);
+        // Grip dots
+        g.setColour(col.brighter(0.5f));
+        float cy = rect.getCentreY();
+        for (int i = 0; i < 3; ++i)
+            g.fillEllipse(rect.getCentreX() - 1.5f, cy - 6.0f + i * 6.0f, 3.0f, 3.0f);
+    };
+
+    drawHandle(x1);
+    drawHandle(x2);
 }
 
 // ── Clip context menu (long-press) ──────────────────────────────────────────

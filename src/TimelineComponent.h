@@ -135,6 +135,20 @@ private:
     double loopDragStartBeat = 0.0;
     void drawLoopRegion(juce::Graphics& g);
 
+    // Loop handle dragging (drag existing L/R edges)
+    enum LoopHandleDrag { NoHandle, DragLoopStart, DragLoopEnd };
+    LoopHandleDrag loopHandleDrag = NoHandle;
+    static constexpr int loopHandleHitZone = 24; // px touch zone around handle
+    void drawLoopHandles(juce::Graphics& g);
+
+public:
+    // Loop Set Mode (two-tap workflow from MainComponent)
+    bool loopSetMode = false;
+    int loopSetTapCount = 0;  // 0 = waiting for start, 1 = waiting for end
+    double loopSetStartBeat = 0.0;
+    std::function<void(int tapCount)> onLoopSetProgress;  // called with 1 after first tap, 0 after completion
+private:
+
     // Long press detection for arm lock
     int longPressTrack = -1;
     juce::Point<float> longPressPos;
