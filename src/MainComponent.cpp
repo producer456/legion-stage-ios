@@ -4396,6 +4396,19 @@ void MainComponent::paintOverChildren(juce::Graphics& g)
         g.setColour(juce::Colour(0xff4488cc).withAlpha(loopHighlightAlpha * 0.9f));
         g.drawRoundedRectangle(btnBounds, radius, 2.0f);
     }
+
+    // DEBUG: draw tilt values on screen (always visible, over everything)
+    if (themeManager.getCurrentTheme() == ThemeManager::LiquidGlass)
+    {
+        auto& dm = DeviceMotion::getInstance();
+        auto tilt = dm.getTilt();
+        juce::String dbg = "TILT x:" + juce::String(tilt.x, 2) +
+                           " y:" + juce::String(tilt.y, 2) +
+                           (dm.isRunning() ? " [ON]" : " [OFF]");
+        g.setColour(juce::Colours::yellow);
+        g.setFont(16.0f);
+        g.drawText(dbg, getWidth() / 2 - 150, 40, 300, 20, juce::Justification::centred);
+    }
 }
 
 void MainComponent::resized()
