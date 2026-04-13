@@ -237,37 +237,19 @@ public:
             g.fillRoundedRectangle(bounds, radius);
         }
 
-        // ── Tilt-reactive specular highlight ──
+        // ── Tilt-reactive specular ──
         if (!isDown)
         {
-            // Horizontal: tilt moves highlight across button surface
-            float hlOffsetX = tilt.x * bounds.getWidth() * 0.4f;
-            // Vertical: tilt moves highlight up/down
-            float hlOffsetY = tilt.y * bounds.getHeight() * 0.3f;
-
-            // Main specular — wide bright band
-            float hlW = bounds.getWidth() * 0.6f;
-            float hlH = bounds.getHeight() * 0.4f;
+            float hlOffsetX = tilt.x * bounds.getWidth() * 0.1f;
+            float hlW = bounds.getWidth() * 0.35f;
             float hlX = bounds.getCentreX() + hlOffsetX - hlW * 0.5f;
-            float hlY = bounds.getCentreY() + hlOffsetY - hlH * 0.5f;
-            g.setColour(juce::Colours::white.withAlpha(0.18f));
-            g.fillRoundedRectangle(hlX, hlY, hlW, hlH, radius * 0.5f);
-
-            // Sharp top-edge highlight that shifts with tilt
-            float edgeX = bounds.getCentreX() + hlOffsetX * 0.6f - bounds.getWidth() * 0.25f;
-            g.setColour(juce::Colours::white.withAlpha(0.25f));
-            g.fillRoundedRectangle(edgeX, bounds.getY() + 1.0f,
-                                   bounds.getWidth() * 0.5f, 1.5f, 1.0f);
+            g.setColour(juce::Colours::white.withAlpha(0.08f));
+            g.fillRoundedRectangle(hlX, bounds.getY() + 0.5f, hlW, 1.0f, 0.5f);
         }
 
-        // ── Tilt-reactive border brightness ──
-        {
-            // Border gets brighter on the side facing the "light"
-            float borderAlpha = on ? 0.22f : 0.10f;
-            borderAlpha += std::abs(tilt.x) * 0.10f + std::abs(tilt.y) * 0.08f;
-            g.setColour(juce::Colours::white.withAlpha(borderAlpha));
-            g.drawRoundedRectangle(bounds, radius, 0.5f);
-        }
+        // ── Hairline border ──
+        g.setColour(juce::Colours::white.withAlpha(on ? 0.18f : 0.08f));
+        g.drawRoundedRectangle(bounds, radius, 0.5f);
     }
 
     // ── Glass combo box ──
@@ -312,21 +294,14 @@ public:
         g.setColour(juce::Colours::white.withAlpha(0.10f));
         g.drawEllipse(centreX - radius, centreY - radius, radius * 2, radius * 2, 0.5f);
 
-        // Tilt-reactive specular — cranked up
+        // Tilt-reactive specular crescent
         {
             auto tilt = DeviceMotion::getInstance().getTilt();
-            // Large crescent that follows tilt
-            float hlR = radius * 0.6f;
-            float hlX = centreX + tilt.x * radius * 0.5f;
-            float hlY = centreY - radius * 0.2f + tilt.y * radius * 0.35f;
-            g.setColour(juce::Colours::white.withAlpha(0.20f));
-            g.fillEllipse(hlX - hlR, hlY - hlR * 0.5f, hlR * 2, hlR);
-
-            // Bright point light reflection
-            float dotX = centreX + tilt.x * radius * 0.3f;
-            float dotY = centreY - radius * 0.3f + tilt.y * radius * 0.2f;
-            g.setColour(juce::Colours::white.withAlpha(0.35f));
-            g.fillEllipse(dotX - 2.0f, dotY - 2.0f, 4.0f, 4.0f);
+            float hlR = radius * 0.3f;
+            float hlX = centreX + tilt.x * radius * 0.15f;
+            float hlY = centreY - radius * 0.35f + tilt.y * radius * 0.1f;
+            g.setColour(juce::Colours::white.withAlpha(0.10f));
+            g.fillEllipse(hlX - hlR, hlY - hlR * 0.3f, hlR * 2, hlR * 0.6f);
         }
 
         // Value arc — thin, clean

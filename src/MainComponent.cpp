@@ -1090,15 +1090,7 @@ void MainComponent::timerCallback()
     {
         auto& dm = DeviceMotion::getInstance();
         if (!dm.isRunning())
-            dm.start();  // ensure motion is running
-
-        auto tilt = dm.getTilt();
-
-        // DEBUG: show tilt values in status label so we can verify on device
-        statusLabel.setText("TILT x:" + juce::String(tilt.x, 2) +
-                           " y:" + juce::String(tilt.y, 2) +
-                           (dm.isRunning() ? " [ON]" : " [OFF]"),
-                           juce::dontSendNotification);
+            dm.start();
 
         // Repaint all visible buttons and sliders
         std::function<void(juce::Component*)> repaintControls = [&](juce::Component* comp) {
@@ -4397,18 +4389,6 @@ void MainComponent::paintOverChildren(juce::Graphics& g)
         g.drawRoundedRectangle(btnBounds, radius, 2.0f);
     }
 
-    // DEBUG: draw tilt values on screen (always visible, over everything)
-    if (themeManager.getCurrentTheme() == ThemeManager::LiquidGlass)
-    {
-        auto& dm = DeviceMotion::getInstance();
-        auto tilt = dm.getTilt();
-        juce::String dbg = "TILT x:" + juce::String(tilt.x, 2) +
-                           " y:" + juce::String(tilt.y, 2) +
-                           (dm.isRunning() ? " [ON]" : " [OFF]");
-        g.setColour(juce::Colours::yellow);
-        g.setFont(16.0f);
-        g.drawText(dbg, getWidth() / 2 - 150, 40, 300, 20, juce::Justification::centred);
-    }
 }
 
 void MainComponent::resized()
