@@ -1,6 +1,8 @@
 #include "DeviceMotion.h"
 
-#if JUCE_IOS
+// Use __APPLE__ + TARGET_OS_IOS instead of JUCE_IOS (not available without JuceHeader)
+#include <TargetConditionals.h>
+#if TARGET_OS_IOS
 #import <CoreMotion/CoreMotion.h>
 
 DeviceMotion& DeviceMotion::getInstance()
