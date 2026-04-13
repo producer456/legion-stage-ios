@@ -3268,10 +3268,29 @@ void MainComponent::saveProject()
             }
         }
 
-        if (xml->writeTo(file))
-            statusLabel.setText("Saved: " + file.getFileName(), juce::dontSendNotification);
+        // Ensure file has .seqproj extension
+        auto saveFile = file;
+        if (!saveFile.hasFileExtension("seqproj"))
+            saveFile = saveFile.withFileExtension("seqproj");
+
+        // Try writing — create parent directory if needed
+        saveFile.getParentDirectory().createDirectory();
+
+        auto xmlString = xml->toString();
+        if (saveFile.replaceWithText(xmlString))
+        {
+            statusLabel.setText("Saved: " + saveFile.getFileName(), juce::dontSendNotification);
+        }
         else
-            statusLabel.setText("SAVE FAILED — check storage space", juce::dontSendNotification);
+        {
+            // Try alternative: write to app documents as fallback
+            auto fallback = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory)
+                .getChildFile(saveFile.getFileName());
+            if (fallback.replaceWithText(xmlString))
+                statusLabel.setText("Saved to app storage: " + fallback.getFileName(), juce::dontSendNotification);
+            else
+                statusLabel.setText("SAVE FAILED — " + saveFile.getFullPathName(), juce::dontSendNotification);
+        }
     });
 }
 
