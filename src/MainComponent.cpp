@@ -879,11 +879,6 @@ MainComponent::MainComponent()
             applyThemeToControls();
             panelBlurImage = juce::Image();
             panelBlurUpdateCounter = 8;
-            // Start/stop accelerometer based on theme
-            if (idx == ThemeManager::LiquidGlass)
-                DeviceMotion::getInstance().start();
-            else
-                DeviceMotion::getInstance().stop();
             resized();
         }
     };
@@ -1085,25 +1080,6 @@ void MainComponent::timerCallback()
         }
     }
 
-    // Liquid Glass: trigger button/slider repaint for tilt-reactive specular
-    if (themeManager.getCurrentTheme() == ThemeManager::LiquidGlass)
-    {
-        auto& dm = DeviceMotion::getInstance();
-        if (!dm.isRunning())
-            dm.start();
-
-        // Repaint all visible buttons and sliders
-        std::function<void(juce::Component*)> repaintControls = [&](juce::Component* comp) {
-            if (comp->isVisible())
-            {
-                if (dynamic_cast<juce::Button*>(comp) || dynamic_cast<juce::Slider*>(comp))
-                    comp->repaint();
-                for (int i = 0; i < comp->getNumChildComponents(); ++i)
-                    repaintControls(comp->getChildComponent(i));
-            }
-        };
-        repaintControls(this);
-    }
 
     auto& eng = pluginHost.getEngine();
 
@@ -4183,39 +4159,10 @@ void MainComponent::paint(juce::Graphics& g)
 
         if (isGlassTheme)
         {
-            // Frosted glass panel — translucent dark with blur backdrop
-            if (!panelBlurImage.isNull())
-            {
-                g.drawImage(panelBlurImage, panelRect.toFloat(),
-                            juce::RectanglePlacement::stretchToFit);
-            }
-
-            // Glass tint — semi-transparent so content bleeds through
-            // More transparent during slide animation for dramatic reveal
-            float tintAlpha = panelAnimating ? 0.55f : 0.70f;
-            g.setColour(juce::Colour(0x000000).withAlpha(tintAlpha));
+            // Don't paint solid — let timeline show through
+            // Glass overlay painted in paintOverChildren() after timeline renders
+            g.setColour(juce::Colour(c.body).withAlpha(0.5f));
             g.fillRect(panelRect);
-
-            // Frosted overlay — white noise-like fill for glass texture
-            g.setColour(juce::Colours::white.withAlpha(0.04f));
-            g.fillRect(panelRect);
-
-            // Left edge — bright glass edge highlight
-            g.setColour(juce::Colours::white.withAlpha(0.15f));
-            g.drawVerticalLine(rpLeft, 0.0f, (float)getHeight());
-
-            // Top edge highlight
-            g.setColour(juce::Colours::white.withAlpha(0.08f));
-            g.drawHorizontalLine(0, (float)rpLeft, (float)(rpLeft + rpW));
-
-            // Subtle gradient from left edge inward (glass refraction feel)
-            {
-                juce::ColourGradient grad(
-                    juce::Colours::white.withAlpha(0.08f), (float)rpLeft, 0.0f,
-                    juce::Colours::transparentBlack, (float)(rpLeft + 30), 0.0f, false);
-                g.setGradientFill(grad);
-                g.fillRect(panelRect);
-            }
         }
         else
         {
@@ -4421,6 +4368,31 @@ void MainComponent::paintOverChildren(juce::Graphics& g)
         g.drawRoundedRectangle(btnBounds, radius, 2.0f);
     }
 
+    // ── Liquid Glass panel overlay (painted AFTER children so timeline is visible behind) ──
+    if (themeManager.getCurrentTheme() == ThemeManager::LiquidGlass && !panelBoundsCache.isEmpty())
+    {
+        auto panelRect = panelBoundsCache;
+
+        // Semi-transparent dark glass
+        float tintAlpha = panelAnimating ? 0.60f : 0.75f;
+        g.setColour(juce::Colours::black.withAlpha(tintAlpha));
+        g.fillRect(panelRect);
+
+        // Frosted white overlay
+        g.setColour(juce::Colours::white.withAlpha(0.03f));
+        g.fillRect(panelRect);
+
+        // Left edge highlight
+        g.setColour(juce::Colours::white.withAlpha(0.18f));
+        g.drawVerticalLine(panelRect.getX(), 0.0f, (float)panelRect.getBottom());
+
+        // Edge gradient
+        juce::ColourGradient grad(
+            juce::Colours::white.withAlpha(0.06f), (float)panelRect.getX(), 0.0f,
+            juce::Colours::transparentBlack, (float)(panelRect.getX() + 25), 0.0f, false);
+        g.setGradientFill(grad);
+        g.fillRect(panelRect);
+    }
 }
 
 void MainComponent::resized()

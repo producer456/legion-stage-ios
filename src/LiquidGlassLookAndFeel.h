@@ -19,8 +19,6 @@ class LiquidGlassLookAndFeel : public DawLookAndFeel
 public:
     LiquidGlassLookAndFeel()
     {
-        // Start accelerometer for tilt-reactive glass highlights
-        DeviceMotion::getInstance().start();
         // ── Body — pure black base ──
         theme.body        = 0xff000000;
         theme.bodyLight   = 0xff1c1c1e;
@@ -207,8 +205,6 @@ public:
 
         auto baseColour = backgroundColour;
         bool on = button.getToggleState();
-        auto tilt = DeviceMotion::getInstance().getTilt();
-
         // OLED-animated buttons get solid black background for crisp pixel art
         bool isOled = isOledAnimatedButton(button.getButtonText());
         if (isOled)
@@ -237,17 +233,12 @@ public:
             g.fillRoundedRectangle(bounds, radius);
         }
 
-        // ── Tilt-reactive specular ──
+        // ── Static specular highlight ──
         if (!isDown)
         {
-            float hlOffsetX = tilt.x * bounds.getWidth() * 0.25f;
-            float hlOffsetY = tilt.y * bounds.getHeight() * 0.15f;
-            float hlW = bounds.getWidth() * 0.45f;
-            float hlH = bounds.getHeight() * 0.3f;
-            float hlX = bounds.getCentreX() + hlOffsetX - hlW * 0.5f;
-            float hlY = bounds.getCentreY() + hlOffsetY - hlH * 0.5f;
-            g.setColour(juce::Colours::white.withAlpha(0.12f));
-            g.fillRoundedRectangle(hlX, hlY, hlW, hlH, radius * 0.4f);
+            g.setColour(juce::Colours::white.withAlpha(0.08f));
+            g.fillRoundedRectangle(bounds.getX() + radius * 0.3f, bounds.getY() + 0.5f,
+                                   bounds.getWidth() * 0.45f, 1.0f, 0.5f);
         }
 
         // ── Hairline border ──
@@ -297,14 +288,12 @@ public:
         g.setColour(juce::Colours::white.withAlpha(0.10f));
         g.drawEllipse(centreX - radius, centreY - radius, radius * 2, radius * 2, 0.5f);
 
-        // Tilt-reactive specular crescent
+        // Static specular crescent
         {
-            auto tilt = DeviceMotion::getInstance().getTilt();
-            float hlR = radius * 0.45f;
-            float hlX = centreX + tilt.x * radius * 0.35f;
-            float hlY = centreY - radius * 0.25f + tilt.y * radius * 0.2f;
-            g.setColour(juce::Colours::white.withAlpha(0.14f));
-            g.fillEllipse(hlX - hlR, hlY - hlR * 0.4f, hlR * 2, hlR * 0.8f);
+            float hlR = radius * 0.4f;
+            float hlY = centreY - radius * 0.3f;
+            g.setColour(juce::Colours::white.withAlpha(0.10f));
+            g.fillEllipse(centreX - hlR, hlY - hlR * 0.3f, hlR * 2, hlR * 0.6f);
         }
 
         // Value arc — thin, clean
