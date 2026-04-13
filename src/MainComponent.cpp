@@ -1086,11 +1086,21 @@ void MainComponent::timerCallback()
     }
 
     // Liquid Glass: trigger button/slider repaint for tilt-reactive specular
-    if (themeManager.getCurrentTheme() == ThemeManager::LiquidGlass
-        && DeviceMotion::getInstance().isRunning())
+    if (themeManager.getCurrentTheme() == ThemeManager::LiquidGlass)
     {
-        // Repaint all visible buttons and sliders so their drawButtonBackground
-        // and drawRotarySlider pick up the new tilt values
+        auto& dm = DeviceMotion::getInstance();
+        if (!dm.isRunning())
+            dm.start();  // ensure motion is running
+
+        auto tilt = dm.getTilt();
+
+        // DEBUG: show tilt values in status label so we can verify on device
+        statusLabel.setText("TILT x:" + juce::String(tilt.x, 2) +
+                           " y:" + juce::String(tilt.y, 2) +
+                           (dm.isRunning() ? " [ON]" : " [OFF]"),
+                           juce::dontSendNotification);
+
+        // Repaint all visible buttons and sliders
         std::function<void(juce::Component*)> repaintControls = [&](juce::Component* comp) {
             if (comp->isVisible())
             {
