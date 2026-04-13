@@ -972,7 +972,7 @@ MainComponent::MainComponent()
         if (timelineComponent)
             timelineComponent->setScrollX(newScrollX);
     };
-    addAndMakeVisible(*arrangerMinimap);
+    addChildComponent(*arrangerMinimap);  // hidden by default — minimap disabled
 
     setSize(1280, 800);
     setWantsKeyboardFocus(true);
@@ -1264,7 +1264,7 @@ void MainComponent::timerCallback()
     // No need to poll here
 
     // Update arranger minimap
-    if (arrangerMinimap && timelineComponent && timelineComponent->isVisible())
+    if (arrangerMinimap && arrangerMinimap->isVisible() && timelineComponent && timelineComponent->isVisible())
     {
         double totalBeats = 0.0;
         for (int t = 0; t < PluginHost::NUM_TRACKS; ++t)
@@ -4147,11 +4147,13 @@ void MainComponent::paint(juce::Graphics& g)
     int rightPanelTotal = rpW + oakW + oakW;  // right panel + oak strip + side panel
     int toolbarRight = getWidth() - rightPanelTotal;
 
-    // Paint over right panel area — frosted glass blur for Liquid Glass, solid for others
-    if (rpW > 0)
+    // Paint right panel background — full 180px width, translated to match slide position
+    int panelSlideOff = (int)((1.0f - panelSlideProgress) * 180.0f);
+    int panelPaintLeft = getWidth() - (oakW > 0 ? oakW : 0) - 180 + panelSlideOff;
+    int panelPaintW = 180;
+    if (panelSlideProgress > 0.01f)
     {
-        int rpLeft = getWidth() - (oakW > 0 ? oakW : 0) - rpW;
-        auto panelRect = juce::Rectangle<int>(rpLeft, 0, rpW, getHeight());
+        auto panelRect = juce::Rectangle<int>(panelPaintLeft, 0, panelPaintW, getHeight());
         panelBoundsCache = panelRect;
 
         // Check if Liquid Glass theme
@@ -4163,16 +4165,16 @@ void MainComponent::paint(juce::Graphics& g)
             g.setColour(juce::Colour(0xff0e1014));  // slightly lighter than pure black
             g.fillRect(panelRect);
 
-            // Gradient lift on left edge — like light hitting glass edge
+            // Gradient lift on left edge
             juce::ColourGradient edgeGrad(
-                juce::Colours::white.withAlpha(0.08f), (float)rpLeft, 0.0f,
-                juce::Colours::transparentBlack, (float)(rpLeft + 40), 0.0f, false);
+                juce::Colours::white.withAlpha(0.08f), (float)panelPaintLeft, 0.0f,
+                juce::Colours::transparentBlack, (float)(panelPaintLeft + 40), 0.0f, false);
             g.setGradientFill(edgeGrad);
             g.fillRect(panelRect);
 
             // Bright left edge line
             g.setColour(juce::Colours::white.withAlpha(0.20f));
-            g.drawVerticalLine(rpLeft, 0.0f, (float)getHeight());
+            g.drawVerticalLine(panelPaintLeft, 0.0f, (float)getHeight());
         }
         else
         {
@@ -4416,15 +4418,16 @@ void MainComponent::resized()
 
     // ── Top Bar ──
     auto topBar = area.removeFromTop(topBarH).reduced(4, isPhone ? 2 : 10);
-    // Trim top bar so it doesn't extend into right panel + oak strip area
+    // Trim top bar — use visible panel width so top bar expands with the arranger
     if (!isPhone)
     {
         int oakTrim = 0;
         if (auto* lnf = dynamic_cast<DawLookAndFeel*>(&getLookAndFeel()))
             if (lnf->getSidePanelWidth() > 0)
                 oakTrim = lnf->getSidePanelWidth();
-        if (rightPanelW + oakTrim > 0)
-            topBar.removeFromRight(rightPanelW + oakTrim);
+        int topBarTrim = rightPanelW + oakTrim;
+        if (topBarTrim > 0)
+            topBar.removeFromRight(topBarTrim);
     }
 
 #if JUCE_IOS
@@ -5117,13 +5120,10 @@ void MainComponent::resized()
         {
             mixerComponent->setVisible(false);
             if (arrangerMinimap)
-            {
+                arrangerMinimap->setVisible(false);
 #if JUCE_IOS
-                area.removeFromBottom(20); // home indicator safe area
+            area.removeFromBottom(20); // home indicator safe area
 #endif
-                arrangerMinimap->setBounds(area.removeFromBottom(16));
-                arrangerMinimap->setVisible(true);
-            }
             if (timelineComponent)
             {
                 timelineComponent->setVisibleTracks(4);
@@ -5138,8 +5138,8 @@ void MainComponent::resized()
     if (timelineComponent)
         timelineComponent->setVisibleTracks(8);
 
-    // Hide right panel components when panel is too narrow for content
-    bool panelComponentsVisible = !isPhone && panelSlideProgress > 0.25f;
+    // Hide right panel components only when fully off-screen
+    bool panelComponentsVisible = !isPhone && panelSlideProgress > 0.02f;
 
     // ── Right Panel — starts from top of screen (not below top bar) ──
     int oakStripW = 0;
@@ -5159,11 +5159,17 @@ void MainComponent::resized()
         if (sidePW > 0)
             fullArea.removeFromRight(sidePW);
     }
-    // Guard: only create right panel rect if wide enough to reduce safely
-    auto rightPanel = (rightPanelW > 20)
-        ? fullArea.removeFromRight(rightPanelW).reduced(8, 4)
-        : juce::Rectangle<int>();
-    // Still remove from area so the timeline/toolbar don't overlap
+    // Panel slides off-screen to the right at full 180px width
+    // fullArea carves the panel from the right edge, then we translate it off-screen
+    int fullPanelW = 180;
+    int slideOffset = (int)((1.0f - panelSlideProgress) * fullPanelW);
+
+    // Build panel rect from the RIGHT edge of the screen (not from area)
+    // This way area doesn't lose the full 180px — only rightPanelW (the visible part)
+    auto panelBase = fullArea.withLeft(fullArea.getRight() - fullPanelW);
+    auto rightPanel = panelBase.reduced(8, 4).translated(slideOffset, 0);
+
+    // Arranger area only yields the visible portion
     area.removeFromRight(rightPanelW);
     area.removeFromRight(oakStripW);
 
@@ -5553,15 +5559,11 @@ void MainComponent::resized()
         mixerComponent->setVisible(false);
         if (timelineComponent)
         {
-            // Minimap at bottom — with safe area padding on iOS
             if (arrangerMinimap)
-            {
+                arrangerMinimap->setVisible(false);
 #if JUCE_IOS
-                area.removeFromBottom(20); // home indicator safe area
+            area.removeFromBottom(20); // home indicator safe area
 #endif
-                arrangerMinimap->setBounds(area.removeFromBottom(20));
-                arrangerMinimap->setVisible(true);
-            }
             // Wider track labels when right panel is hidden — bigger M/S buttons
             // Interpolate with panel slide so it doesn't snap
             int labelW = 140 + (int)(40.0f * (1.0f - panelSlideProgress));
