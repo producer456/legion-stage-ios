@@ -877,8 +877,13 @@ MainComponent::MainComponent()
         {
             themeManager.setTheme(static_cast<ThemeManager::Theme>(idx), this);
             applyThemeToControls();
-            panelBlurImage = juce::Image();  // clear stale blur on theme change
-            panelBlurUpdateCounter = 8;      // force immediate blur update
+            panelBlurImage = juce::Image();
+            panelBlurUpdateCounter = 8;
+            // Start/stop accelerometer based on theme
+            if (idx == ThemeManager::LiquidGlass)
+                DeviceMotion::getInstance().start();
+            else
+                DeviceMotion::getInstance().stop();
             resized();
         }
     };
@@ -1066,14 +1071,25 @@ void MainComponent::timerCallback()
         panelAnimFrameSkip = 0;
     }
 
-    // Update panel frosted glass blur every ~500ms when panel is visible
-    if (rightPanelVisible && panelSlideProgress > 0.1f)
+    // Update panel frosted glass blur
+    if (panelSlideProgress > 0.1f)
     {
-        if (++panelBlurUpdateCounter >= 8)  // ~500ms at 15Hz
+        // During animation: update every frame for live glass effect
+        // Otherwise: every ~500ms to save CPU
+        int updateInterval = panelAnimating ? 1 : 8;
+        if (++panelBlurUpdateCounter >= updateInterval)
         {
             panelBlurUpdateCounter = 0;
-            updatePanelBlur();
+            if (themeManager.getCurrentTheme() == ThemeManager::LiquidGlass)
+                updatePanelBlur();
         }
+    }
+
+    // Liquid Glass: repaint for tilt-reactive specular highlights
+    if (themeManager.getCurrentTheme() == ThemeManager::LiquidGlass
+        && DeviceMotion::getInstance().isRunning())
+    {
+        repaint();
     }
 
     auto& eng = pluginHost.getEngine();
@@ -4120,17 +4136,41 @@ void MainComponent::paint(juce::Graphics& g)
         // Check if Liquid Glass theme
         bool isGlassTheme = (themeManager.getCurrentTheme() == ThemeManager::LiquidGlass);
 
-        if (isGlassTheme && !panelBlurImage.isNull())
+        if (isGlassTheme)
         {
-            // Draw blurred backdrop
-            g.drawImage(panelBlurImage, panelRect.toFloat(),
-                        juce::RectanglePlacement::stretchToFit);
-            // Dark tint overlay — simulates frosted glass
-            g.setColour(juce::Colour(0xd0000000));  // 82% black tint
+            // Frosted glass panel — translucent dark with blur backdrop
+            if (!panelBlurImage.isNull())
+            {
+                g.drawImage(panelBlurImage, panelRect.toFloat(),
+                            juce::RectanglePlacement::stretchToFit);
+            }
+
+            // Glass tint — semi-transparent so content bleeds through
+            // More transparent during slide animation for dramatic reveal
+            float tintAlpha = panelAnimating ? 0.55f : 0.70f;
+            g.setColour(juce::Colour(0x000000).withAlpha(tintAlpha));
             g.fillRect(panelRect);
-            // Subtle left edge highlight
-            g.setColour(juce::Colours::white.withAlpha(0.06f));
+
+            // Frosted overlay — white noise-like fill for glass texture
+            g.setColour(juce::Colours::white.withAlpha(0.04f));
+            g.fillRect(panelRect);
+
+            // Left edge — bright glass edge highlight
+            g.setColour(juce::Colours::white.withAlpha(0.15f));
             g.drawVerticalLine(rpLeft, 0.0f, (float)getHeight());
+
+            // Top edge highlight
+            g.setColour(juce::Colours::white.withAlpha(0.08f));
+            g.drawHorizontalLine(0, (float)rpLeft, (float)(rpLeft + rpW));
+
+            // Subtle gradient from left edge inward (glass refraction feel)
+            {
+                juce::ColourGradient grad(
+                    juce::Colours::white.withAlpha(0.08f), (float)rpLeft, 0.0f,
+                    juce::Colours::transparentBlack, (float)(rpLeft + 30), 0.0f, false);
+                g.setGradientFill(grad);
+                g.fillRect(panelRect);
+            }
         }
         else
         {

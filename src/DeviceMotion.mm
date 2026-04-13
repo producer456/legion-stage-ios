@@ -16,12 +16,10 @@ DeviceMotion::~DeviceMotion()
 
 void DeviceMotion::start()
 {
-    if (running) return;
+    if (running.load()) return;
 
     CMMotionManager* mm = [[CMMotionManager alloc] init];
     motionManager = (__bridge_retained void*)mm;
-
-    if (running.load()) return; // double-start guard with atomic
 
     if ([mm isDeviceMotionAvailable])
     {
