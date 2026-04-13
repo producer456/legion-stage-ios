@@ -3286,20 +3286,22 @@ void MainComponent::loadProject()
         auto file = fc.getResult();
         if (file == juce::File()) return;
 
-        // Stop transport to prevent race with audio thread
+        // Stop transport and disconnect audio BEFORE unloading plugins
         auto& eng = pluginHost.getEngine();
         if (eng.isPlaying()) eng.stop();
         if (eng.isRecording()) eng.toggleRecord();
+        audioPlayer.setProcessor(nullptr);  // disconnect audio thread from graph
 
         auto xml = juce::parseXML(file);
 
         if (xml == nullptr || !xml->hasTagName("SequencerProject"))
         {
             statusLabel.setText("Invalid project file", juce::dontSendNotification);
+            audioPlayer.setProcessor(&pluginHost);  // reconnect on error
             return;
         }
 
-        // Clear all tracks first
+        // Clear all tracks — safe now that audio thread is disconnected
         for (int t = 0; t < PluginHost::NUM_TRACKS; ++t)
         {
             pluginHost.unloadPlugin(t);
@@ -3399,8 +3401,9 @@ void MainComponent::loadProject()
                             {
                                 juce::MemoryBlock state;
                                 state.fromBase64Encoding(stateStr);
-                                pluginHost.getTrack(t).plugin->setStateInformation(
-                                    state.getData(), static_cast<int>(state.getSize()));
+                                auto* plug = pluginHost.getTrack(t).plugin;
+                                if (plug != nullptr && state.getSize() > 0)
+                                    plug->setStateInformation(state.getData(), static_cast<int>(state.getSize()));
                             }
                             pluginLoaded = true;
                         }
@@ -3430,8 +3433,9 @@ void MainComponent::loadProject()
                             {
                                 juce::MemoryBlock state;
                                 state.fromBase64Encoding(stateStr);
-                                pluginHost.getTrack(t).fxSlots[fxSlot].processor->setStateInformation(
-                                    state.getData(), static_cast<int>(state.getSize()));
+                                auto* proc = pluginHost.getTrack(t).fxSlots[fxSlot].processor;
+                                if (proc != nullptr && state.getSize() > 0)
+                                    proc->setStateInformation(state.getData(), static_cast<int>(state.getSize()));
                             }
                             pluginHost.setFxBypassed(t, fxSlot, fxXml->getBoolAttribute("bypassed", false));
                             fxLoaded = true;
@@ -3499,9 +3503,11 @@ void MainComponent::loadProject()
                 juce::MemoryBlock audioData;
                 audioData.fromBase64Encoding(dataStr);
 
-                int numSamp = static_cast<int>(audioData.getSize() / (numCh * sizeof(float)));
-                if (numSamp > 0)
+                // Validate: data size must be a multiple of (channels * sizeof(float))
+                size_t bytesPerFrame = static_cast<size_t>(numCh) * sizeof(float);
+                if (bytesPerFrame > 0 && audioData.getSize() >= bytesPerFrame)
                 {
+                    int numSamp = static_cast<int>(audioData.getSize() / bytesPerFrame);
                     slot.audioClip->samples.setSize(numCh, numSamp);
                     const float* ptr = static_cast<const float*>(audioData.getData());
                     for (int si = 0; si < numSamp; ++si)
@@ -3612,18 +3618,21 @@ void MainComponent::loadProject()
             takeSnapshot();
         });
 #else
-        // Desktop: load plugins synchronously (already in the loop above — not reached on iOS)
-#endif
-
+        // Desktop: plugins loaded synchronously above — reconnect audio and show status
+        audioPlayer.setProcessor(&pluginHost);
         updateTrackDisplay();
         if (timelineComponent) timelineComponent->repaint();
-#if !JUCE_IOS
         if (loadErrors.isEmpty())
             statusLabel.setText("Loaded: " + file.getFileName(), juce::dontSendNotification);
         else
             statusLabel.setText("Loaded with " + juce::String(loadErrors.size()) + " error(s): " + loadErrors.joinIntoString("; "), juce::dontSendNotification);
-#else
-        statusLabel.setText("Loading: " + file.getFileName() + "...", juce::dontSendNotification);
+#endif
+
+#if JUCE_IOS
+        // iOS: show loading status while async plugin load happens
+        updateTrackDisplay();
+        if (timelineComponent) timelineComponent->repaint();
+        statusLabel.setText("Loading plugins...", juce::dontSendNotification);
 #endif
 
         // Take snapshot for undo
