@@ -240,11 +240,14 @@ public:
         // ── Tilt-reactive specular ──
         if (!isDown)
         {
-            float hlOffsetX = tilt.x * bounds.getWidth() * 0.1f;
-            float hlW = bounds.getWidth() * 0.35f;
+            float hlOffsetX = tilt.x * bounds.getWidth() * 0.25f;
+            float hlOffsetY = tilt.y * bounds.getHeight() * 0.15f;
+            float hlW = bounds.getWidth() * 0.45f;
+            float hlH = bounds.getHeight() * 0.3f;
             float hlX = bounds.getCentreX() + hlOffsetX - hlW * 0.5f;
-            g.setColour(juce::Colours::white.withAlpha(0.08f));
-            g.fillRoundedRectangle(hlX, bounds.getY() + 0.5f, hlW, 1.0f, 0.5f);
+            float hlY = bounds.getCentreY() + hlOffsetY - hlH * 0.5f;
+            g.setColour(juce::Colours::white.withAlpha(0.12f));
+            g.fillRoundedRectangle(hlX, hlY, hlW, hlH, radius * 0.4f);
         }
 
         // ── Hairline border ──
@@ -297,11 +300,11 @@ public:
         // Tilt-reactive specular crescent
         {
             auto tilt = DeviceMotion::getInstance().getTilt();
-            float hlR = radius * 0.3f;
-            float hlX = centreX + tilt.x * radius * 0.15f;
-            float hlY = centreY - radius * 0.35f + tilt.y * radius * 0.1f;
-            g.setColour(juce::Colours::white.withAlpha(0.10f));
-            g.fillEllipse(hlX - hlR, hlY - hlR * 0.3f, hlR * 2, hlR * 0.6f);
+            float hlR = radius * 0.45f;
+            float hlX = centreX + tilt.x * radius * 0.35f;
+            float hlY = centreY - radius * 0.25f + tilt.y * radius * 0.2f;
+            g.setColour(juce::Colours::white.withAlpha(0.14f));
+            g.fillEllipse(hlX - hlR, hlY - hlR * 0.4f, hlR * 2, hlR * 0.8f);
         }
 
         // Value arc — thin, clean

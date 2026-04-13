@@ -1092,11 +1092,6 @@ void MainComponent::timerCallback()
         if (!dm.isRunning())
             dm.start();
 
-        // Temp debug — show tilt in status
-        auto tilt = dm.getTilt();
-        statusLabel.setText("TILT " + juce::String(tilt.x, 2) + " " + juce::String(tilt.y, 2) +
-                           (dm.isRunning() ? " ON" : " OFF"), juce::dontSendNotification);
-
         // Repaint all visible buttons and sliders
         std::function<void(juce::Component*)> repaintControls = [&](juce::Component* comp) {
             if (comp->isVisible())
