@@ -81,6 +81,8 @@ target_sources(Sequencer PRIVATE
     src/LiquidGlassLightLookAndFeel.h
     src/DeviceMotion.h
     src/DeviceMotion.mm
+    src/AUPresetHelper.h
+    src/AUPresetHelper.mm
     src/SpectrumComponent.h
     src/LissajousComponent.h
     src/WaveTerrainComponent.h

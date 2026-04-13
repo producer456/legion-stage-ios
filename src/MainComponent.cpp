@@ -1,4 +1,5 @@
 #include "MainComponent.h"
+#include "AUPresetHelper.h"
 #if JUCE_IOS
 #include "AUScanner.h"
 #endif
@@ -6015,29 +6016,17 @@ void MainComponent::updatePresetList()
         return;
     }
 
-    int numPresets = track.plugin->getNumPrograms();
+    // Use AUPresetHelper to get names (handles empty-name AUv3 plugins)
+    auto presetNames = AUPresetHelper::getPresetNames(track.plugin);
+    int numPresets = presetNames.size();
 
-    // Some AUv3 plugins report 1 program with empty name — treat as no presets
-    bool hasRealPresets = numPresets > 1 || (numPresets == 1 && track.plugin->getProgramName(0).isNotEmpty());
-
-    // Also check if names are all empty (some plugins report count but no names yet)
-    if (hasRealPresets)
-    {
-        int emptyCount = 0;
-        for (int i = 0; i < juce::jmin(numPresets, 5); ++i)
-            if (track.plugin->getProgramName(i).isEmpty()) emptyCount++;
-        if (emptyCount >= juce::jmin(numPresets, 5))
-            hasRealPresets = false;  // all names empty — retry later
-    }
+    bool hasRealPresets = numPresets > 1 ||
+        (numPresets == 1 && presetNames[0] != "Preset 1");
 
     if (hasRealPresets)
     {
         for (int i = 0; i < numPresets; ++i)
-        {
-            juce::String name = track.plugin->getProgramName(i);
-            if (name.isEmpty()) name = "Preset " + juce::String(i + 1);
-            presetSelector.addItem(name, i + 2);
-        }
+            presetSelector.addItem(presetNames[i], i + 2);
 
         int current = track.plugin->getCurrentProgram();
         presetSelector.setSelectedId(current + 2, juce::dontSendNotification);
