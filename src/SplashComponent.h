@@ -27,22 +27,10 @@ public:
     {
         elapsed += 1.0f / 60.0f;
 
-        // Scroll boot text during phase 3
-        if (elapsed > bootStartTime)
-        {
-            float bootElapsed = elapsed - bootStartTime;
-            // Add new lines over time
-            float linesPerSec = 8.0f + bootElapsed * 4.0f; // accelerating
-            int targetLines = juce::jmin(static_cast<int>(bootElapsed * linesPerSec),
-                                         static_cast<int>(bootLines.size()));
-            if (visibleBootLines < targetLines)
-                visibleBootLines = targetLines;
-        }
-
         repaint();
 
-        // Once boot text has fully scrolled, signal we're done
-        if (visibleBootLines >= bootLines.size() && onFinished)
+        // Finish after logo fade completes (3.5s = holdEnd 2.5 + 1.0s fade)
+        if (elapsed > 3.5f && onFinished)
         {
             stopTimer();
             onFinished();
@@ -69,20 +57,7 @@ public:
             drawLogoPhase(g, w, h, ice);
         }
 
-        // ── Phase 3: Boot sequence (starts fading in during hold) ──
-        if (elapsed > bootStartTime)
-        {
-            float bootAlpha = juce::jlimit(0.0f, 1.0f, (elapsed - bootStartTime) / 0.5f);
-
-            // Fade logo out as boot text takes over
-            float logoFade = 1.0f;
-            if (elapsed > holdEnd)
-                logoFade = juce::jmax(0.0f, 1.0f - (elapsed - holdEnd) / 0.8f);
-
-            drawBootSequence(g, w, h, ice, bootAlpha);
-        }
-
-        // No fade-out — code stays visible until main UI launches
+        // Boot text removed — logo holds then fades to main UI
     }
 
 private:

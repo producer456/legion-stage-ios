@@ -76,6 +76,9 @@ target_sources(Sequencer PRIVATE
     src/IoniqForestLookAndFeel.h
     src/CyberpunkLookAndFeel.h
     src/OxideLookAndFeel.h
+    src/LiquidGlassLookAndFeel.h
+    src/DeviceMotion.h
+    src/DeviceMotion.mm
     src/SpectrumComponent.h
     src/LissajousComponent.h
     src/WaveTerrainComponent.h
@@ -165,6 +168,10 @@ elseif(APPLE)
         find_library(HEALTHKIT_FRAMEWORK HealthKit)
         if(HEALTHKIT_FRAMEWORK)
             target_link_libraries(Sequencer PRIVATE ${HEALTHKIT_FRAMEWORK})
+        endif()
+        find_library(COREMOTION_FRAMEWORK CoreMotion)
+        if(COREMOTION_FRAMEWORK)
+            target_link_libraries(Sequencer PRIVATE ${COREMOTION_FRAMEWORK})
         endif()
     else()
         find_library(AUDIOUNIT_FRAMEWORK AudioUnit)

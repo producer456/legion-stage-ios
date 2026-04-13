@@ -9,6 +9,7 @@
 #include "IoniqForestLookAndFeel.h"
 #include "CyberpunkLookAndFeel.h"
 #include "OxideLookAndFeel.h"
+#include "LiquidGlassLookAndFeel.h"
 
 class ThemeManager
 {
@@ -22,6 +23,7 @@ public:
         IoniqForest,
         Cyberpunk,
         Oxide,
+        LiquidGlass,
         NumThemes
     };
 
@@ -34,6 +36,7 @@ public:
         themes[IoniqForest] = std::make_unique<IoniqForestLookAndFeel>();
         themes[Cyberpunk]   = std::make_unique<CyberpunkLookAndFeel>();
         themes[Oxide]       = std::make_unique<OxideLookAndFeel>();
+        themes[LiquidGlass] = std::make_unique<LiquidGlassLookAndFeel>();
     }
 
     // Apply the given theme to a component tree
@@ -67,6 +70,7 @@ public:
             case IoniqForest: return "Ioniq Forest";
             case Cyberpunk:   return "Cyberpunk";
             case Oxide:       return "Oxide";
+            case LiquidGlass: return "Liquid Glass";
             default:          return "Unknown";
         }
     }
