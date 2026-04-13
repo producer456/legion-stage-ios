@@ -357,6 +357,12 @@ private:
     juce::TextButton panelToggleButton { juce::String::charToString(0x25C0) }; // ◀
     void toggleRightPanel();
 
+    // Frosted glass panel background (blurred snapshot of content behind panel)
+    juce::Image panelBlurImage;
+    int panelBlurUpdateCounter = 0;
+    juce::Rectangle<int> panelBoundsCache;
+    void updatePanelBlur();
+
     // ── Loop Set Mode ──
     juce::TextButton loopSetButton { "LOOP SET" };
 

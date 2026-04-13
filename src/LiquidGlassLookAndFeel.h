@@ -21,84 +21,91 @@ public:
     {
         // Start accelerometer for tilt-reactive glass highlights
         DeviceMotion::getInstance().start();
-        // ── Body — Apple dark mode system backgrounds ──
-        theme.body        = 0xff000000;  // systemBackgroundColor (dark)
-        theme.bodyLight   = 0xff1c1c1e;  // secondarySystemBackgroundColor (dark)
-        theme.bodyDark    = 0xff000000;  // systemBackgroundColor (dark)
-        theme.border      = 0x3d8e8e93;  // separatorColor (dark) — 24% gray
-        theme.borderLight = 0x5c8e8e93;  // opaqueSeparatorColor (dark)
+        // ── Body — pure black base ──
+        theme.body        = 0xff000000;
+        theme.bodyLight   = 0xff1c1c1e;
+        theme.bodyDark    = 0xff000000;
+        // Apple vibrancy: borders/separators are white at low alpha
+        theme.border      = 0x1effffff;  // white 12%
+        theme.borderLight = 0x30ffffff;  // white 19%
 
-        // ── Text — Apple label hierarchy ──
-        theme.textPrimary   = 0xffffffff;  // labelColor (dark)
-        theme.textSecondary = 0x99ebebf5;  // secondaryLabelColor (dark)
+        // ── Text — white vibrancy hierarchy (alpha only, no color) ──
+        theme.textPrimary   = 0xffffffff;  // labelColor — full white
+        theme.textSecondary = 0x99ffffff;  // secondaryLabel — white 60%
         theme.textBright    = 0xffffffff;
 
-        // ── Accents — Apple system colors (dark mode variants) ──
-        theme.amber     = 0xff0a84ff;  // systemBlue (dark)
-        theme.amberDark = 0xff0064d2;
-        theme.green     = 0xff30d158;  // systemGreen (dark)
+        // ── Accent — ice blue only for active/interactive states ──
+        theme.amber     = 0xffc0dfff;  // pale ice blue
+        theme.amberDark = 0xff6aa0d8;
+        theme.green     = 0xff30d158;
         theme.greenDark = 0xff0a3018;
-        theme.red       = 0xffff453a;  // systemRed (dark)
+        theme.red       = 0xffff453a;
         theme.redDark   = 0xff3a1010;
 
-        // ── LCD — OLED with system blue ──
+        // ── LCD — white vibrancy readout ──
         theme.lcdBg    = 0xff000000;
-        theme.lcdText  = 0xff0a84ff;   // systemBlue (dark)
-        theme.lcdAmber = 0xff64d2ff;   // systemCyan (dark)
+        theme.lcdText  = 0xddffffff;   // white 87% (primary label vibrancy)
+        theme.lcdAmber = 0xffc0dfff;   // ice blue for active values
 
-        // ── Buttons — Apple fill colors (translucent, designed for layering) ──
-        theme.buttonFace  = 0x1e767680;  // tertiarySystemFillColor — for buttons
-        theme.buttonHover = 0x28787880;  // secondarySystemFillColor
-        theme.buttonDown  = 0x330a84ff;  // blue tint on press
+        // ── Buttons — Apple fill hierarchy (white at graded alphas) ──
+        //   thin/small = systemFill (white ~20%)
+        //   medium = secondaryFill (white ~16%)
+        //   large = tertiaryFill (white ~12%)
+        theme.buttonFace  = 0x1effffff;  // tertiaryFill — white 12%
+        theme.buttonHover = 0x28ffffff;  // secondaryFill — white 16%
+        theme.buttonDown  = 0x33ffffff;  // systemFill — white 20%
 
-        // All buttons use tertiarySystemFillColor
-        theme.btnStop       = 0x1e767680;
-        theme.btnMetronome  = 0x1e767680;
-        theme.btnMetronomeOn = 0x330a84ff;  // blue tint when on
-        theme.btnCountIn    = 0x1e767680;
-        theme.btnCountInOn  = 0x330a84ff;
-        theme.btnLoop       = 0x1e767680;
-        theme.btnLoopOn     = 0x330a84ff;
-        theme.btnNewClip    = 0x1e767680;
-        theme.btnDuplicate  = 0x1e767680;
-        theme.btnSplit      = 0x1e767680;
-        theme.btnQuantize   = 0x1e767680;
-        theme.btnEditNotes  = 0x1e767680;
-        theme.btnNav        = 0x1e767680;
-        theme.btnSave       = 0x1e767680;
-        theme.btnLoad       = 0x1e767680;
-        theme.btnUndoRedo   = 0x1e767680;
-        theme.btnMidi2      = 0x1e767680;
-        theme.btnMidi2On    = 0x330a84ff;
-        theme.btnDeleteClip = 0x28ff453a;  // systemRed tint
+        // All buttons: white fill at tertiaryFill level
+        theme.btnStop       = 0x1effffff;
+        theme.btnMetronome  = 0x1effffff;
+        theme.btnMetronomeOn = 0x33ffffff;  // brighter fill when on
+        theme.btnCountIn    = 0x1effffff;
+        theme.btnCountInOn  = 0x33ffffff;
+        theme.btnLoop       = 0x1effffff;
+        theme.btnLoopOn     = 0x33ffffff;
+        theme.btnNewClip    = 0x1effffff;
+        theme.btnDuplicate  = 0x1effffff;
+        theme.btnSplit      = 0x1effffff;
+        theme.btnQuantize   = 0x1effffff;
+        theme.btnEditNotes  = 0x1effffff;
+        theme.btnNav        = 0x1effffff;
+        theme.btnSave       = 0x1effffff;
+        theme.btnLoad       = 0x1effffff;
+        theme.btnUndoRedo   = 0x1effffff;
+        theme.btnMidi2      = 0x1effffff;
+        theme.btnMidi2On    = 0x33ffffff;
+        theme.btnDeleteClip = 0x1effffff;  // same fill, red shows in text only
 
-        theme.loopRegion = 0x180a84ff;  // systemBlue translucent
-        theme.loopBorder = 0xff0a84ff;
+        // ── Loop — ice blue accent (interactive element) ──
+        theme.loopRegion = 0x18c0dfff;
+        theme.loopBorder = 0xffc0dfff;
 
-        // ── Timeline — true black with subtle grid ──
+        // ── Timeline — pure black, white-alpha grid (vibrancy) ──
         theme.timelineBg         = 0xff000000;
-        theme.timelineAltRow     = 0xff0c0c0e;
-        theme.timelineSelectedRow = 0x280a84ff;  // systemBlue selection
-        theme.timelineGridMajor  = 0x3d8e8e93;   // separatorColor
-        theme.timelineGridMinor  = 0x1e8e8e93;
-        theme.timelineGridFaint  = 0x0c8e8e93;
-        theme.timelineGridBeat   = 0x288e8e93;
+        theme.timelineAltRow     = 0x08ffffff;  // white 3% alternating
+        theme.timelineSelectedRow = 0x1effffff;  // white 12% selection
+        theme.timelineGridMajor  = 0x1effffff;   // white 12%
+        theme.timelineGridMinor  = 0x0fffffff;   // white 6%
+        theme.timelineGridFaint  = 0x08ffffff;   // white 3%
+        theme.timelineGridBeat   = 0x14ffffff;   // white 8%
 
-        // ── Clips — system color tinted glass ──
-        theme.clipDefault   = 0x400a84ff;  // systemBlue
-        theme.clipRecording = 0x50ff453a;  // systemRed
-        theme.clipQueued    = 0x40ff9f0a;  // systemOrange
-        theme.clipPlaying   = 0x4030d158;  // systemGreen
+        // ── Clips — white glass with color only on state ──
+        theme.clipDefault   = 0x28ffffff;  // white glass
+        theme.clipRecording = 0x40ff453a;  // red only when recording
+        theme.clipQueued    = 0x30ffffff;  // slightly brighter white
+        theme.clipPlaying   = 0x30ffffff;  // white, green border handled elsewhere
         theme.clipNotePreview = 0xb0ffffff;
 
-        theme.playhead     = 0xff0a84ff;   // systemBlue
-        theme.playheadGlow = 0x280a84ff;
-        theme.accentStripe = 0xff0a84ff;
+        // ── Playhead — ice blue (active/interactive) ──
+        theme.playhead     = 0xffc0dfff;
+        theme.playheadGlow = 0x20c0dfff;
+        theme.accentStripe = 0xffc0dfff;
 
-        theme.trackSelected = 0x280a84ff;
-        theme.trackArmed    = 0x28ff453a;
-        theme.trackMuteOn   = 0xffff453a;   // systemRed
-        theme.trackSoloOn   = 0xffffd60a;   // systemYellow
+        // ── Track controls — white vibrancy fills ──
+        theme.trackSelected = 0x1effffff;  // white 12%
+        theme.trackArmed    = 0x28ff453a;  // red accent for armed
+        theme.trackMuteOn   = 0xffff453a;  // red stays colored (semantic)
+        theme.trackSoloOn   = 0xffffd60a;  // yellow stays colored (semantic)
         theme.trackSoloText = 0xff000000;
 
         applyThemeColors();
@@ -106,23 +113,54 @@ public:
         // Fix #1: toggled-on button text must be bright, not bodyDark
         setColour(juce::TextButton::textColourOnId, juce::Colour(0xffffffff));
 
-        setColour(juce::ComboBox::backgroundColourId,   juce::Colour(0x1e767680));  // tertiarySystemFill
-        setColour(juce::ComboBox::textColourId,          juce::Colour(0xffffffff));  // labelColor
-        setColour(juce::ComboBox::outlineColourId,       juce::Colour(0x3d8e8e93));  // separatorColor
-        setColour(juce::PopupMenu::backgroundColourId,   juce::Colour(0xff1c1c1e));  // secondarySystemBackground
+        // Combos — white vibrancy fill
+        setColour(juce::ComboBox::backgroundColourId,   juce::Colour(0x1effffff));
+        setColour(juce::ComboBox::textColourId,          juce::Colour(0xffffffff));
+        setColour(juce::ComboBox::outlineColourId,       juce::Colour(0x1effffff));
+        // Popup — slightly elevated surface
+        setColour(juce::PopupMenu::backgroundColourId,   juce::Colour(0xff1c1c1e));
         setColour(juce::PopupMenu::textColourId,         juce::Colour(0xffffffff));
-        setColour(juce::PopupMenu::highlightedBackgroundColourId, juce::Colour(0xff0a84ff));  // systemBlue
+        setColour(juce::PopupMenu::highlightedBackgroundColourId, juce::Colour(0x40ffffff)); // white 25%
         setColour(juce::PopupMenu::highlightedTextColourId,       juce::Colour(0xffffffff));
-        setColour(juce::Slider::thumbColourId,           juce::Colour(0xff0a84ff));
-        setColour(juce::Slider::rotarySliderFillColourId, juce::Colour(0xff0a84ff));
-        setColour(juce::Slider::rotarySliderOutlineColourId, juce::Colour(0x3d8e8e93));
+        // Sliders — ice blue accent for interactive
+        setColour(juce::Slider::thumbColourId,           juce::Colour(0xffc0dfff));
+        setColour(juce::Slider::rotarySliderFillColourId, juce::Colour(0xffc0dfff));
+        setColour(juce::Slider::rotarySliderOutlineColourId, juce::Colour(0x1effffff));
     }
 
     float getButtonRadius() const override { return 12.0f; }
 
-    // Fix #9: Use system font with fallback
-    juce::String getUIFontName() const override { return "SF Pro Text"; }
-    juce::String getDisplayFontName() const override { return "SF Pro Display"; }
+    // Skip OLED pixel art — render clean text/icons for glass theme
+    bool drawOledButtonArt(juce::Image&, const juce::String&,
+                           bool, float, juce::Colour, juce::Colour) const override
+    {
+        return false; // fall through to text rendering
+    }
+
+    // Override button text for glass — clean, bright, readable
+    void drawButtonText(juce::Graphics& g, juce::TextButton& button,
+                        bool, bool) override
+    {
+        auto text = button.getButtonText();
+        bool on = button.getToggleState();
+
+        auto font = juce::Font(getUIFontName(),
+                               juce::jmin(12.0f, button.getHeight() * 0.45f),
+                               juce::Font::bold);
+        g.setFont(font);
+
+        juce::Colour textCol = on
+            ? juce::Colour(0xffc0dfff)   // ice blue when on
+            : juce::Colours::white.withAlpha(0.7f);  // dimmed white when off
+        g.setColour(textCol);
+
+        g.drawText(text.toUpperCase(),
+                   button.getLocalBounds().reduced(2, 1),
+                   juce::Justification::centred);
+    }
+
+    juce::String getUIFontName() const override { return "DIN Alternate"; }
+    juce::String getDisplayFontName() const override { return "DIN Alternate"; }
 
     // Fix #5: Glass linear slider
     void drawLinearSlider(juce::Graphics& g, int x, int y, int width, int height,
@@ -139,7 +177,7 @@ public:
             g.setColour(juce::Colours::white.withAlpha(0.06f));
             g.fillRoundedRectangle((float)x, trackY, (float)width, trackThickness, 1.0f);
             // Value fill
-            g.setColour(juce::Colour(0xff0a84ff).withAlpha(0.6f));
+            g.setColour(juce::Colour(0xffc0dfff).withAlpha(0.6f));
             g.fillRoundedRectangle((float)x, trackY, sliderPos - x, trackThickness, 1.0f);
             // Thumb
             float thumbR = 5.0f;
@@ -151,7 +189,7 @@ public:
             float trackX = x + width * 0.5f - trackThickness * 0.5f;
             g.setColour(juce::Colours::white.withAlpha(0.06f));
             g.fillRoundedRectangle(trackX, (float)y, trackThickness, (float)height, 1.0f);
-            g.setColour(juce::Colour(0xff0a84ff).withAlpha(0.6f));
+            g.setColour(juce::Colour(0xffc0dfff).withAlpha(0.6f));
             g.fillRoundedRectangle(trackX, sliderPos, trackThickness, (float)(y + height) - sliderPos, 1.0f);
             float thumbR = 5.0f;
             g.setColour(juce::Colours::white.withAlpha(0.5f));
@@ -171,7 +209,19 @@ public:
         bool on = button.getToggleState();
         auto tilt = DeviceMotion::getInstance().getTilt();
 
-        // ── Glass fill — enough opacity for OLED art readability ──
+        // OLED-animated buttons get solid black background for crisp pixel art
+        bool isOled = isOledAnimatedButton(button.getButtonText());
+        if (isOled)
+        {
+            g.setColour(juce::Colours::black);
+            g.fillRoundedRectangle(bounds, radius);
+            // Subtle border
+            g.setColour(juce::Colours::white.withAlpha(on ? 0.15f : 0.06f));
+            g.drawRoundedRectangle(bounds, radius, 0.5f);
+            return;
+        }
+
+        // ── Glass fill — enough opacity for readability ──
         {
             float alpha = isDown ? 0.22f : (isHighlighted ? 0.18f : 0.14f);
             if (on) alpha = 0.20f;
@@ -183,7 +233,7 @@ public:
         if (isDown || on)
         {
             float blueAlpha = isDown ? 0.15f : 0.08f;
-            g.setColour(juce::Colour(0xff0a84ff).withAlpha(blueAlpha));
+            g.setColour(juce::Colour(0xffc0dfff).withAlpha(blueAlpha));
             g.fillRoundedRectangle(bounds, radius);
         }
 
@@ -268,7 +318,7 @@ public:
             juce::Path arc;
             arc.addCentredArc(centreX, centreY, radius + 2, radius + 2,
                               0.0f, rotaryStartAngle, angle, true);
-            g.setColour(juce::Colour(0xff0a84ff).withAlpha(0.7f));
+            g.setColour(juce::Colour(0xffc0dfff).withAlpha(0.7f));
             g.strokePath(arc, juce::PathStrokeType(arcThickness, juce::PathStrokeType::curved,
                                                     juce::PathStrokeType::rounded));
         }

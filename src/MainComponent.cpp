@@ -877,6 +877,8 @@ MainComponent::MainComponent()
         {
             themeManager.setTheme(static_cast<ThemeManager::Theme>(idx), this);
             applyThemeToControls();
+            panelBlurImage = juce::Image();  // clear stale blur on theme change
+            panelBlurUpdateCounter = 8;      // force immediate blur update
             resized();
         }
     };
@@ -1062,6 +1064,16 @@ void MainComponent::timerCallback()
     {
         if (++panelAnimFrameSkip < 4) return;  // skip 3 of every 4 frames
         panelAnimFrameSkip = 0;
+    }
+
+    // Update panel frosted glass blur every ~500ms when panel is visible
+    if (rightPanelVisible && panelSlideProgress > 0.1f)
+    {
+        if (++panelBlurUpdateCounter >= 8)  // ~500ms at 15Hz
+        {
+            panelBlurUpdateCounter = 0;
+            updatePanelBlur();
+        }
     }
 
     auto& eng = pluginHost.getEngine();
@@ -2126,6 +2138,32 @@ void MainComponent::disableCurrentMidiDevice()
         deviceManager.setMidiInputDeviceEnabled(currentMidiDeviceId, false);
         currentMidiDeviceId.clear();
     }
+}
+
+void MainComponent::updatePanelBlur()
+{
+    if (!timelineComponent || !timelineComponent->isVisible()) return;
+
+    // Fix #2: Capture from timeline, not self (avoids feedback loop)
+    // Convert panel bounds to timeline's local coordinates
+    auto panelArea = panelBoundsCache;
+    if (panelArea.isEmpty()) return;
+
+    auto tlBounds = timelineComponent->getBounds();
+    auto captureArea = panelArea.translated(-tlBounds.getX(), -tlBounds.getY())
+                                .getIntersection(timelineComponent->getLocalBounds());
+    if (captureArea.isEmpty()) return;
+
+    // Capture timeline content behind panel at 0.75x for less pixelation (fix #7)
+    auto snapshot = timelineComponent->createComponentSnapshot(captureArea, false, 0.75f);
+    if (snapshot.isNull()) return;
+
+    // Gaussian blur with larger radius to hide upscale artifacts
+    juce::ImageConvolutionKernel kernel(9);
+    kernel.createGaussianBlur(9.0f);
+    kernel.applyToImage(snapshot, snapshot, snapshot.getBounds());
+
+    panelBlurImage = snapshot;
 }
 
 void MainComponent::toggleRightPanel()
@@ -4072,12 +4110,33 @@ void MainComponent::paint(juce::Graphics& g)
     int rightPanelTotal = rpW + oakW + oakW;  // right panel + oak strip + side panel
     int toolbarRight = getWidth() - rightPanelTotal;
 
-    // Paint over right panel area with body color (clear top bar/toolbar bleed)
-    if (oakW > 0 && rpW > 0)
+    // Paint over right panel area — frosted glass blur for Liquid Glass, solid for others
+    if (rpW > 0)
     {
-        int rpLeft = getWidth() - oakW - rpW;  // left edge of right panel
-        g.setColour(juce::Colour(c.body));
-        g.fillRect(rpLeft, 0, rpW, getHeight());
+        int rpLeft = getWidth() - (oakW > 0 ? oakW : 0) - rpW;
+        auto panelRect = juce::Rectangle<int>(rpLeft, 0, rpW, getHeight());
+        panelBoundsCache = panelRect;
+
+        // Check if Liquid Glass theme
+        bool isGlassTheme = (themeManager.getCurrentTheme() == ThemeManager::LiquidGlass);
+
+        if (isGlassTheme && !panelBlurImage.isNull())
+        {
+            // Draw blurred backdrop
+            g.drawImage(panelBlurImage, panelRect.toFloat(),
+                        juce::RectanglePlacement::stretchToFit);
+            // Dark tint overlay — simulates frosted glass
+            g.setColour(juce::Colour(0xd0000000));  // 82% black tint
+            g.fillRect(panelRect);
+            // Subtle left edge highlight
+            g.setColour(juce::Colours::white.withAlpha(0.06f));
+            g.drawVerticalLine(rpLeft, 0.0f, (float)getHeight());
+        }
+        else
+        {
+            g.setColour(juce::Colour(c.body));
+            g.fillRect(panelRect);
+        }
     }
 
     // Draw OLED background behind status/chord in top bar (always, regardless of panel state)
