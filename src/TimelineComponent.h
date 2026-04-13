@@ -51,6 +51,7 @@ private:
     void recalcTrackHeight();
 
 public:
+    void setTrackLabelWidth(int w) { trackLabelWidth = w; recalcTrackHeight(); repaint(); }
     void setGridResolution(double beatsPerGrid) { gridResolution = beatsPerGrid; repaint(); }
     double getGridResolution() const { return gridResolution; }
     double snapToGrid(double beat) const;

@@ -346,6 +346,14 @@ private:
     // ── Arranger Minimap ──
     std::unique_ptr<ArrangerMinimapComponent> arrangerMinimap;
 
+    // ── Right Panel — Slideable ──
+    bool rightPanelVisible = true;
+    float panelSlideProgress = 1.0f;   // 1.0 = fully open, 0.0 = fully closed
+    float panelSlideTarget = 1.0f;
+    bool panelAnimating = false;
+    juce::TextButton panelToggleButton { juce::String::charToString(0x25C0) }; // ◀
+    void toggleRightPanel();
+
     // ── Right Panel — Mix + Info ──
     juce::Slider volumeSlider;
     juce::Label volumeLabel { {}, "Vol" };

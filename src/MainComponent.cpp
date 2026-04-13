@@ -753,6 +753,10 @@ MainComponent::MainComponent()
         repaint();
     };
 
+    // ── Right Panel Toggle ──
+    addAndMakeVisible(panelToggleButton);
+    panelToggleButton.onClick = [this] { toggleRightPanel(); };
+
     addAndMakeVisible(pianoToggleButton);
     pianoToggleButton.setClickingTogglesState(true);
     pianoToggleButton.onClick = [this] {
@@ -1004,6 +1008,21 @@ MainComponent::~MainComponent()
 
 void MainComponent::timerCallback()
 {
+    // ── Right Panel slide animation ──
+    if (panelAnimating)
+    {
+        float speed = 0.30f; // lerp factor per frame (~15Hz timer, finishes in ~8 frames)
+        panelSlideProgress += (panelSlideTarget - panelSlideProgress) * speed;
+        // Snap when close enough
+        if (std::abs(panelSlideProgress - panelSlideTarget) < 0.01f)
+        {
+            panelSlideProgress = panelSlideTarget;
+            panelAnimating = false;
+        }
+        resized();
+        repaint();
+    }
+
     auto& eng = pluginHost.getEngine();
 
     // Update BPM label to include beat position
@@ -1042,7 +1061,8 @@ void MainComponent::timerCallback()
             paramHighlightAlpha -= 0.03f;
             if (paramHighlightAlpha <= 0.3f) { paramHighlightAlpha = 0.3f; paramHighlightFadingIn = true; }
         }
-        repaint(paramSliders[activeParamIndex]->getBounds().expanded(6));
+        if (paramSliders[activeParamIndex]->isVisible())
+            repaint(paramSliders[activeParamIndex]->getBounds().expanded(6));
     }
 
     // Animate play button green border — always visible, flashes when playing
@@ -2065,6 +2085,19 @@ void MainComponent::disableCurrentMidiDevice()
         deviceManager.setMidiInputDeviceEnabled(currentMidiDeviceId, false);
         currentMidiDeviceId.clear();
     }
+}
+
+void MainComponent::toggleRightPanel()
+{
+    // Fix #6: Ignore if already animating to prevent double-tap corruption
+    if (panelAnimating) return;
+
+    rightPanelVisible = !rightPanelVisible;
+    panelSlideTarget = rightPanelVisible ? 1.0f : 0.0f;
+    panelAnimating = true;
+    panelToggleButton.setButtonText(rightPanelVisible
+        ? juce::String::charToString(0x25C0)   // ◀ (hide)
+        : juce::String::charToString(0x25B6));  // ▶ (show)
 }
 
 void MainComponent::showAudioSettings()
@@ -3526,6 +3559,19 @@ void MainComponent::mouseDown(const juce::MouseEvent& e)
         swipeStartPos = e.position;
         swipeActive = true;
     }
+    else
+    {
+        // iPad: detect swipe near the panel edge or right screen edge
+        // When panel is open, zone starts at the panel's left edge
+        // When panel is closed, zone is the rightmost 80px of screen
+        int panelW = (int)(180.0f * panelSlideProgress);
+        int edgeStart = getWidth() - panelW - 80;
+        if (e.position.x > edgeStart)
+        {
+            swipeStartPos = e.position;
+            swipeActive = true;
+        }
+    }
 #endif
 }
 
@@ -3559,13 +3605,28 @@ void MainComponent::mouseUp(const juce::MouseEvent& e)
         float absX = std::abs(delta.x);
         float absY = std::abs(delta.y);
 
-        // Require minimum swipe distance and mostly horizontal
-        if (absX > 80.0f && absX > absY * 2.0f)
+        bool isPhone = AUScanner::isIPhone() && !forceIPadLayout;
+        if (isPhone)
         {
-            if (delta.x < 0)
-                selectTrack(juce::jmin(PluginHost::NUM_TRACKS - 1, selectedTrackIndex + 1));
-            else
-                selectTrack(juce::jmax(0, selectedTrackIndex - 1));
+            // iPhone: horizontal swipe switches tracks
+            if (absX > 80.0f && absX > absY * 2.0f)
+            {
+                if (delta.x < 0)
+                    selectTrack(juce::jmin(PluginHost::NUM_TRACKS - 1, selectedTrackIndex + 1));
+                else
+                    selectTrack(juce::jmax(0, selectedTrackIndex - 1));
+            }
+        }
+        else
+        {
+            // iPad: swipe left from right edge = hide panel, swipe right = show panel
+            if (absX > 50.0f && absX > absY * 1.5f)
+            {
+                if (delta.x < 0 && rightPanelVisible)
+                    toggleRightPanel();
+                else if (delta.x > 0 && !rightPanelVisible)
+                    toggleRightPanel();
+            }
         }
     }
 #else
@@ -3943,7 +4004,8 @@ void MainComponent::paint(juce::Graphics& g)
         {
             // Custom top bar (e.g. wood grain) — stop before oak strip
             int sidePW = lnf->getSidePanelWidth();
-            int topBarWidth = getWidth() - sidePW - 180 - sidePW - sidePW;
+            int rpW = (int)(180.0f * panelSlideProgress);
+            int topBarWidth = getWidth() - sidePW - rpW - sidePW - sidePW;
             lnf->drawTopBarBackground(g, sidePW, 0, topBarWidth, topBarDrawH);
         }
         else
@@ -3963,30 +4025,27 @@ void MainComponent::paint(juce::Graphics& g)
     if (auto* dlnf = dynamic_cast<DawLookAndFeel*>(&getLookAndFeel()))
         if (dlnf->getSidePanelWidth() > 0)
             oakW = dlnf->getSidePanelWidth();
-    int rightPanelTotal = 180 + oakW + oakW;  // right panel + oak strip + side panel
+    int rpW = (int)(180.0f * panelSlideProgress);
+    int rightPanelTotal = rpW + oakW + oakW;  // right panel + oak strip + side panel
     int toolbarRight = getWidth() - rightPanelTotal;
 
     // Paint over right panel area with body color (clear top bar/toolbar bleed)
-    if (oakW > 0)
+    if (oakW > 0 && rpW > 0)
     {
-        int rpLeft = getWidth() - oakW - 180;  // left edge of right panel
+        int rpLeft = getWidth() - oakW - rpW;  // left edge of right panel
         g.setColour(juce::Colour(c.body));
-        g.fillRect(rpLeft, 0, 180, getHeight());
+        g.fillRect(rpLeft, 0, rpW, getHeight());
+    }
 
-        // OLED frames removed — combo boxes have their own recessed bezel styling
-
-        // Draw OLED background behind status/chord in top bar
-        if (statusLabel.isVisible() && chordLabel.isVisible())
-        {
-            auto oledArea = statusLabel.getBounds().getUnion(chordLabel.getBounds());
-            // Border
-            auto borderArea = oledArea.expanded(3, 2);
-            g.setColour(juce::Colour(c.borderLight));
-            g.fillRoundedRectangle(borderArea.toFloat(), 4.0f);
-            // LCD background
-            g.setColour(juce::Colour(c.lcdBg));
-            g.fillRoundedRectangle(oledArea.toFloat(), 3.0f);
-        }
+    // Draw OLED background behind status/chord in top bar (always, regardless of panel state)
+    if (statusLabel.isVisible() && chordLabel.isVisible())
+    {
+        auto oledArea = statusLabel.getBounds().getUnion(chordLabel.getBounds());
+        auto borderArea = oledArea.expanded(3, 2);
+        g.setColour(juce::Colour(c.borderLight));
+        g.fillRoundedRectangle(borderArea.toFloat(), 4.0f);
+        g.setColour(juce::Colour(c.lcdBg));
+        g.fillRoundedRectangle(oledArea.toFloat(), 3.0f);
     }
 
     g.setColour(juce::Colour(c.bodyDark));
@@ -4039,7 +4098,8 @@ void MainComponent::paint(juce::Graphics& g)
                 // Draw decorative strip to the left of the right panel
                 int sidePW = lnf->getSidePanelWidth();
                 int stripW = sidePW;
-                int stripX = getWidth() - sidePW - 180 - stripW;
+                int rpW2 = (int)(180.0f * panelSlideProgress);
+                int stripX = getWidth() - sidePW - rpW2 - stripW;
                 lnf->drawInnerStrip(g, stripX, 0, stripW, getHeight());
             }
         }
@@ -4207,18 +4267,19 @@ void MainComponent::resized()
     int topBarH = 80;
 #endif
     int bottomBarH = isPhone ? 0 : 45;
-    int rightPanelW = isPhone ? 0 : 180;
+    int rightPanelW = isPhone ? 0 : (int)(180.0f * panelSlideProgress);
 
     // ── Top Bar ──
     auto topBar = area.removeFromTop(topBarH).reduced(4, isPhone ? 2 : 10);
     // Trim top bar so it doesn't extend into right panel + oak strip area
-    if (!isPhone && rightPanelW > 0)
+    if (!isPhone)
     {
         int oakTrim = 0;
         if (auto* lnf = dynamic_cast<DawLookAndFeel*>(&getLookAndFeel()))
             if (lnf->getSidePanelWidth() > 0)
                 oakTrim = lnf->getSidePanelWidth();
-        topBar.removeFromRight(rightPanelW + oakTrim);
+        if (rightPanelW + oakTrim > 0)
+            topBar.removeFromRight(rightPanelW + oakTrim);
     }
 
 #if JUCE_IOS
@@ -4480,6 +4541,7 @@ void MainComponent::resized()
         zoomOutButton.setVisible(false);
         panicButton.setVisible(false);
         phoneMenuButton.setVisible(false);
+        panelToggleButton.setVisible(false);
         clearAutoButton.setVisible(false);
         presetSelector.setVisible(false);
         presetPrevButton.setVisible(false);
@@ -4809,7 +4871,8 @@ void MainComponent::resized()
         chordLabel.setVisible(false);
 
         // ── Right panel: volume knob on top (full width), then two columns ──
-        auto rightPanel = area.removeFromRight(100).reduced(2, 2);
+        int fsRightW = rightPanelVisible ? 100 : 0;
+        auto rightPanel = area.removeFromRight(fsRightW).reduced(2, 2);
 
         int knobH = 44;
         int labelH = 12;
@@ -4930,6 +4993,9 @@ void MainComponent::resized()
     if (timelineComponent)
         timelineComponent->setVisibleTracks(8);
 
+    // Hide right panel components when panel is too narrow for content
+    bool panelComponentsVisible = !isPhone && panelSlideProgress > 0.25f;
+
     // ── Right Panel — starts from top of screen (not below top bar) ──
     int oakStripW = 0;
     if (auto* lnf = dynamic_cast<DawLookAndFeel*>(&getLookAndFeel()))
@@ -4948,10 +5014,30 @@ void MainComponent::resized()
         if (sidePW > 0)
             fullArea.removeFromRight(sidePW);
     }
-    auto rightPanel = fullArea.removeFromRight(rightPanelW).reduced(8, 4);
+    // Guard: only create right panel rect if wide enough to reduce safely
+    auto rightPanel = (rightPanelW > 20)
+        ? fullArea.removeFromRight(rightPanelW).reduced(8, 4)
+        : juce::Rectangle<int>();
     // Still remove from area so the timeline/toolbar don't overlap
     area.removeFromRight(rightPanelW);
     area.removeFromRight(oakStripW);
+
+    // ── Panel Toggle Button — at right edge of arranger area (after panel removed) ──
+    if (!isPhone)
+    {
+        int toggleW = 28;
+        int toggleH = 70;
+        int togglePad = rightPanelW > 0 ? 4 : 0; // padding when panel is open to avoid overlap
+        int toggleX = area.getRight() - toggleW - togglePad;
+        int toggleY = area.getY() + (area.getHeight() / 2) - (toggleH / 2);
+        panelToggleButton.setBounds(toggleX, toggleY, toggleW, toggleH);
+        panelToggleButton.setVisible(true);
+        panelToggleButton.toFront(false);
+    }
+    else
+    {
+        panelToggleButton.setVisible(false);
+    }
 
     // ── Edit Toolbar ──
     auto toolbar = area.removeFromTop(65).reduced(4, 4);
@@ -4982,8 +5068,8 @@ void MainComponent::resized()
     captureButton.setBounds(toolbar.removeFromLeft(55));
     captureButton.setVisible(true);
     toolbar.removeFromLeft(4);
-    // CPU label — exact same vertical bounds as capture button
-    auto cpuArea = toolbar.removeFromLeft(120);
+    // CPU label — takes remaining toolbar space (expands when panel hidden)
+    auto cpuArea = toolbar;
     cpuLabel.setBounds(cpuArea.getX(), captureButton.getY(), cpuArea.getWidth(), captureButton.getHeight());
     cpuLabel.setVisible(true);
 
@@ -4996,15 +5082,89 @@ void MainComponent::resized()
     bpmDownButton.setVisible(false);
     bpmUpButton.setVisible(false);
 #endif
-    visSelector.setBounds(toolbar.removeFromRight(72));
-    toolbar.removeFromRight(2);
+    if (panelComponentsVisible)
+    {
+        // visSelector positioned in right panel when panel is visible
+        visSelector.setVisible(true);
+    }
+    else
+    {
+        // Move visSelector into toolbar when panel is hidden
+        visSelector.setBounds(toolbar.removeFromRight(72));
+        visSelector.setVisible(true);
+        toolbar.removeFromRight(2);
+    }
     projectorButton.setVisible(false);
     fullscreenButton.setVisible(false);
     audioSettingsButton.setVisible(false);
 
     // Track input selector + M2 button on same row
     trackNameLabel.setVisible(false);
-    auto inputRow = rightPanel.removeFromTop(30);
+
+    // When panel is sliding closed, hide all panel components
+    if (!panelComponentsVisible)
+    {
+        trackInputSelector.setVisible(false);
+        midi2Button.setVisible(false);
+        themeSelector.setVisible(false);
+        pluginSelector.setVisible(false);
+        openEditorButton.setVisible(false);
+        midiInputSelector.setVisible(false);
+        midiRefreshButton.setVisible(false);
+        for (int i = 0; i < fxSelectors.size(); ++i)
+        {
+            fxSelectors[i]->setVisible(false);
+            fxEditorButtons[i]->setVisible(false);
+        }
+        paramPageLeft.setVisible(false);
+        paramPageRight.setVisible(false);
+        paramPageLabel.setVisible(false);
+        paramPageNameLabel.setVisible(false);
+        for (int i = 0; i < paramSliders.size(); ++i)
+        {
+            paramSliders[i]->setVisible(false);
+            paramLabels[i]->setVisible(false);
+        }
+        presetSelector.setVisible(false);
+        presetUpButton.setVisible(false);
+        presetDownButton.setVisible(false);
+        presetPrevButton.setVisible(false);
+        presetNextButton.setVisible(false);
+        volumeSlider.setVisible(false);
+        volumeLabel.setVisible(false);
+        panSlider.setVisible(false);
+        panLabel.setVisible(false);
+        visSelector.setVisible(false);
+        // Skip the rest of right panel layout
+    }
+    else
+    {
+        // Restore visibility for panel components — layout code below
+        // will fine-tune based on track type (audio vs MIDI)
+        trackInputSelector.setVisible(true);
+        midi2Button.setVisible(true);
+        themeSelector.setVisible(true);
+        volumeSlider.setVisible(true);
+        paramPageLeft.setVisible(true);
+        paramPageRight.setVisible(true);
+        paramPageLabel.setVisible(true);
+        paramPageNameLabel.setVisible(true);
+        presetSelector.setVisible(true);
+        presetUpButton.setVisible(true);
+        presetDownButton.setVisible(true);
+        for (int i = 0; i < paramSliders.size(); ++i)
+        {
+            paramSliders[i]->setVisible(true);
+            paramLabels[i]->setVisible(true);
+        }
+        for (int i = 0; i < fxSelectors.size(); ++i)
+        {
+            fxSelectors[i]->setVisible(true);
+            fxEditorButtons[i]->setVisible(true);
+        }
+    }
+
+    auto inputRow = rightPanel.removeFromTop(panelComponentsVisible ? 30 : 0);
     midi2Button.setBounds(inputRow.removeFromRight(32));
     inputRow.removeFromRight(4);
     trackInputSelector.setBounds(inputRow);
@@ -5256,6 +5416,10 @@ void MainComponent::resized()
                 arrangerMinimap->setBounds(area.removeFromBottom(20));
                 arrangerMinimap->setVisible(true);
             }
+            // Wider track labels when right panel is hidden — bigger M/S buttons
+            // Interpolate with panel slide so it doesn't snap
+            int labelW = 140 + (int)(40.0f * (1.0f - panelSlideProgress));
+            timelineComponent->setTrackLabelWidth(labelW);
             timelineComponent->setVisible(true);
             timelineComponent->setBounds(area);
         }
