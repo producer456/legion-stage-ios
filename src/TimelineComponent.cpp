@@ -278,6 +278,17 @@ void TimelineComponent::mouseDown(const juce::MouseEvent& e)
         }
         return;
     }
+    // Check for automation point drag
+    auto autoHit = hitTestAutoPoint(mx, my);
+    if (autoHit.isValid())
+    {
+        dragAutoPoint = autoHit;
+        draggingAutoPoint = true;
+        if (onBeforeEdit) onBeforeEdit();
+        repaint();
+        return;
+    }
+
     auto hit = hitTestClip(mx, my);
 
     if (e.mods.isRightButtonDown() && hit.isValid())
@@ -360,6 +371,26 @@ void TimelineComponent::mouseDrag(const juce::MouseEvent& e)
         int maxScroll = juce::jmax(0, totalContent - (getHeight() - headerHeight));
         scrollY = juce::jlimit(0, maxScroll, touchScrollStartY - static_cast<int>(dy));
 
+        repaint();
+        return;
+    }
+
+    // Automation point drag
+    if (draggingAutoPoint && dragAutoPoint.isValid())
+    {
+        float mx = static_cast<float>(e.x);
+        float my = static_cast<float>(e.y);
+        auto& track = pluginHost.getTrack(dragAutoPoint.trackIndex);
+        if (dragAutoPoint.laneIndex < track.automationLanes.size())
+        {
+            auto* lane = track.automationLanes[dragAutoPoint.laneIndex];
+            if (dragAutoPoint.pointIndex < lane->points.size())
+            {
+                auto& pt = lane->points.getReference(dragAutoPoint.pointIndex);
+                pt.beat = juce::jmax(0.0, snapToGrid(xToBeat(mx)));
+                pt.value = yToAutoValue(dragAutoPoint.trackIndex, my);
+            }
+        }
         repaint();
         return;
     }
@@ -572,6 +603,8 @@ void TimelineComponent::mouseUp(const juce::MouseEvent& e)
     panning = false;
     draggingLoop = false;
     loopHandleDrag = NoHandle;
+    draggingAutoPoint = false;
+    dragAutoPoint = {};
 
     // Handle clip click pending — short tap selects, long press already handled in timerCallback
     if (clipClickPending)
@@ -663,6 +696,25 @@ void TimelineComponent::mouseDoubleClick(const juce::MouseEvent& e)
     float mx = static_cast<float>(e.x);
     float my = static_cast<float>(e.y);
     auto hit = hitTestClip(mx, my);
+
+    // Double-tap automation point → delete it
+    auto autoHit = hitTestAutoPoint(mx, my);
+    if (autoHit.isValid())
+    {
+        if (onBeforeEdit) onBeforeEdit();
+        auto& track = pluginHost.getTrack(autoHit.trackIndex);
+        if (autoHit.laneIndex < track.automationLanes.size())
+        {
+            auto* lane = track.automationLanes[autoHit.laneIndex];
+            if (autoHit.pointIndex < lane->points.size())
+                lane->points.remove(autoHit.pointIndex);
+            // Remove empty lanes
+            if (lane->points.isEmpty())
+                track.automationLanes.remove(autoHit.laneIndex);
+        }
+        repaint();
+        return;
+    }
 
     if (!hit.isValid())
     {
@@ -1515,6 +1567,24 @@ void TimelineComponent::drawAutomation(juce::Graphics& g)
 
             if (started)
                 g.strokePath(path, juce::PathStrokeType(2.0f));
+
+            // Draw circles at each point for editing targets
+            auto pointColor = juce::Colour(lcdBlue).withAlpha(alphas[(colorIdx - 1) % 6]);
+            for (auto& pt : lane->points)
+            {
+                float x = beatToX(pt.beat);
+                if (x < static_cast<float>(trackLabelWidth) || x > static_cast<float>(getWidth()))
+                    continue;
+                float y = static_cast<float>(laneY + trackHeight - 4)
+                         - pt.value * static_cast<float>(trackHeight - 8);
+
+                // Filled dot
+                g.setColour(pointColor);
+                g.fillEllipse(x - 4.0f, y - 4.0f, 8.0f, 8.0f);
+                // Bright border
+                g.setColour(pointColor.brighter(0.5f));
+                g.drawEllipse(x - 4.0f, y - 4.0f, 8.0f, 8.0f, 1.0f);
+            }
         }
     }
 }
@@ -1632,6 +1702,46 @@ void TimelineComponent::drawLoopHandles(juce::Graphics& g)
 
     drawHandle(x1);
     drawHandle(x2);
+}
+
+// ── Automation point helpers ────────────────────────────────────────────────
+
+float TimelineComponent::autoPointToY(int trackIndex, float value) const
+{
+    int laneY = headerHeight + trackIndex * trackHeight - scrollY;
+    return static_cast<float>(laneY + trackHeight - 4) - value * static_cast<float>(trackHeight - 8);
+}
+
+float TimelineComponent::yToAutoValue(int trackIndex, float y) const
+{
+    int laneY = headerHeight + trackIndex * trackHeight - scrollY;
+    float range = static_cast<float>(trackHeight - 8);
+    float val = (static_cast<float>(laneY + trackHeight - 4) - y) / range;
+    return juce::jlimit(0.0f, 1.0f, val);
+}
+
+TimelineComponent::AutoPointRef TimelineComponent::hitTestAutoPoint(float x, float y) const
+{
+    for (int t = 0; t < PluginHost::NUM_TRACKS; ++t)
+    {
+        auto& track = pluginHost.getTrack(t);
+        int laneIdx = 0;
+        for (auto* lane : track.automationLanes)
+        {
+            for (int pi = lane->points.size() - 1; pi >= 0; --pi)
+            {
+                auto& pt = lane->points.getReference(pi);
+                float px = beatToX(pt.beat);
+                float py = autoPointToY(t, pt.value);
+                float dx = x - px;
+                float dy = y - py;
+                if (dx * dx + dy * dy < autoPointHitRadius * autoPointHitRadius)
+                    return { t, laneIdx, pi };
+            }
+            laneIdx++;
+        }
+    }
+    return {};
 }
 
 // ── Clip context menu (long-press) ──────────────────────────────────────────

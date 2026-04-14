@@ -149,6 +149,20 @@ public:
     std::function<void(int tapCount)> onLoopSetProgress;  // called with 1 after first tap, 0 after completion
 private:
 
+    // Automation point editing
+    struct AutoPointRef {
+        int trackIndex = -1;
+        int laneIndex = -1;
+        int pointIndex = -1;
+        bool isValid() const { return trackIndex >= 0 && laneIndex >= 0 && pointIndex >= 0; }
+    };
+    AutoPointRef dragAutoPoint;
+    bool draggingAutoPoint = false;
+    float autoPointToY(int trackIndex, float value) const;
+    float yToAutoValue(int trackIndex, float y) const;
+    AutoPointRef hitTestAutoPoint(float x, float y) const;
+    static constexpr int autoPointHitRadius = 14;
+
     // Long press detection for arm lock
     int longPressTrack = -1;
     juce::Point<float> longPressPos;

@@ -1085,6 +1085,22 @@ void MainComponent::timerCallback()
 
     auto& eng = pluginHost.getEngine();
 
+    // Refresh param knob positions during playback (shows automation in real-time)
+    if (eng.isPlaying() && !eng.isInCountIn())
+    {
+        auto& track = pluginHost.getTrack(selectedTrackIndex);
+        if (track.plugin != nullptr && !track.automationLanes.isEmpty())
+        {
+            auto& params = track.plugin->getParameters();
+            for (int i = 0; i < NUM_PARAM_SLIDERS; ++i)
+            {
+                int realIdx = static_cast<int>(paramSliders[i]->getProperties().getWithDefault("paramIndex", -1));
+                if (realIdx >= 0 && realIdx < params.size())
+                    paramSliders[i]->setValue(params[realIdx]->getValue(), juce::dontSendNotification);
+            }
+        }
+    }
+
     // Update BPM label to include beat position
     {
         int bpm = static_cast<int>(eng.getBpm());
