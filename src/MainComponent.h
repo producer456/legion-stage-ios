@@ -374,6 +374,7 @@ private:
     juce::Label trackInfoLabel;
     juce::Label cpuLabel;
     juce::Array<float> cpuHistory;  // rolling CPU % history for heartbeat display
+    int cpuHistoryWritePos = 0;
     float currentCpuPercent = 0.0f;
     int currentRamMB = 0;
     void showExpandedEkg();

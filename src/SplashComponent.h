@@ -17,7 +17,6 @@ public:
     {
         setOpaque(true);
         buildTextPixels();
-        buildBootLines();
         startTimerHz(60);
     }
 
@@ -73,9 +72,6 @@ private:
     std::vector<Pixel> textPixels;
     int maxRow = 0, maxCol = 0;
 
-    // ── Boot sequence lines ──
-    juce::StringArray bootLines;
-    int visibleBootLines = 0;
 
     void drawLogoPhase(juce::Graphics& g, int w, int h, juce::Colour ice)
     {
@@ -159,156 +155,6 @@ private:
             g.drawText("T O U C H   D A W", 0, static_cast<int>(offsetY + textDrawH + pixScale * 3),
                        w, 20, juce::Justification::centred);
         }
-    }
-
-    void drawBootSequence(juce::Graphics& g, int w, int h, juce::Colour ice, float alpha)
-    {
-        if (visibleBootLines <= 0) return;
-
-        float fontSize = 10.0f;
-        float lineH = 14.0f;
-        int maxVisible = static_cast<int>(h / lineH);
-        int startLine = juce::jmax(0, visibleBootLines - maxVisible);
-
-        g.setFont(juce::Font(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), fontSize, juce::Font::plain)));
-
-        for (int i = startLine; i < visibleBootLines && i < bootLines.size(); ++i)
-        {
-            int screenLine = i - startLine;
-            float y = static_cast<float>(screenLine) * lineH + 4.0f;
-
-            // Newest lines are brighter
-            float lineAge = static_cast<float>(visibleBootLines - i) / static_cast<float>(maxVisible);
-            float lineAlpha = (1.0f - lineAge * 0.7f) * alpha;
-
-            // All OLED ice blue — vary brightness for hierarchy
-            auto& line = bootLines[i];
-            if (line.startsWith("//") || line.startsWith("  //"))
-            {
-                g.setColour(ice.withAlpha(lineAlpha * 0.3f));
-            }
-            else if (line.startsWith(">>") || line.contains("OK") || line.contains("Ready"))
-            {
-                g.setColour(ice.withAlpha(lineAlpha));
-            }
-            else if (line.startsWith("#") || line.contains("class ") || line.contains("void "))
-            {
-                g.setColour(ice.withAlpha(lineAlpha * 0.8f));
-            }
-            else
-            {
-                g.setColour(ice.withAlpha(lineAlpha * 0.55f));
-            }
-
-            g.drawText(line, 12, static_cast<int>(y), w - 24, static_cast<int>(lineH),
-                       juce::Justification::centredLeft);
-        }
-
-        // Blinking cursor at bottom
-        if (static_cast<int>(elapsed * 3.0f) % 2 == 0)
-        {
-            int cursorLine = juce::jmin(visibleBootLines - startLine, maxVisible);
-            float cursorY = static_cast<float>(cursorLine) * lineH + 6.0f;
-            g.setColour(ice.withAlpha(alpha * 0.8f));
-            g.fillRect(12.0f, cursorY, 7.0f, fontSize);
-        }
-    }
-
-    void buildBootLines()
-    {
-        bootLines.add("#include <JuceHeader.h>");
-        bootLines.add("#include \"MainComponent.h\"");
-        bootLines.add("#include \"PluginHost.h\"");
-        bootLines.add("#include \"SequencerEngine.h\"");
-        bootLines.add("");
-        bootLines.add("// Legion Stage v1.1.0");
-#if JUCE_IOS
-        bootLines.add("// Touch DAW for iPad & iPhone");
-#else
-        bootLines.add("// Touch DAW for Legion Go");
-#endif
-        bootLines.add("");
-        bootLines.add(">> Initializing audio subsystem...");
-        bootLines.add("  deviceManager.initialiseWithDefaultDevices(0, 2)");
-        bootLines.add("  sampleRate: 44100 Hz");
-        bootLines.add("  bufferSize: 512 samples");
-#ifdef __APPLE__
-        bootLines.add("  >> CoreAudio output OK");
-#else
-        bootLines.add("  >> WASAPI output OK");
-#endif
-        bootLines.add("");
-        bootLines.add(">> Building audio processor graph...");
-        bootLines.add("  addNode(midiInputNode)");
-        bootLines.add("  addNode(audioOutputNode)");
-        bootLines.add("  for (int t = 0; t < 16; ++t)");
-        bootLines.add("  {");
-        bootLines.add("    tracks[t].clipPlayer = new ClipPlayerNode(engine);");
-        bootLines.add("    tracks[t].gainProcessor = new GainProcessor();");
-        bootLines.add("    connectTrackAudio(t);");
-        bootLines.add("  }");
-        bootLines.add("  >> 16 tracks initialized");
-        bootLines.add("");
-#if JUCE_IOS
-        bootLines.add(">> Scanning AUv3 plugins...");
-        bootLines.add("  formatManager.addFormat(new AudioUnitPluginFormat())");
-        bootLines.add("  // Discovering installed AUv3 instruments & effects");
-        bootLines.add("  >> Plugin scan complete");
-#elif defined(__APPLE__)
-        bootLines.add(">> Scanning VST3 + AU plugins...");
-        bootLines.add("  formatManager.addFormat(new VST3PluginFormat())");
-        bootLines.add("  // Searching: /Library/Audio/Plug-Ins/VST3/");
-        bootLines.add("  >> Plugin scan complete");
-#else
-        bootLines.add(">> Scanning VST3 plugins...");
-        bootLines.add("  formatManager.addFormat(new VST3PluginFormat())");
-        bootLines.add("  // Searching: C:/Program Files/Common Files/VST3/");
-        bootLines.add("  >> Plugin scan complete");
-#endif
-        bootLines.add("");
-        bootLines.add(">> Initializing MIDI subsystem...");
-        bootLines.add("  midiCollector.reset(44100.0)");
-        bootLines.add("  // Scanning MIDI devices...");
-        bootLines.add("  >> MIDI ready");
-        bootLines.add("");
-        bootLines.add(">> Loading theme: Keystage");
-        bootLines.add("  theme.body = 0xff12100e  // matte black");
-        bootLines.add("  theme.amber = 0xffd6cbb8  // white oak");
-        bootLines.add("  theme.lcdText = 0xffb8d8f0  // ice blue OLED");
-        bootLines.add("  applyThemeColors()");
-        bootLines.add("  >> Caching wood grain textures...");
-        bootLines.add("  >> Side panels rendered");
-        bootLines.add("  >> Top bar rendered");
-        bootLines.add("");
-        bootLines.add(">> Initializing visualizers...");
-        bootLines.add("  addAndMakeVisible(spectrumDisplay)");
-        bootLines.add("  addAndMakeVisible(lissajousDisplay)");
-        bootLines.add("  addAndMakeVisible(gforceDisplay)");
-        bootLines.add("  addAndMakeVisible(geissDisplay)");
-        bootLines.add("  addAndMakeVisible(projectMDisplay)");
-        bootLines.add("  >> 5 visualizers ready");
-        bootLines.add("");
-        bootLines.add(">> Building UI components...");
-        bootLines.add("  // Transport: REC PLAY STOP MET LOOP PANIC");
-        bootLines.add("  // Mixer: 16 OLED channel strips");
-        bootLines.add("  // Timeline: arrangement view");
-        bootLines.add("  // TouchPiano: on-screen keyboard");
-        bootLines.add("  >> MIDI Learn system initialized");
-        bootLines.add("  >> Projector mode available");
-        bootLines.add("");
-        bootLines.add(">> SequencerEngine ready");
-        bootLines.add("  bpm: 120.0");
-        bootLines.add("  metronome: OFF");
-        bootLines.add("  loop: OFF");
-        bootLines.add("");
-        bootLines.add("class MainComponent : public juce::Component");
-        bootLines.add("{");
-        bootLines.add("  // All systems nominal");
-        bootLines.add("  startTimerHz(15);");
-        bootLines.add("};");
-        bootLines.add("");
-        bootLines.add(">> Legion Stage loaded successfully");
-        bootLines.add(">> Ready.");
     }
 
     void buildTextPixels()

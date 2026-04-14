@@ -23,25 +23,51 @@ struct AutomationLane
     juce::String parameterName;
     juce::Array<AutomationPoint> points;
 
+    // Cached index for faster sequential lookups (audio thread calls in order)
+    mutable int lastSearchIndex = 0;
+
     float getValueAtBeat(double beat) const
     {
-        if (points.isEmpty()) return -1.0f; // no data
-
-        // Before first point
+        int n = points.size();
+        if (n == 0) return -1.0f;
         if (beat <= points.getFirst().beat) return points.getFirst().value;
-        // After last point
-        if (beat >= points.getLast().beat) return points.getLast().value;
+        if (beat >= points[n - 1].beat) return points[n - 1].value;
 
-        // Linear interpolation between points
-        for (int i = 0; i < points.size() - 1; ++i)
+        // Fast path: check cached index first (sequential playback hits this)
+        int idx = lastSearchIndex;
+        if (idx >= 0 && idx < n - 1 && beat >= points[idx].beat && beat < points[idx + 1].beat)
         {
-            if (beat >= points[i].beat && beat < points[i + 1].beat)
-            {
-                double t = (beat - points[i].beat) / (points[i + 1].beat - points[i].beat);
-                return points[i].value + static_cast<float>(t) * (points[i + 1].value - points[i].value);
-            }
+            // Cache hit — interpolate
         }
-        return points.getLast().value;
+        else if (idx + 1 < n - 1 && beat >= points[idx + 1].beat && beat < points[idx + 2].beat)
+        {
+            // Next segment — advance cache
+            idx = idx + 1;
+            lastSearchIndex = idx;
+        }
+        else
+        {
+            // Binary search fallback
+            int lo = 0, hi = n - 2;
+            while (lo <= hi)
+            {
+                int mid = (lo + hi) / 2;
+                if (beat < points[mid].beat)
+                    hi = mid - 1;
+                else if (beat >= points[mid + 1].beat)
+                    lo = mid + 1;
+                else
+                {
+                    idx = mid;
+                    lastSearchIndex = idx;
+                    break;
+                }
+            }
+            if (lo > hi) return points[n - 1].value;
+        }
+
+        double t = (beat - points[idx].beat) / (points[idx + 1].beat - points[idx].beat);
+        return points[idx].value + static_cast<float>(t) * (points[idx + 1].value - points[idx].value);
     }
 };
 

@@ -32,7 +32,6 @@ if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
     add_custom_command(TARGET Sequencer POST_BUILD
         COMMAND /usr/libexec/PlistBuddy -c "Add :NSHealthShareUsageDescription string 'Legion Stage uses your heart rate to create bio-resonance visualizations that sync your heartbeat with your music.'" "$<TARGET_BUNDLE_DIR:Sequencer>/Info.plist" 2>/dev/null || true
         COMMAND /usr/libexec/PlistBuddy -c "Add :NSHealthUpdateUsageDescription string 'Legion Stage does not write health data.'" "$<TARGET_BUNDLE_DIR:Sequencer>/Info.plist" 2>/dev/null || true
-        COMMAND /usr/libexec/PlistBuddy -c "Add :NSMotionUsageDescription string 'Legion Stage uses device motion for tilt-reactive visual effects in the Liquid Glass theme.'" "$<TARGET_BUNDLE_DIR:Sequencer>/Info.plist" 2>/dev/null || true
     )
     # Add app icon xcassets
     set(XCASSETS "${CMAKE_CURRENT_SOURCE_DIR}/resources/Images.xcassets")
@@ -76,11 +75,8 @@ target_sources(Sequencer PRIVATE
     src/IoniqDarkLookAndFeel.h
     src/IoniqForestLookAndFeel.h
     src/CyberpunkLookAndFeel.h
-    src/OxideLookAndFeel.h
     src/LiquidGlassLookAndFeel.h
     src/LiquidGlassLightLookAndFeel.h
-    src/DeviceMotion.h
-    src/DeviceMotion.mm
     src/AUPresetHelper.h
     src/AUPresetHelper.mm
     src/FileAccessHelper.h
@@ -174,10 +170,6 @@ elseif(APPLE)
         find_library(HEALTHKIT_FRAMEWORK HealthKit)
         if(HEALTHKIT_FRAMEWORK)
             target_link_libraries(Sequencer PRIVATE ${HEALTHKIT_FRAMEWORK})
-        endif()
-        find_library(COREMOTION_FRAMEWORK CoreMotion)
-        if(COREMOTION_FRAMEWORK)
-            target_link_libraries(Sequencer PRIVATE ${COREMOTION_FRAMEWORK})
         endif()
     else()
         find_library(AUDIOUNIT_FRAMEWORK AudioUnit)

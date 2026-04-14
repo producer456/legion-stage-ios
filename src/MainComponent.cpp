@@ -1219,9 +1219,14 @@ void MainComponent::timerCallback()
         cpuLabel.setText("", juce::dontSendNotification);  // drawn custom
 
         // Store CPU history for heartbeat waveform
-        cpuHistory.add(totalCpu);
-        if (cpuHistory.size() > 60)
-            cpuHistory.remove(0);
+        // Circular buffer — avoids O(N) array shift
+        if (cpuHistory.size() < 60)
+            cpuHistory.add(totalCpu);
+        else
+        {
+            cpuHistory.set(cpuHistoryWritePos % 60, totalCpu);
+            cpuHistoryWritePos++;
+        }
 
         // Advance EKG sweep — generate PQRST samples into circular buffer
         {

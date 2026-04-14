@@ -1,7 +1,6 @@
 #pragma once
 
 #include "DawLookAndFeel.h"
-#include "DeviceMotion.h"
 
 // "Liquid Glass" — Apple-inspired glassmorphism for Legion Stage.
 //
