@@ -4240,31 +4240,48 @@ void MainComponent::paint(juce::Graphics& g)
 
     if (paintPhone)
     {
-        // iPhone: draw oak/wood top bar if theme supports it, else solid
-        if (auto* lnf = dynamic_cast<DawLookAndFeel*>(&getLookAndFeel()))
+        if (glassOverlay)
         {
-            if (lnf->getSidePanelWidth() > 0)
-                lnf->drawTopBarBackground(g, 0, 0, getWidth(), topBarDrawH);
+            // Glass overlay on iPhone — ocean gradient or dark body, caustics, no chrome backgrounds
+            bool isOceania = (themeManager.getCurrentTheme() == ThemeManager::OceanGlass);
+            if (isOceania)
+            {
+                juce::ColourGradient depth(
+                    juce::Colour(0xff0a1420), 0, 0,
+                    juce::Colour(0xff020408), 0, (float)getHeight(), false);
+                g.setGradientFill(depth);
+                g.fillAll();
+            }
+
+            // Caustics on phone
+            if (glassAnimEnabled)
+                drawWaterCaustics(g, getLocalBounds());
+        }
+        else
+        {
+            // Normal phone: draw oak/wood top bar if theme supports it, else solid
+            if (auto* lnf = dynamic_cast<DawLookAndFeel*>(&getLookAndFeel()))
+            {
+                if (lnf->getSidePanelWidth() > 0)
+                    lnf->drawTopBarBackground(g, 0, 0, getWidth(), topBarDrawH);
+                else
+                {
+                    g.setColour(juce::Colour(c.bodyLight));
+                    g.fillRect(0, 0, getWidth(), topBarDrawH);
+                }
+            }
             else
             {
                 g.setColour(juce::Colour(c.bodyLight));
                 g.fillRect(0, 0, getWidth(), topBarDrawH);
             }
-        }
-        else
-        {
-            g.setColour(juce::Colour(c.bodyLight));
-            g.fillRect(0, 0, getWidth(), topBarDrawH);
-        }
 
-        g.setColour(juce::Colour(c.accentStripe));
-        g.fillRect(0, 0, getWidth(), 2);
-
-        // Bottom bar background
-        g.setColour(juce::Colour(c.bodyDark));
-        g.fillRect(0, getHeight() - 36, getWidth(), 36);
-        g.setColour(juce::Colour(c.border));
-        g.drawHorizontalLine(getHeight() - 36, 0, static_cast<float>(getWidth()));
+            // Bottom bar background
+            g.setColour(juce::Colour(c.bodyDark));
+            g.fillRect(0, getHeight() - 36, getWidth(), 36);
+            g.setColour(juce::Colour(c.border));
+            g.drawHorizontalLine(getHeight() - 36, 0, static_cast<float>(getWidth()));
+        }
         return;
     }
 
@@ -4575,9 +4592,9 @@ void MainComponent::paintOverChildren(juce::Graphics& g)
 
             auto edgeLight = [&](float ex, float ey) -> float
             {
-                float d1 = (ex * eco1 + ey * esi1) * 0.016f + t3 * 0.050f;
-                float d2 = (ex * eco2 + ey * esi2) * 0.020f + t3 * 0.040f;
-                float d3 = (ex * eco3 + ey * esi3) * 0.013f + t3 * 0.032f;
+                float d1 = (ex * eco1 + ey * esi1) * 0.016f + t3 * 0.065f;
+                float d2 = (ex * eco2 + ey * esi2) * 0.020f + t3 * 0.052f;
+                float d3 = (ex * eco3 + ey * esi3) * 0.013f + t3 * 0.042f;
                 float cv = (std::sin(d1) + std::sin(d2) + std::sin(d3)) / 3.0f;
                 cv = cv * 0.5f + 0.5f;
                 return cv * cv;
@@ -4673,60 +4690,59 @@ void MainComponent::paintOverChildren(juce::Graphics& g)
                 int panelX = getWidth() - 180 + panelSlideOff2;
                 drawGlassPane(juce::Rectangle<float>((float)panelX, 0, 180.0f, (float)getHeight()), 12.0f);
             }
-        }
+        } // end !isPhone
 
-        // Draw ripple effects
-        drawRipples(g);
-
-        // Caustic light dancing over buttons — same pattern as background
-        // Buttons catch the light where the caustic network is bright
-        auto& colors = themeManager.getColors();
-        juce::Colour acc(colors.amber);
-        float t2 = static_cast<float>(glassAnimTime);
-
-        auto lightOnButton = [&](juce::Component& btn)
+        // ── These effects apply on both iPhone and iPad ──
+        if (glassAnimEnabled)
         {
-            if (!btn.isVisible()) return;
-            auto b = btn.getBounds().toFloat();
-            float bx = b.getCentreX();
-            float by = b.getCentreY();
+            // Draw ripple effects
+            drawRipples(g);
 
-            float a1 = std::sin(t2 * 0.003f) * 1.5f + std::sin(t2 * 0.0017f + 1.0f) * 0.8f + std::sin(t2 * 0.0007f + 0.3f) * 2.0f;
-            float a2 = std::sin(t2 * 0.0025f + 2.0f) * 1.3f + std::sin(t2 * 0.0013f + 3.0f) * 0.9f + std::sin(t2 * 0.0005f + 1.7f) * 1.8f;
-            float a3 = std::sin(t2 * 0.002f + 4.5f) * 1.6f + std::sin(t2 * 0.0011f + 5.0f) * 0.7f + std::sin(t2 * 0.0004f + 4.0f) * 2.2f;
-            float sp1 = 0.050f;
-            float sp2 = 0.040f;
-            float sp3 = 0.032f;
-            float s1 = std::sin((bx * std::cos(a1) + by * std::sin(a1)) * 0.016f + t2 * sp1);
-            float s2 = std::sin((bx * std::cos(a2) + by * std::sin(a2)) * 0.020f + t2 * sp2);
-            float s3 = std::sin((bx * std::cos(a3) + by * std::sin(a3)) * 0.013f + t2 * sp3);
-            float caustic = (s1 + s2 + s3) / 3.0f * 0.5f + 0.5f;
-            caustic = caustic * caustic;
+            // Caustic light dancing over buttons
+            float t2 = static_cast<float>(glassAnimTime);
 
-            bool lightBtn = (themeManager.getCurrentTheme() == ThemeManager::LiquidGlassLight);
-            float alpha = caustic * (lightBtn ? 0.22f : 0.10f);
-            if (alpha < 0.01f) return;
+            auto lightOnButton = [&](juce::Component& btn)
+            {
+                if (!btn.isVisible()) return;
+                auto b = btn.getBounds().toFloat();
+                float bx = b.getCentreX();
+                float by = b.getCentreY();
 
-            // Shift button light color with position
-            float hueB = std::sin(bx * 0.003f + by * 0.004f + t2 * 0.01f) * 0.5f + 0.5f;
-            juce::Colour btnCol = lightBtn
-                ? juce::Colour(0xff2090d0).interpolatedWith(juce::Colour(0xff1060a0), hueB)
-                : juce::Colour(0xff60c8c0).interpolatedWith(juce::Colour(0xff4098d0), hueB);
+                float a1 = std::sin(t2 * 0.003f) * 1.5f + std::sin(t2 * 0.0017f + 1.0f) * 0.8f + std::sin(t2 * 0.0007f + 0.3f) * 2.0f;
+                float a2 = std::sin(t2 * 0.0025f + 2.0f) * 1.3f + std::sin(t2 * 0.0013f + 3.0f) * 0.9f + std::sin(t2 * 0.0005f + 1.7f) * 1.8f;
+                float a3 = std::sin(t2 * 0.002f + 4.5f) * 1.6f + std::sin(t2 * 0.0011f + 5.0f) * 0.7f + std::sin(t2 * 0.0004f + 4.0f) * 2.2f;
+                float sp1 = 0.050f;
+                float sp2 = 0.040f;
+                float sp3 = 0.032f;
+                float s1 = std::sin((bx * std::cos(a1) + by * std::sin(a1)) * 0.016f + t2 * sp1);
+                float s2 = std::sin((bx * std::cos(a2) + by * std::sin(a2)) * 0.020f + t2 * sp2);
+                float s3 = std::sin((bx * std::cos(a3) + by * std::sin(a3)) * 0.013f + t2 * sp3);
+                float caustic = (s1 + s2 + s3) / 3.0f * 0.5f + 0.5f;
+                caustic = caustic * caustic;
 
-            juce::ColourGradient topLight(
-                btnCol.withAlpha(alpha), b.getCentreX(), b.getY(),
-                btnCol.withAlpha(alpha * 0.2f), b.getCentreX(), b.getBottom(), false);
-            g.setGradientFill(topLight);
-            g.fillRoundedRectangle(b, 12.0f);
-        };
+                bool lightBtn = (themeManager.getCurrentTheme() == ThemeManager::LiquidGlassLight);
+                float alpha = caustic * (lightBtn ? 0.22f : 0.10f);
+                if (alpha < 0.01f) return;
 
-        // Hit all visible buttons
-        for (int ci = 0; ci < getNumChildComponents(); ++ci)
-        {
-            auto* child = getChildComponent(ci);
-            if (child != nullptr && child->isVisible()
-                && dynamic_cast<juce::Button*>(child) != nullptr)
-                lightOnButton(*child);
+                float hueB = std::sin(bx * 0.003f + by * 0.004f + t2 * 0.01f) * 0.5f + 0.5f;
+                juce::Colour btnCol = lightBtn
+                    ? juce::Colour(0xff2090d0).interpolatedWith(juce::Colour(0xff1060a0), hueB)
+                    : juce::Colour(0xff60c8c0).interpolatedWith(juce::Colour(0xff4098d0), hueB);
+
+                juce::ColourGradient topLight(
+                    btnCol.withAlpha(alpha), b.getCentreX(), b.getY(),
+                    btnCol.withAlpha(alpha * 0.2f), b.getCentreX(), b.getBottom(), false);
+                g.setGradientFill(topLight);
+                g.fillRoundedRectangle(b, 12.0f);
+            };
+
+            for (int ci = 0; ci < getNumChildComponents(); ++ci)
+            {
+                auto* child = getChildComponent(ci);
+                if (child != nullptr && child->isVisible()
+                    && dynamic_cast<juce::Button*>(child) != nullptr)
+                    lightOnButton(*child);
+            }
         }
     }
 
@@ -4867,6 +4883,12 @@ void MainComponent::resized()
         // ── Row 2: Clip tools, save/load, vis/piano/mixer ──
         // Right side first
         fullscreenButton.setVisible(false);
+        if (themeManager.isGlassOverlay())
+        {
+            glassAnimButton.setBounds(row2.removeFromRight(30));
+            glassAnimButton.setVisible(true);
+            row2.removeFromRight(gap);
+        }
         pianoToggleButton.setBounds(row2.removeFromRight(42));
         row2.removeFromRight(gap);
         mixerButton.setBounds(row2.removeFromRight(36));
@@ -4925,9 +4947,10 @@ void MainComponent::resized()
         // Hide items that don't fit on iPhone
         trackNameLabel.setVisible(false);
         statusLabel.setVisible(false);
-        // audioSettingsButton shown in top bar row 1
         themeSelector.setVisible(false);
         projectorButton.setVisible(false);
+        if (!themeManager.isGlassOverlay())
+            glassAnimButton.setVisible(false);
     }
     else
     {
@@ -6202,9 +6225,9 @@ void MainComponent::drawWaterCaustics(juce::Graphics& g, juce::Rectangle<int> ar
     float cos2 = std::cos(angle2), sin2 = std::sin(angle2);
     float cos3 = std::cos(angle3), sin3 = std::sin(angle3);
 
-    float speed1 = 0.050f;
-    float speed2 = 0.040f;
-    float speed3 = 0.032f;
+    float speed1 = 0.065f;
+    float speed2 = 0.052f;
+    float speed3 = 0.042f;
 
     // Render caustics to a cached image at quarter resolution — update every 3rd frame
     int cw = (int)(w / 4.0f);
