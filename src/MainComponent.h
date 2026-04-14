@@ -158,6 +158,8 @@ private:
     juce::TextButton countInButton { "Count-In" };
     juce::TextButton loopButton { "LOOP" };
     juce::TextButton panicButton { "PANIC" };
+    juce::TextButton glassAnimButton { "FX" };
+    bool glassAnimEnabled = true;
     double panicAnimEndTime = 0.0;
 
     // ── Capture (always-on MIDI ring buffer) ──

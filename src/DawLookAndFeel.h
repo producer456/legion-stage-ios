@@ -18,6 +18,9 @@ public:
     // Button corner radius
     virtual float getButtonRadius() const { return 3.0f; }
 
+    // Glass overlay themes — transparent pane rendering
+    virtual bool isGlassOverlayTheme() const { return false; }
+
     // Side panel width — override to add decorative side panels (e.g. wood cheeks)
     virtual int getSidePanelWidth() const { return 0; }
     virtual void drawSidePanels(juce::Graphics&, int /*width*/, int /*height*/) {}

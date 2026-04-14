@@ -16,8 +16,8 @@ public:
         theme.body        = 0xff000000;
         theme.bodyLight   = 0xff000000;
         theme.bodyDark    = 0xff000000;
-        theme.border      = 0x3080f0e0;
-        theme.borderLight = 0x4080f0e0;
+        theme.border      = 0x30787880;
+        theme.borderLight = 0x40787880;
 
         // Text — crisp white like sunlight on water
         theme.textPrimary   = 0xffffffff;
@@ -91,8 +91,8 @@ public:
 
         theme.trackSelected = 0x20b8d8f0;
         theme.trackArmed    = 0x28ff8878;
-        theme.trackMuteOn   = 0xffe07070;  // softened coral — still reads as mute
-        theme.trackSoloOn   = 0xffd8b050;  // warm sand gold — still reads as solo
+        theme.trackMuteOn   = 0xff888888;
+        theme.trackSoloOn   = 0xffaaaaaa;
         theme.trackSoloText = 0xff000000;
 
         applyThemeColors();
@@ -115,6 +115,7 @@ public:
     juce::String getDisplayFontName() const override { return "DIN Alternate"; }
 
     bool isGlassOverlay() const { return true; }
+    bool isGlassOverlayTheme() const override { return true; }
 
     bool drawOledButtonArt(juce::Image&, const juce::String&,
                            bool, float, juce::Colour, juce::Colour) const override

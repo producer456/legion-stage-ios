@@ -110,6 +110,7 @@ public:
     }
 
     float getButtonRadius() const override { return 12.0f; }
+    bool isGlassOverlayTheme() const override { return true; }
     juce::String getUIFontName() const override { return "DIN Alternate"; }
     juce::String getDisplayFontName() const override { return "DIN Alternate"; }
 

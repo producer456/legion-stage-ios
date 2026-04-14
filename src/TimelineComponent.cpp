@@ -1068,17 +1068,17 @@ static const DawTheme* getThemeColors(juce::Component* comp)
 void TimelineComponent::paint(juce::Graphics& g)
 {
     auto* tc = getThemeColors(this);
-
-    // Glass overlay: transparent pane with rounded corners
-    bool isGlassPane = (tc && tc->body == 0xff000000);
+    auto* dawLnf = dynamic_cast<DawLookAndFeel*>(&getLookAndFeel());
+    bool isGlassPane = dawLnf && dawLnf->isGlassOverlayTheme();
     if (isGlassPane)
     {
         setOpaque(false);
         juce::Path clip;
         clip.addRoundedRectangle(getLocalBounds().toFloat(), 12.0f);
         g.reduceClipRegion(clip);
-        // Dark tint — caustics barely ghost through
-        g.fillAll(juce::Colour(0xe0080810));
+        // Tint — adapt to light/dark theme
+        bool lightTheme = (tc && juce::Colour(tc->body).getBrightness() > 0.5f);
+        g.fillAll(lightTheme ? juce::Colour(0xe0f0f0f4) : juce::Colour(0xe0080810));
     }
     else
     {
@@ -1126,8 +1126,11 @@ void TimelineComponent::recalcTrackHeight()
 void TimelineComponent::drawHeader(juce::Graphics& g)
 {
     auto* tc = getThemeColors(this);
-    bool glassPane = (tc && tc->body == 0xff000000);
-    g.setColour(glassPane ? juce::Colour(0xd0080810) : juce::Colour(tc ? tc->bodyDark : 0xff0a0a0a));
+    auto* lnf = dynamic_cast<DawLookAndFeel*>(&getLookAndFeel());
+    bool glassPane = lnf && lnf->isGlassOverlayTheme();
+    bool lightHeader = glassPane && tc && juce::Colour(tc->body).getBrightness() > 0.5f;
+    g.setColour(glassPane ? (lightHeader ? juce::Colour(0xd0e8e8f0) : juce::Colour(0xd0080810))
+                          : juce::Colour(tc ? tc->bodyDark : 0xff0a0a0a));
     g.fillRect(0, 0, getWidth(), headerHeight);
 
     double firstBeat = std::floor(scrollX / gridResolution) * gridResolution;
@@ -1204,7 +1207,8 @@ void TimelineComponent::drawTrackLanes(juce::Graphics& g)
         // Selected track highlight
         auto* tc = getThemeColors(this);
         bool isSelected = (t == pluginHost.getSelectedTrack());
-        bool glassPane = (tc && tc->body == 0xff000000);
+        auto* lnf2 = dynamic_cast<DawLookAndFeel*>(&getLookAndFeel());
+        bool glassPane = lnf2 && lnf2->isGlassOverlayTheme();
 
         if (glassPane)
         {
@@ -1635,27 +1639,66 @@ void TimelineComponent::drawPlayhead(juce::Graphics& g)
 
     if (x < static_cast<float>(trackLabelWidth) || x > static_cast<float>(getWidth())) return;
 
+    auto* lnf = dynamic_cast<DawLookAndFeel*>(&getLookAndFeel());
     uint32_t phColor = 0xdd44dd66;
     uint32_t phGlow  = 0x3344dd66;
-    if (auto* lnf = dynamic_cast<DawLookAndFeel*>(&getLookAndFeel()))
+    if (lnf)
     {
         phColor = lnf->getTheme().playhead;
         phGlow  = lnf->getTheme().playheadGlow;
     }
 
+    bool glassTheme = lnf && lnf->isGlassOverlayTheme();
+    float hTop = static_cast<float>(headerHeight);
+    float hBot = static_cast<float>(getHeight());
+
+    // ── Glass overlay: luminous wake trailing behind the playhead ──
+    if (glassTheme && engine.isPlaying())
+    {
+        juce::Colour ph(phColor);
+        float t = static_cast<float>(juce::Time::getMillisecondCounterHiRes() * 0.001);
+
+        // Soft wake trailing behind (to the left of playhead)
+        float wakeWidth = 30.0f;
+        for (float dx = 1.0f; dx < wakeWidth; dx += 2.0f)
+        {
+            float fade = 1.0f - (dx / wakeWidth);
+            fade = fade * fade;  // ease out
+            // Gentle wave distortion in the wake
+            float waveOff = std::sin(dx * 0.15f + t * 2.0f) * 1.5f * fade;
+            float alpha = fade * 0.08f;
+            g.setColour(ph.withAlpha(alpha));
+            g.drawVerticalLine(static_cast<int>(x - dx + waveOff), hTop, hBot);
+        }
+
+        // Pulsing glow around the playhead
+        float pulse = 0.5f + 0.5f * std::sin(t * 3.0f);
+        float glowW = 6.0f + 2.0f * pulse;
+        juce::ColourGradient glow(
+            ph.withAlpha(0.15f + 0.08f * pulse), x, hTop,
+            ph.withAlpha(0.0f), x - glowW, hTop, false);
+        g.setGradientFill(glow);
+        g.fillRect(x - glowW, hTop, glowW, hBot - hTop);
+
+        juce::ColourGradient glow2(
+            ph.withAlpha(0.15f + 0.08f * pulse), x, hTop,
+            ph.withAlpha(0.0f), x + glowW, hTop, false);
+        g.setGradientFill(glow2);
+        g.fillRect(x, hTop, glowW, hBot - hTop);
+    }
+
+    // Main playhead line
     g.setColour(juce::Colour(phColor));
-    g.drawVerticalLine(static_cast<int>(x), static_cast<float>(headerHeight),
-                       static_cast<float>(getHeight()));
+    g.drawVerticalLine(static_cast<int>(x), hTop, hBot);
 
+    // Standard glow
     g.setColour(juce::Colour(phGlow));
-    g.fillRect(x - 1.0f, static_cast<float>(headerHeight), 3.0f,
-               static_cast<float>(getHeight() - headerHeight));
+    g.fillRect(x - 1.0f, hTop, 3.0f, hBot - hTop);
 
+    // Top triangle
     g.setColour(juce::Colour(phColor));
     juce::Path triangle;
-    triangle.addTriangle(x - 5, static_cast<float>(headerHeight),
-                         x + 5, static_cast<float>(headerHeight),
-                         x, static_cast<float>(headerHeight + 8));
+    triangle.addTriangle(x - 5, hTop, x + 5, hTop, x, hTop + 8);
     g.fillPath(triangle);
 }
 

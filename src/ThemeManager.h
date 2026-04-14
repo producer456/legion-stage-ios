@@ -23,7 +23,7 @@ public:
         Alcantara,
         Ioniq,
         IoniqDark,
-        IoniqForest,
+        IoniqForest,  // kept for save compatibility but hidden from UI
         Cyberpunk,
         LiquidGlass,
         LiquidGlassLight,
@@ -63,7 +63,7 @@ public:
 
     Theme getCurrentTheme() const { return currentTheme; }
 
-    bool isGlassOverlay() const { return currentTheme == GlassOverlay || currentTheme == OceanGlass; }
+    bool isGlassOverlay() const { return currentTheme == GlassOverlay || currentTheme == OceanGlass || currentTheme == LiquidGlassLight; }
     DawLookAndFeel* getLookAndFeel() { return themes[currentTheme].get(); }
     const DawTheme& getColors() const { return themes[currentTheme]->getTheme(); }
 

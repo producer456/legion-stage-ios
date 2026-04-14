@@ -277,6 +277,15 @@ MainComponent::MainComponent()
         panicAnimEndTime = juce::Time::getMillisecondCounterHiRes() * 0.001 + 3.0;
     };
 
+    // ── Glass Animation Toggle ──
+    addAndMakeVisible(glassAnimButton);
+    glassAnimButton.setClickingTogglesState(true);
+    glassAnimButton.setToggleState(true, juce::dontSendNotification);
+    glassAnimButton.onClick = [this] {
+        glassAnimEnabled = glassAnimButton.getToggleState();
+        repaint();
+    };
+
     // ── Capture Button ──
     addAndMakeVisible(captureButton);
     captureButton.onClick = [this] { performCapture(); };
@@ -871,7 +880,10 @@ MainComponent::MainComponent()
     // ── Theme Selector ──
     addAndMakeVisible(themeSelector);
     for (int i = 0; i < ThemeManager::NumThemes; ++i)
+    {
+        if (i == ThemeManager::IoniqForest) continue;  // hidden
         themeSelector.addItem(ThemeManager::getThemeName(static_cast<ThemeManager::Theme>(i)), i + 1);
+    }
     themeSelector.setSelectedId(ThemeManager::Ioniq + 1, juce::dontSendNotification);
     themeSelector.onChange = [this] {
         auto idx = themeSelector.getSelectedId() - 1;
@@ -879,6 +891,10 @@ MainComponent::MainComponent()
         {
             themeManager.setTheme(static_cast<ThemeManager::Theme>(idx), this);
             applyThemeToControls();
+            // Glass Light defaults to animation off
+            bool animDefault = (idx != ThemeManager::LiquidGlassLight);
+            glassAnimEnabled = animDefault;
+            glassAnimButton.setToggleState(animDefault, juce::dontSendNotification);
             panelBlurImage = juce::Image();
             panelBlurUpdateCounter = 8;
             resized();
@@ -1069,7 +1085,7 @@ void MainComponent::timerCallback()
     }
 
     // ── Glass/Liquid animation tick ──
-    if (themeManager.isGlassOverlay())
+    if (themeManager.isGlassOverlay() && glassAnimEnabled)
     {
         glassAnimTime = juce::Time::getMillisecondCounterHiRes() * 0.001;
         // Age ripples
@@ -4124,8 +4140,11 @@ void MainComponent::showPhoneMenu()
     // Theme submenu
     juce::PopupMenu themeMenu;
     for (int i = 0; i < ThemeManager::NumThemes; ++i)
+    {
+        if (i == ThemeManager::IoniqForest) continue;
         themeMenu.addItem(50 + i, ThemeManager::getThemeName(static_cast<ThemeManager::Theme>(i)),
                          true, themeSelector.getSelectedId() == i + 1);
+    }
     menu.addSubMenu("Theme", themeMenu);
     menu.addSeparator();
     menu.addItem(11, "Switch to iPad Layout");
@@ -4359,35 +4378,34 @@ void MainComponent::paint(juce::Graphics& g)
     // Accent stripe at top — glass overlay replaces with water surface light
     if (glassOverlay)
     {
-        // Draw caustics/orbs at full strength outside arranger,
-        // barely visible inside it
-        if (timelineComponent && timelineComponent->isVisible())
+        // No accent stripe for glass themes — caustics replace it (or nothing when anim off)
+        if (glassAnimEnabled)
         {
-            auto tlRect = timelineComponent->getBounds();
+            if (timelineComponent && timelineComponent->isVisible())
+            {
+                auto tlRect = timelineComponent->getBounds();
 
-            // First pass: clip OUT the arranger — full strength everywhere else
-            g.saveState();
-            g.excludeClipRegion(tlRect);
-            drawWaterCaustics(g, getLocalBounds());
-            g.restoreState();
+                g.saveState();
+                g.excludeClipRegion(tlRect);
+                drawWaterCaustics(g, getLocalBounds());
+                g.restoreState();
 
-            // Second pass: clip TO the arranger — very faint
-            g.saveState();
-            g.reduceClipRegion(tlRect);
-            g.setOpacity(0.15f);
-            drawWaterCaustics(g, getLocalBounds());
-            g.setOpacity(1.0f);
-            g.restoreState();
-        }
-        else
-        {
-            drawWaterCaustics(g, getLocalBounds());
+                g.saveState();
+                g.reduceClipRegion(tlRect);
+                g.setOpacity(0.15f);
+                drawWaterCaustics(g, getLocalBounds());
+                g.setOpacity(1.0f);
+                g.restoreState();
+            }
+            else
+            {
+                drawWaterCaustics(g, getLocalBounds());
+            }
         }
     }
     else
     {
-        g.setColour(juce::Colour(c.accentStripe));
-        g.fillRect(0, 0, getWidth(), 2);
+        // Accent stripe removed — clean top edge across all themes
     }
 
 #if JUCE_IOS
@@ -4545,16 +4563,23 @@ void MainComponent::paintOverChildren(juce::Graphics& g)
 
             // ── Glass pane refractive edges ──
             float t3 = static_cast<float>(glassAnimTime);
+            if (!glassAnimEnabled) t3 = 0.0f;  // freeze animation
+
+            // Same wave calc as background caustics — identical angles and speeds
+            float ea1 = std::sin(t3 * 0.003f) * 1.5f + std::sin(t3 * 0.0017f + 1.0f) * 0.8f + std::sin(t3 * 0.0007f + 0.3f) * 2.0f;
+            float ea2 = std::sin(t3 * 0.0025f + 2.0f) * 1.3f + std::sin(t3 * 0.0013f + 3.0f) * 0.9f + std::sin(t3 * 0.0005f + 1.7f) * 1.8f;
+            float ea3 = std::sin(t3 * 0.002f + 4.5f) * 1.6f + std::sin(t3 * 0.0011f + 5.0f) * 0.7f + std::sin(t3 * 0.0004f + 4.0f) * 2.2f;
+            float eco1 = std::cos(ea1), esi1 = std::sin(ea1);
+            float eco2 = std::cos(ea2), esi2 = std::sin(ea2);
+            float eco3 = std::cos(ea3), esi3 = std::sin(ea3);
 
             auto edgeLight = [&](float ex, float ey) -> float
             {
-                float a1 = std::sin(t3 * 0.003f) * 1.5f + std::sin(t3 * 0.0017f + 1.0f) * 0.8f + std::sin(t3 * 0.0007f + 0.3f) * 2.0f;
-                float a2 = std::sin(t3 * 0.0025f + 2.0f) * 1.3f + std::sin(t3 * 0.0013f + 3.0f) * 0.9f + std::sin(t3 * 0.0005f + 1.7f) * 1.8f;
-                float sp1 = 0.015f + 0.012f * (std::sin(t3 * 0.005f) * 0.5f + 0.5f);
-                float sp2 = 0.012f + 0.010f * (std::sin(t3 * 0.004f + 1.5f) * 0.5f + 0.5f);
-                float d1 = (ex * std::cos(a1) + ey * std::sin(a1)) * 0.016f + t3 * sp1;
-                float d2 = (ex * std::cos(a2) + ey * std::sin(a2)) * 0.020f + t3 * sp2;
-                float cv = (std::sin(d1) + std::sin(d2)) * 0.5f * 0.5f + 0.5f;
+                float d1 = (ex * eco1 + ey * esi1) * 0.016f + t3 * 0.050f;
+                float d2 = (ex * eco2 + ey * esi2) * 0.020f + t3 * 0.040f;
+                float d3 = (ex * eco3 + ey * esi3) * 0.013f + t3 * 0.032f;
+                float cv = (std::sin(d1) + std::sin(d2) + std::sin(d3)) / 3.0f;
+                cv = cv * 0.5f + 0.5f;
                 return cv * cv;
             };
 
@@ -4562,9 +4587,16 @@ void MainComponent::paintOverChildren(juce::Graphics& g)
             {
                 float edgeW = 8.0f;
                 float glowW = 20.0f;
+                float cr = cornerR;
 
-                // Top edge
-                for (float x = bounds.getX(); x < bounds.getRight(); x += 6.0f)
+                // Clip to rounded rect so edge glow follows the corners
+                g.saveState();
+                juce::Path clipPath;
+                clipPath.addRoundedRectangle(bounds.expanded(edgeW), cr + edgeW);
+                g.reduceClipRegion(clipPath);
+
+                // Top edge — skip corners
+                for (float x = bounds.getX() + cr; x < bounds.getRight() - cr; x += 6.0f)
                 {
                     float intensity = edgeLight(x, bounds.getY());
                     float a = intensity * 0.15f;
@@ -4579,8 +4611,8 @@ void MainComponent::paintOverChildren(juce::Graphics& g)
                     g.fillRect(x, bounds.getY(), 6.0f, glowW);
                 }
 
-                // Left edge
-                for (float y = bounds.getY(); y < bounds.getBottom(); y += 6.0f)
+                // Left edge — skip corners
+                for (float y = bounds.getY() + cr; y < bounds.getBottom() - cr; y += 6.0f)
                 {
                     float intensity = edgeLight(bounds.getX(), y);
                     float a = intensity * 0.12f;
@@ -4595,8 +4627,8 @@ void MainComponent::paintOverChildren(juce::Graphics& g)
                     g.fillRect(bounds.getX(), y, glowW, 6.0f);
                 }
 
-                // Bottom edge
-                for (float x = bounds.getX(); x < bounds.getRight(); x += 6.0f)
+                // Bottom edge — skip corners
+                for (float x = bounds.getX() + cr; x < bounds.getRight() - cr; x += 6.0f)
                 {
                     float intensity = edgeLight(x, bounds.getBottom());
                     float a = intensity * 0.10f;
@@ -4609,8 +4641,8 @@ void MainComponent::paintOverChildren(juce::Graphics& g)
                     g.fillRect(x, bounds.getBottom() - glowW, 6.0f, glowW);
                 }
 
-                // Right edge
-                for (float y = bounds.getY(); y < bounds.getBottom(); y += 6.0f)
+                // Right edge — skip corners
+                for (float y = bounds.getY() + cr; y < bounds.getBottom() - cr; y += 6.0f)
                 {
                     float intensity = edgeLight(bounds.getRight(), y);
                     float a = intensity * 0.10f;
@@ -4622,6 +4654,8 @@ void MainComponent::paintOverChildren(juce::Graphics& g)
                     g.setGradientFill(spread);
                     g.fillRect(bounds.getRight() - glowW, y, glowW, 6.0f);
                 }
+
+                g.restoreState();
 
                 // Glass edge outline
                 g.setColour(juce::Colours::white.withAlpha(0.06f));
@@ -4660,21 +4694,24 @@ void MainComponent::paintOverChildren(juce::Graphics& g)
             float a1 = std::sin(t2 * 0.003f) * 1.5f + std::sin(t2 * 0.0017f + 1.0f) * 0.8f + std::sin(t2 * 0.0007f + 0.3f) * 2.0f;
             float a2 = std::sin(t2 * 0.0025f + 2.0f) * 1.3f + std::sin(t2 * 0.0013f + 3.0f) * 0.9f + std::sin(t2 * 0.0005f + 1.7f) * 1.8f;
             float a3 = std::sin(t2 * 0.002f + 4.5f) * 1.6f + std::sin(t2 * 0.0011f + 5.0f) * 0.7f + std::sin(t2 * 0.0004f + 4.0f) * 2.2f;
-            float sp1 = 0.015f + 0.012f * (std::sin(t2 * 0.005f) * 0.5f + 0.5f) + 0.008f * juce::jmax(0.0f, std::sin(t2 * 0.002f));
-            float sp2 = 0.012f + 0.010f * (std::sin(t2 * 0.004f + 1.5f) * 0.5f + 0.5f) + 0.006f * juce::jmax(0.0f, std::sin(t2 * 0.0015f + 1.0f));
-            float sp3 = 0.010f + 0.008f * (std::sin(t2 * 0.003f + 3.0f) * 0.5f + 0.5f) + 0.007f * juce::jmax(0.0f, std::sin(t2 * 0.0018f + 2.0f));
+            float sp1 = 0.050f;
+            float sp2 = 0.040f;
+            float sp3 = 0.032f;
             float s1 = std::sin((bx * std::cos(a1) + by * std::sin(a1)) * 0.016f + t2 * sp1);
             float s2 = std::sin((bx * std::cos(a2) + by * std::sin(a2)) * 0.020f + t2 * sp2);
             float s3 = std::sin((bx * std::cos(a3) + by * std::sin(a3)) * 0.013f + t2 * sp3);
             float caustic = (s1 + s2 + s3) / 3.0f * 0.5f + 0.5f;
             caustic = caustic * caustic;
 
-            float alpha = caustic * 0.10f;
+            bool lightBtn = (themeManager.getCurrentTheme() == ThemeManager::LiquidGlassLight);
+            float alpha = caustic * (lightBtn ? 0.22f : 0.10f);
             if (alpha < 0.01f) return;
 
             // Shift button light color with position
             float hueB = std::sin(bx * 0.003f + by * 0.004f + t2 * 0.01f) * 0.5f + 0.5f;
-            juce::Colour btnCol = juce::Colour(0xff60c8c0).interpolatedWith(juce::Colour(0xff4098d0), hueB);
+            juce::Colour btnCol = lightBtn
+                ? juce::Colour(0xff2090d0).interpolatedWith(juce::Colour(0xff1060a0), hueB)
+                : juce::Colour(0xff60c8c0).interpolatedWith(juce::Colour(0xff4098d0), hueB);
 
             juce::ColourGradient topLight(
                 btnCol.withAlpha(alpha), b.getCentreX(), b.getY(),
@@ -4948,6 +4985,16 @@ void MainComponent::resized()
         topBar.removeFromLeft(3);
         panicButton.setBounds(topBar.removeFromLeft(55));
         topBar.removeFromLeft(3);
+        if (themeManager.isGlassOverlay())
+        {
+            glassAnimButton.setBounds(topBar.removeFromLeft(35));
+            glassAnimButton.setVisible(true);
+            topBar.removeFromLeft(3);
+        }
+        else
+        {
+            glassAnimButton.setVisible(false);
+        }
 
         // OLED info display — centered in remaining space between panic and learn
         {
@@ -6155,13 +6202,9 @@ void MainComponent::drawWaterCaustics(juce::Graphics& g, juce::Rectangle<int> ar
     float cos2 = std::cos(angle2), sin2 = std::sin(angle2);
     float cos3 = std::cos(angle3), sin3 = std::sin(angle3);
 
-    // Speeds breathe with occasional surges
-    float speed1 = 0.015f + 0.012f * (std::sin(t * 0.005f) * 0.5f + 0.5f)
-                           + 0.008f * juce::jmax(0.0f, std::sin(t * 0.002f));  // occasional surge
-    float speed2 = 0.012f + 0.010f * (std::sin(t * 0.004f + 1.5f) * 0.5f + 0.5f)
-                           + 0.006f * juce::jmax(0.0f, std::sin(t * 0.0015f + 1.0f));
-    float speed3 = 0.010f + 0.008f * (std::sin(t * 0.003f + 3.0f) * 0.5f + 0.5f)
-                           + 0.007f * juce::jmax(0.0f, std::sin(t * 0.0018f + 2.0f));
+    float speed1 = 0.050f;
+    float speed2 = 0.040f;
+    float speed3 = 0.032f;
 
     // Render caustics to a cached image at quarter resolution — update every 3rd frame
     int cw = (int)(w / 4.0f);
@@ -6180,8 +6223,11 @@ void MainComponent::drawWaterCaustics(juce::Graphics& g, juce::Rectangle<int> ar
         causticFrame = 0;
         causticImg.clear(causticImg.getBounds());
 
-        juce::Colour warmTone(0xff60c8c0);
-        juce::Colour coolTone(0xff4098d0);
+        // Detect light theme — boost alpha so caustics are visible on bright backgrounds
+        bool lightTheme = (themeManager.getCurrentTheme() == ThemeManager::LiquidGlassLight);
+        juce::Colour warmTone = lightTheme ? juce::Colour(0xff2090d0) : juce::Colour(0xff60c8c0);
+        juce::Colour coolTone = lightTheme ? juce::Colour(0xff1060a0) : juce::Colour(0xff4098d0);
+        float alphaScale = lightTheme ? 0.35f : 0.15f;
 
         for (int py = 0; py < ch; ++py)
         {
@@ -6198,7 +6244,7 @@ void MainComponent::drawWaterCaustics(juce::Graphics& g, juce::Rectangle<int> ar
                 caustic = caustic * 0.5f + 0.5f;
                 caustic = caustic * caustic;
 
-                float alpha = caustic * 0.15f;  // boosted for visibility
+                float alpha = caustic * alphaScale;
                 if (alpha < 0.02f) continue;
 
                 float hueShift = std::sin(x * 0.003f + y * 0.004f + t * 0.01f) * 0.5f + 0.5f;

@@ -114,6 +114,7 @@ public:
 
     // Flag for MainComponent to know this theme needs glass overlay rendering
     bool isGlassOverlay() const { return true; }
+    bool isGlassOverlayTheme() const override { return true; }
 
     // Skip OLED art — clean text
     bool drawOledButtonArt(juce::Image&, const juce::String&,
