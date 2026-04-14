@@ -149,6 +149,9 @@ public:
     std::function<void(int tapCount)> onLoopSetProgress;  // called with 1 after first tap, 0 after completion
 private:
 
+    // Cached theme pointer — set once per paint(), avoids repeated dynamic_cast
+    const DawTheme* cachedTheme = nullptr;
+
     // Automation point editing
     struct AutoPointRef {
         int trackIndex = -1;

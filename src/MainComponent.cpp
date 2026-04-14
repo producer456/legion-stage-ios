@@ -755,22 +755,6 @@ MainComponent::MainComponent()
         repaint();
     };
 
-    // ── Loop Set Mode ──
-    addAndMakeVisible(loopSetButton);
-    loopSetButton.setClickingTogglesState(true);
-    loopSetButton.onClick = [this] {
-        if (timelineComponent)
-        {
-            bool active = loopSetButton.getToggleState();
-            timelineComponent->loopSetMode = active;
-            timelineComponent->loopSetTapCount = 0;
-            if (active)
-                statusLabel.setText("Tap loop start point...", juce::dontSendNotification);
-            else
-                updateStatusLabel();
-            timelineComponent->repaint();
-        }
-    };
 
     // ── Right Panel Toggle ──
     addAndMakeVisible(panelToggleButton);
@@ -958,15 +942,6 @@ MainComponent::MainComponent()
     // ── Timeline (arrangement view — always visible) ──
     timelineComponent = std::make_unique<TimelineComponent>(pluginHost);
     timelineComponent->onBeforeEdit = [this] { takeSnapshot(); };
-    timelineComponent->onLoopSetProgress = [this](int tapCount) {
-        if (tapCount == 1)
-            statusLabel.setText("Tap loop end point...", juce::dontSendNotification);
-        else
-        {
-            loopSetButton.setToggleState(false, juce::dontSendNotification);
-            updateStatusLabel();
-        }
-    };
     addAndMakeVisible(*timelineComponent);
 
     arrangerMinimap = std::make_unique<ArrangerMinimapComponent>(pluginHost);
@@ -5310,7 +5285,6 @@ void MainComponent::resized()
     captureButton.setBounds(toolbar.removeFromLeft(55));
     captureButton.setVisible(true);
     toolbar.removeFromLeft(4);
-    loopSetButton.setVisible(false);
     // CPU label — takes remaining toolbar space (expands when panel hidden)
     auto cpuArea = toolbar;
     cpuLabel.setBounds(cpuArea.getX(), captureButton.getY(), cpuArea.getWidth(), captureButton.getHeight());

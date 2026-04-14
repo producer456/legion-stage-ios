@@ -1067,7 +1067,9 @@ static const DawTheme* getThemeColors(juce::Component* comp)
 
 void TimelineComponent::paint(juce::Graphics& g)
 {
-    auto* tc = getThemeColors(this);
+    // Cache theme for all draw methods — one dynamic_cast per frame
+    cachedTheme = getThemeColors(this);
+    auto* tc = cachedTheme;
     g.fillAll(juce::Colour(tc ? tc->timelineBg : 0xff000000));
     drawHeader(g);
     drawTrackLanes(g);
@@ -1110,7 +1112,7 @@ void TimelineComponent::recalcTrackHeight()
 
 void TimelineComponent::drawHeader(juce::Graphics& g)
 {
-    auto* tc = getThemeColors(this);
+    auto* tc = cachedTheme;
     g.setColour(juce::Colour(tc ? tc->bodyDark : 0xff0a0a0a));
     g.fillRect(0, 0, getWidth(), headerHeight);
 
@@ -1182,7 +1184,7 @@ void TimelineComponent::drawTrackLanes(juce::Graphics& g)
         if (y + trackHeight < headerHeight || y > getHeight()) continue;
 
         // Selected track highlight
-        auto* tc = getThemeColors(this);
+        auto* tc = cachedTheme;
         bool isSelected = (t == pluginHost.getSelectedTrack());
         if (isSelected)
             g.setColour(juce::Colour(tc ? tc->timelineSelectedRow : 0xff0a1520));
@@ -1230,7 +1232,7 @@ void TimelineComponent::drawTrackControls(juce::Graphics& g)
         // Track select button — color shows selection + arm state
         auto selRect = getSelectButtonRect(t);
 
-        auto* tc = getThemeColors(this);
+        auto* tc = cachedTheme;
         if (isLocked)
             g.setColour(juce::Colour(tc ? tc->trackArmed : 0xff882222));
         else if (isSelected)
@@ -1387,7 +1389,7 @@ void TimelineComponent::drawClips(juce::Graphics& g)
             if (clipRect.getRight() < trackLabelWidth || clipRect.getX() > getWidth()) continue;
 
             // Color based on state
-            auto* tc = getThemeColors(this);
+            auto* tc = cachedTheme;
             auto state = slot.state.load();
             juce::Colour clipColor;
             if (state == ClipSlot::Playing)
@@ -1495,7 +1497,7 @@ void TimelineComponent::drawMiniNotes(juce::Graphics& g, const MidiClip& clip, j
     float noteH = juce::jmax(1.0f, (area.getHeight() - 6.0f) / static_cast<float>(noteRange));
     float beatsToPixels = area.getWidth() / static_cast<float>(clip.lengthInBeats);
 
-    auto* tc = getThemeColors(this);
+    auto* tc = cachedTheme;
     g.setColour(tc ? juce::Colour(tc->clipNotePreview) : juce::Colours::white.withAlpha(0.5f));
 
     for (int i = 0; i < clip.events.getNumEvents(); ++i)
@@ -1522,10 +1524,7 @@ void TimelineComponent::drawMiniNotes(juce::Graphics& g, const MidiClip& clip, j
 
 void TimelineComponent::drawAutomation(juce::Graphics& g)
 {
-    // Use OLED blue for all automation lanes with varying alpha
-    uint32_t lcdBlue = 0xffb8d8f0;
-    if (auto* lnf = dynamic_cast<DawLookAndFeel*>(&getLookAndFeel()))
-        lcdBlue = lnf->getTheme().lcdText;
+    uint32_t lcdBlue = cachedTheme ? cachedTheme->lcdText : 0xffb8d8f0;
     static const float alphas[] = { 0.9f, 0.7f, 0.55f, 0.85f, 0.65f, 0.5f };
     (void)alphas;
 
@@ -1598,12 +1597,8 @@ void TimelineComponent::drawPlayhead(juce::Graphics& g)
     if (x < static_cast<float>(trackLabelWidth) || x > static_cast<float>(getWidth())) return;
 
     uint32_t phColor = 0xdd44dd66;
-    uint32_t phGlow  = 0x3344dd66;
-    if (auto* lnf = dynamic_cast<DawLookAndFeel*>(&getLookAndFeel()))
-    {
-        phColor = lnf->getTheme().playhead;
-        phGlow  = lnf->getTheme().playheadGlow;
-    }
+    uint32_t phGlow  = cachedTheme ? cachedTheme->playheadGlow : 0x3344dd66;
+    if (cachedTheme) phColor = cachedTheme->playhead;
 
     g.setColour(juce::Colour(phColor));
     g.drawVerticalLine(static_cast<int>(x), static_cast<float>(headerHeight),
@@ -1637,13 +1632,8 @@ void TimelineComponent::drawLoopRegion(juce::Graphics& g)
     // Get theme colors (fall back to blue if no LookAndFeel set)
     uint32_t regionColor = 0x2244aaff;
     uint32_t borderColor = 0xff4488cc;
-    if (auto* lnf = dynamic_cast<DawLookAndFeel*>(&getLookAndFeel()))
-    {
-        regionColor = lnf->getTheme().loopRegion;
-        borderColor = lnf->getTheme().loopBorder;
-    }
+    if (cachedTheme) { regionColor = cachedTheme->loopRegion; borderColor = cachedTheme->loopBorder; }
 
-    // Header bar
     g.setColour(juce::Colour(borderColor).withAlpha(0.4f));
     g.fillRect(x1, 0.0f, x2 - x1, static_cast<float>(headerHeight));
 
@@ -1677,9 +1667,7 @@ void TimelineComponent::drawLoopHandles(juce::Graphics& g)
     if (x1 > maxX && x2 > maxX) return;
     if (x1 < minX && x2 < minX) return;
 
-    uint32_t handleColor = 0xff4488cc;
-    if (auto* lnf = dynamic_cast<DawLookAndFeel*>(&getLookAndFeel()))
-        handleColor = lnf->getTheme().loopBorder;
+    uint32_t handleColor = cachedTheme ? cachedTheme->loopBorder : 0xff4488cc;
 
     auto col = juce::Colour(handleColor);
     int handleW = 10;
