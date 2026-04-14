@@ -1068,7 +1068,22 @@ static const DawTheme* getThemeColors(juce::Component* comp)
 void TimelineComponent::paint(juce::Graphics& g)
 {
     auto* tc = getThemeColors(this);
-    g.fillAll(juce::Colour(tc ? tc->timelineBg : 0xff000000));
+
+    // Glass overlay: transparent pane with rounded corners
+    bool isGlassPane = (tc && tc->body == 0xff000000);
+    if (isGlassPane)
+    {
+        setOpaque(false);
+        juce::Path clip;
+        clip.addRoundedRectangle(getLocalBounds().toFloat(), 12.0f);
+        g.reduceClipRegion(clip);
+        // Dark tint — caustics barely ghost through
+        g.fillAll(juce::Colour(0xe0080810));
+    }
+    else
+    {
+        g.fillAll(juce::Colour(tc ? tc->timelineBg : 0xff000000));
+    }
     drawHeader(g);
     drawTrackLanes(g);
     drawClips(g);
@@ -1111,11 +1126,19 @@ void TimelineComponent::recalcTrackHeight()
 void TimelineComponent::drawHeader(juce::Graphics& g)
 {
     auto* tc = getThemeColors(this);
-    g.setColour(juce::Colour(tc ? tc->bodyDark : 0xff0a0a0a));
+    bool glassPane = (tc && tc->body == 0xff000000);
+    g.setColour(glassPane ? juce::Colour(0xd0080810) : juce::Colour(tc ? tc->bodyDark : 0xff0a0a0a));
     g.fillRect(0, 0, getWidth(), headerHeight);
 
     double firstBeat = std::floor(scrollX / gridResolution) * gridResolution;
     double lastBeat = scrollX + (getWidth() - trackLabelWidth) / pixelsPerBeat;
+
+    // Glass pane: grid lines only on the selected track
+    int selTrack = pluginHost.getSelectedTrack();
+    float selTop = static_cast<float>(headerHeight + selTrack * trackHeight - scrollY);
+    float selBot = selTop + static_cast<float>(trackHeight);
+    float gridTop = glassPane ? juce::jmax(selTop, static_cast<float>(headerHeight)) : static_cast<float>(headerHeight);
+    float gridBot = glassPane ? juce::jmin(selBot, static_cast<float>(getHeight())) : static_cast<float>(getHeight());
 
     for (double beat = firstBeat; beat <= lastBeat; beat += gridResolution)
     {
@@ -1136,8 +1159,7 @@ void TimelineComponent::drawHeader(juce::Graphics& g)
             g.drawVerticalLine(static_cast<int>(x), static_cast<float>(headerHeight / 2),
                                static_cast<float>(headerHeight));
             g.setColour(juce::Colour(tc ? tc->timelineGridMajor : 0xff666666));
-            g.drawVerticalLine(static_cast<int>(x), static_cast<float>(headerHeight),
-                               static_cast<float>(getHeight()));
+            g.drawVerticalLine(static_cast<int>(x), gridTop, gridBot);
         }
         else if (isBeat)
         {
@@ -1150,8 +1172,7 @@ void TimelineComponent::drawHeader(juce::Graphics& g)
             g.drawVerticalLine(static_cast<int>(x), static_cast<float>(headerHeight * 2 / 3),
                                static_cast<float>(headerHeight));
             g.setColour(juce::Colour(tc ? tc->timelineGridBeat : 0xff444444));
-            g.drawVerticalLine(static_cast<int>(x), static_cast<float>(headerHeight),
-                               static_cast<float>(getHeight()));
+            g.drawVerticalLine(static_cast<int>(x), gridTop, gridBot);
         }
         else
         {
@@ -1159,8 +1180,7 @@ void TimelineComponent::drawHeader(juce::Graphics& g)
             g.drawVerticalLine(static_cast<int>(x), static_cast<float>(headerHeight * 3 / 4),
                                static_cast<float>(headerHeight));
             g.setColour(juce::Colour(tc ? tc->timelineGridFaint : 0xff2d2d2d));
-            g.drawVerticalLine(static_cast<int>(x), static_cast<float>(headerHeight),
-                               static_cast<float>(getHeight()));
+            g.drawVerticalLine(static_cast<int>(x), gridTop, gridBot);
         }
     }
 
@@ -1184,6 +1204,24 @@ void TimelineComponent::drawTrackLanes(juce::Graphics& g)
         // Selected track highlight
         auto* tc = getThemeColors(this);
         bool isSelected = (t == pluginHost.getSelectedTrack());
+        bool glassPane = (tc && tc->body == 0xff000000);
+
+        if (glassPane)
+        {
+            // Glass pane: very subtle translucent fills
+            if (isSelected)
+                g.setColour(juce::Colour(tc->timelineSelectedRow));
+            else if (t % 2 != 0)
+                g.setColour(juce::Colour(0x08ffffff));  // barely visible alt row
+            else
+                continue;  // skip even rows — fully transparent
+            g.fillRect(0, y, getWidth(), trackHeight);
+            // Still need lane separator
+            g.setColour(juce::Colour(tc ? tc->timelineGridMinor : 0xff333333));
+            g.drawHorizontalLine(y + trackHeight - 1, 0, static_cast<float>(getWidth()));
+            continue;
+        }
+
         if (isSelected)
             g.setColour(juce::Colour(tc ? tc->timelineSelectedRow : 0xff0a1520));
         else

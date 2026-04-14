@@ -384,6 +384,21 @@ private:
     int ekgWritePos = 0;
     double ekgPhase = 0.0;  // continuous phase through PQRST cycle
 
+    // ── Glass/Liquid animations ──
+    double glassAnimTime = 0.0;  // continuous time for caustics & breathing
+    struct Ripple {
+        float x, y;        // center position
+        float age;          // seconds since tap
+        float maxRadius;
+    };
+    static constexpr int MAX_RIPPLES = 6;
+    std::array<Ripple, MAX_RIPPLES> ripples {};
+    int rippleCount = 0;
+    void addRipple(float x, float y);
+    void drawWaterCaustics(juce::Graphics& g, juce::Rectangle<int> area);
+    void drawRipples(juce::Graphics& g);
+    void drawBreathingStripe(juce::Graphics& g);
+
     // ── Bottom Bar ──
     juce::Label statusLabel;
 

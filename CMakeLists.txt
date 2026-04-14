@@ -79,6 +79,8 @@ target_sources(Sequencer PRIVATE
     src/OxideLookAndFeel.h
     src/LiquidGlassLookAndFeel.h
     src/LiquidGlassLightLookAndFeel.h
+    src/GlassOverlayLookAndFeel.h
+    src/OceanGlassLookAndFeel.h
     src/DeviceMotion.h
     src/DeviceMotion.mm
     src/AUPresetHelper.h

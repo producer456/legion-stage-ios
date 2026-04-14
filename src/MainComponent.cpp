@@ -1068,6 +1068,27 @@ void MainComponent::timerCallback()
         panelAnimFrameSkip = 0;
     }
 
+    // ── Glass/Liquid animation tick ──
+    if (themeManager.isGlassOverlay())
+    {
+        glassAnimTime = juce::Time::getMillisecondCounterHiRes() * 0.001;
+        // Age ripples
+        for (int i = 0; i < rippleCount; )
+        {
+            ripples[static_cast<size_t>(i)].age += 1.0f / 15.0f;  // still 15Hz timer rate
+            if (ripples[static_cast<size_t>(i)].age > 1.2f)
+            {
+                // Remove expired ripple
+                for (int j = i; j < rippleCount - 1; ++j)
+                    ripples[static_cast<size_t>(j)] = ripples[static_cast<size_t>(j + 1)];
+                --rippleCount;
+            }
+            else
+                ++i;
+        }
+        repaint();
+    }
+
     // Update panel frosted glass blur
     if (panelSlideProgress > 0.1f)
     {
@@ -3722,6 +3743,10 @@ void MainComponent::mouseDown(const juce::MouseEvent& e)
 {
     grabKeyboardFocus();
 
+    // Glass overlay: spawn ripple on any tap
+    if (themeManager.isGlassOverlay())
+        addRipple(static_cast<float>(e.getPosition().x), static_cast<float>(e.getPosition().y));
+
     // Tap on small visualizer to go fullscreen
     if (!visualizerFullScreen)
     {
@@ -4160,7 +4185,29 @@ void MainComponent::paint(juce::Graphics& g)
     auto& c = themeManager.getColors();
 
     // Main body
-    g.fillAll(juce::Colour(c.body));
+    bool glassOverlay = themeManager.isGlassOverlay();
+
+    if (glassOverlay)
+    {
+        // Deep ocean gradient — slightly lighter at top (surface), darker at bottom (deep)
+        bool isOceania = (themeManager.getCurrentTheme() == ThemeManager::OceanGlass);
+        if (isOceania)
+        {
+            juce::ColourGradient depth(
+                juce::Colour(0xff0a1420), 0, 0,
+                juce::Colour(0xff020408), 0, (float)getHeight(), false);
+            g.setGradientFill(depth);
+            g.fillAll();
+        }
+        else
+        {
+            g.fillAll(juce::Colour(c.body));
+        }
+    }
+    else
+    {
+        g.fillAll(juce::Colour(c.body));
+    }
 
 #if JUCE_IOS
     bool paintPhone = AUScanner::isIPhone() && !forceIPadLayout;
@@ -4202,26 +4249,29 @@ void MainComponent::paint(juce::Graphics& g)
         return;
     }
 
-    if (auto* lnf = dynamic_cast<DawLookAndFeel*>(&getLookAndFeel()))
+    if (!glassOverlay)
     {
-        if (lnf->getSidePanelWidth() > 0)
+        if (auto* lnf = dynamic_cast<DawLookAndFeel*>(&getLookAndFeel()))
         {
-            // Custom top bar (e.g. wood grain) — stop before oak strip
-            int sidePW = lnf->getSidePanelWidth();
-            int rpW = (int)(180.0f * panelSlideProgress);
-            int topBarWidth = getWidth() - sidePW - rpW - sidePW - sidePW;
-            lnf->drawTopBarBackground(g, sidePW, 0, topBarWidth, topBarDrawH);
+            if (lnf->getSidePanelWidth() > 0)
+            {
+                // Custom top bar (e.g. wood grain) — stop before oak strip
+                int sidePW = lnf->getSidePanelWidth();
+                int rpW = (int)(180.0f * panelSlideProgress);
+                int topBarWidth = getWidth() - sidePW - rpW - sidePW - sidePW;
+                lnf->drawTopBarBackground(g, sidePW, 0, topBarWidth, topBarDrawH);
+            }
+            else
+            {
+                g.setColour(juce::Colour(c.bodyLight));
+                g.fillRect(0, 0, getWidth(), topBarDrawH);
+            }
         }
         else
         {
             g.setColour(juce::Colour(c.bodyLight));
             g.fillRect(0, 0, getWidth(), topBarDrawH);
         }
-    }
-    else
-    {
-        g.setColour(juce::Colour(c.bodyLight));
-        g.fillRect(0, 0, getWidth(), topBarDrawH);
     }
 
     // Toolbar background
@@ -4237,7 +4287,7 @@ void MainComponent::paint(juce::Graphics& g)
     int panelSlideOff = (int)((1.0f - panelSlideProgress) * 180.0f);
     int panelPaintLeft = getWidth() - (oakW > 0 ? oakW : 0) - 180 + panelSlideOff;
     int panelPaintW = 180;
-    if (panelSlideProgress > 0.01f)
+    if (panelSlideProgress > 0.01f && !glassOverlay)
     {
         auto panelRect = juce::Rectangle<int>(panelPaintLeft, 0, panelPaintW, getHeight());
         panelBoundsCache = panelRect;
@@ -4269,27 +4319,30 @@ void MainComponent::paint(juce::Graphics& g)
         }
     }
 
-    // Draw OLED background behind status/chord in top bar (always, regardless of panel state)
-    if (statusLabel.isVisible() && chordLabel.isVisible())
+    if (!glassOverlay)
     {
-        auto oledArea = statusLabel.getBounds().getUnion(chordLabel.getBounds());
-        auto borderArea = oledArea.expanded(3, 2);
-        g.setColour(juce::Colour(c.borderLight));
-        g.fillRoundedRectangle(borderArea.toFloat(), 4.0f);
-        g.setColour(juce::Colour(c.lcdBg));
-        g.fillRoundedRectangle(oledArea.toFloat(), 3.0f);
+        // Draw OLED background behind status/chord in top bar (always, regardless of panel state)
+        if (statusLabel.isVisible() && chordLabel.isVisible())
+        {
+            auto oledArea = statusLabel.getBounds().getUnion(chordLabel.getBounds());
+            auto borderArea = oledArea.expanded(3, 2);
+            g.setColour(juce::Colour(c.borderLight));
+            g.fillRoundedRectangle(borderArea.toFloat(), 4.0f);
+            g.setColour(juce::Colour(c.lcdBg));
+            g.fillRoundedRectangle(oledArea.toFloat(), 3.0f);
+        }
+
+        g.setColour(juce::Colour(c.bodyDark));
+        g.fillRect(0, topBarDrawH, toolbarRight, 65);
+
+        // Panel dividers (stop at oak strip)
+        g.setColour(juce::Colour(c.border));
+        g.drawHorizontalLine(topBarDrawH, 0, static_cast<float>(toolbarRight));
+        g.drawHorizontalLine(topBarDrawH + 65, 0, static_cast<float>(toolbarRight));
     }
 
-    g.setColour(juce::Colour(c.bodyDark));
-    g.fillRect(0, topBarDrawH, toolbarRight, 65);
-
-    // Panel dividers (stop at oak strip)
-    g.setColour(juce::Colour(c.border));
-    g.drawHorizontalLine(topBarDrawH, 0, static_cast<float>(toolbarRight));
-    g.drawHorizontalLine(topBarDrawH + 65, 0, static_cast<float>(toolbarRight));
-
     // OLED background behind track tools section in top bar (Track name -> MIX)
-    if (trackNameLabel.isVisible() && mixerButton.isVisible())
+    if (!glassOverlay && trackNameLabel.isVisible() && mixerButton.isVisible())
     {
         auto trackOled = trackNameLabel.getBounds()
             .getUnion(midiLearnButton.getBounds())
@@ -4303,9 +4356,39 @@ void MainComponent::paint(juce::Graphics& g)
         g.drawRoundedRectangle(trackOled.toFloat(), 4.0f, 1.0f);
     }
 
-    // Accent stripe at top
-    g.setColour(juce::Colour(c.accentStripe));
-    g.fillRect(0, 0, getWidth(), 2);
+    // Accent stripe at top — glass overlay replaces with water surface light
+    if (glassOverlay)
+    {
+        // Draw caustics/orbs at full strength outside arranger,
+        // barely visible inside it
+        if (timelineComponent && timelineComponent->isVisible())
+        {
+            auto tlRect = timelineComponent->getBounds();
+
+            // First pass: clip OUT the arranger — full strength everywhere else
+            g.saveState();
+            g.excludeClipRegion(tlRect);
+            drawWaterCaustics(g, getLocalBounds());
+            g.restoreState();
+
+            // Second pass: clip TO the arranger — very faint
+            g.saveState();
+            g.reduceClipRegion(tlRect);
+            g.setOpacity(0.15f);
+            drawWaterCaustics(g, getLocalBounds());
+            g.setOpacity(1.0f);
+            g.restoreState();
+        }
+        else
+        {
+            drawWaterCaustics(g, getLocalBounds());
+        }
+    }
+    else
+    {
+        g.setColour(juce::Colour(c.accentStripe));
+        g.fillRect(0, 0, getWidth(), 2);
+    }
 
 #if JUCE_IOS
     // Draw rectangle around track name label
@@ -4441,6 +4524,174 @@ void MainComponent::paintOverChildren(juce::Graphics& g)
     float radius = 0.0f;
     if (auto* lnf = dynamic_cast<DawLookAndFeel*>(&getLookAndFeel()))
         radius = lnf->getButtonRadius();
+
+    // Glass overlay: thin separator lines only (no wash over controls — prevents washed-out look)
+    if (themeManager.isGlassOverlay())
+    {
+#if JUCE_IOS
+        bool isPhone = AUScanner::isIPhone() && !forceIPadLayout;
+        int statusBarPad = isPhone ? 20 : 30;
+        int topBarH = isPhone ? 80 : 70;
+#else
+        bool isPhone = false;
+        int statusBarPad = 0;
+        int topBarH = 80;
+#endif
+        if (!isPhone)
+        {
+            int topBarBottom = statusBarPad + topBarH;
+            int toolbarBottom = topBarBottom + 65;
+            int rpW = (int)(180.0f * panelSlideProgress);
+
+            // ── Glass pane refractive edges ──
+            float t3 = static_cast<float>(glassAnimTime);
+
+            auto edgeLight = [&](float ex, float ey) -> float
+            {
+                float a1 = std::sin(t3 * 0.003f) * 1.5f + std::sin(t3 * 0.0017f + 1.0f) * 0.8f + std::sin(t3 * 0.0007f + 0.3f) * 2.0f;
+                float a2 = std::sin(t3 * 0.0025f + 2.0f) * 1.3f + std::sin(t3 * 0.0013f + 3.0f) * 0.9f + std::sin(t3 * 0.0005f + 1.7f) * 1.8f;
+                float sp1 = 0.015f + 0.012f * (std::sin(t3 * 0.005f) * 0.5f + 0.5f);
+                float sp2 = 0.012f + 0.010f * (std::sin(t3 * 0.004f + 1.5f) * 0.5f + 0.5f);
+                float d1 = (ex * std::cos(a1) + ey * std::sin(a1)) * 0.016f + t3 * sp1;
+                float d2 = (ex * std::cos(a2) + ey * std::sin(a2)) * 0.020f + t3 * sp2;
+                float cv = (std::sin(d1) + std::sin(d2)) * 0.5f * 0.5f + 0.5f;
+                return cv * cv;
+            };
+
+            auto drawGlassPane = [&](juce::Rectangle<float> bounds, float cornerR)
+            {
+                float edgeW = 8.0f;
+                float glowW = 20.0f;
+
+                // Top edge
+                for (float x = bounds.getX(); x < bounds.getRight(); x += 6.0f)
+                {
+                    float intensity = edgeLight(x, bounds.getY());
+                    float a = intensity * 0.15f;
+                    if (a < 0.01f) continue;
+                    float hue = std::sin(x * 0.004f + t3 * 0.008f) * 0.5f + 0.5f;
+                    juce::Colour c2 = juce::Colour(0xff60c8c0).interpolatedWith(juce::Colour(0xff4098d0), hue);
+                    g.setColour(c2.withAlpha(a));
+                    g.fillRect(x, bounds.getY() - 1.0f, 6.0f, edgeW);
+                    juce::ColourGradient spread(c2.withAlpha(a * 0.6f), x, bounds.getY(),
+                                                c2.withAlpha(0.0f), x, bounds.getY() + glowW, false);
+                    g.setGradientFill(spread);
+                    g.fillRect(x, bounds.getY(), 6.0f, glowW);
+                }
+
+                // Left edge
+                for (float y = bounds.getY(); y < bounds.getBottom(); y += 6.0f)
+                {
+                    float intensity = edgeLight(bounds.getX(), y);
+                    float a = intensity * 0.12f;
+                    if (a < 0.01f) continue;
+                    float hue = std::sin(y * 0.005f + t3 * 0.007f) * 0.5f + 0.5f;
+                    juce::Colour c2 = juce::Colour(0xff60c8c0).interpolatedWith(juce::Colour(0xff4098d0), hue);
+                    g.setColour(c2.withAlpha(a));
+                    g.fillRect(bounds.getX() - 1.0f, y, edgeW, 6.0f);
+                    juce::ColourGradient spread(c2.withAlpha(a * 0.5f), bounds.getX(), y,
+                                                c2.withAlpha(0.0f), bounds.getX() + glowW, y, false);
+                    g.setGradientFill(spread);
+                    g.fillRect(bounds.getX(), y, glowW, 6.0f);
+                }
+
+                // Bottom edge
+                for (float x = bounds.getX(); x < bounds.getRight(); x += 6.0f)
+                {
+                    float intensity = edgeLight(x, bounds.getBottom());
+                    float a = intensity * 0.10f;
+                    if (a < 0.01f) continue;
+                    float hue = std::sin(x * 0.004f + t3 * 0.009f + 1.0f) * 0.5f + 0.5f;
+                    juce::Colour c2 = juce::Colour(0xff60c8c0).interpolatedWith(juce::Colour(0xff4098d0), hue);
+                    juce::ColourGradient spread(c2.withAlpha(a * 0.5f), x, bounds.getBottom(),
+                                                c2.withAlpha(0.0f), x, bounds.getBottom() - glowW, false);
+                    g.setGradientFill(spread);
+                    g.fillRect(x, bounds.getBottom() - glowW, 6.0f, glowW);
+                }
+
+                // Right edge
+                for (float y = bounds.getY(); y < bounds.getBottom(); y += 6.0f)
+                {
+                    float intensity = edgeLight(bounds.getRight(), y);
+                    float a = intensity * 0.10f;
+                    if (a < 0.01f) continue;
+                    float hue = std::sin(y * 0.005f + t3 * 0.006f + 2.0f) * 0.5f + 0.5f;
+                    juce::Colour c2 = juce::Colour(0xff60c8c0).interpolatedWith(juce::Colour(0xff4098d0), hue);
+                    juce::ColourGradient spread(c2.withAlpha(a * 0.5f), bounds.getRight(), y,
+                                                c2.withAlpha(0.0f), bounds.getRight() - glowW, y, false);
+                    g.setGradientFill(spread);
+                    g.fillRect(bounds.getRight() - glowW, y, glowW, 6.0f);
+                }
+
+                // Glass edge outline
+                g.setColour(juce::Colours::white.withAlpha(0.06f));
+                g.drawRoundedRectangle(bounds, cornerR, 0.5f);
+            };
+
+            // Arranger glass pane
+            if (timelineComponent && timelineComponent->isVisible())
+                drawGlassPane(timelineComponent->getBounds().toFloat(), 12.0f);
+
+            // Right panel glass pane
+            if (rpW > 0)
+            {
+                int panelSlideOff2 = (int)((1.0f - panelSlideProgress) * 180.0f);
+                int panelX = getWidth() - 180 + panelSlideOff2;
+                drawGlassPane(juce::Rectangle<float>((float)panelX, 0, 180.0f, (float)getHeight()), 12.0f);
+            }
+        }
+
+        // Draw ripple effects
+        drawRipples(g);
+
+        // Caustic light dancing over buttons — same pattern as background
+        // Buttons catch the light where the caustic network is bright
+        auto& colors = themeManager.getColors();
+        juce::Colour acc(colors.amber);
+        float t2 = static_cast<float>(glassAnimTime);
+
+        auto lightOnButton = [&](juce::Component& btn)
+        {
+            if (!btn.isVisible()) return;
+            auto b = btn.getBounds().toFloat();
+            float bx = b.getCentreX();
+            float by = b.getCentreY();
+
+            float a1 = std::sin(t2 * 0.003f) * 1.5f + std::sin(t2 * 0.0017f + 1.0f) * 0.8f + std::sin(t2 * 0.0007f + 0.3f) * 2.0f;
+            float a2 = std::sin(t2 * 0.0025f + 2.0f) * 1.3f + std::sin(t2 * 0.0013f + 3.0f) * 0.9f + std::sin(t2 * 0.0005f + 1.7f) * 1.8f;
+            float a3 = std::sin(t2 * 0.002f + 4.5f) * 1.6f + std::sin(t2 * 0.0011f + 5.0f) * 0.7f + std::sin(t2 * 0.0004f + 4.0f) * 2.2f;
+            float sp1 = 0.015f + 0.012f * (std::sin(t2 * 0.005f) * 0.5f + 0.5f) + 0.008f * juce::jmax(0.0f, std::sin(t2 * 0.002f));
+            float sp2 = 0.012f + 0.010f * (std::sin(t2 * 0.004f + 1.5f) * 0.5f + 0.5f) + 0.006f * juce::jmax(0.0f, std::sin(t2 * 0.0015f + 1.0f));
+            float sp3 = 0.010f + 0.008f * (std::sin(t2 * 0.003f + 3.0f) * 0.5f + 0.5f) + 0.007f * juce::jmax(0.0f, std::sin(t2 * 0.0018f + 2.0f));
+            float s1 = std::sin((bx * std::cos(a1) + by * std::sin(a1)) * 0.016f + t2 * sp1);
+            float s2 = std::sin((bx * std::cos(a2) + by * std::sin(a2)) * 0.020f + t2 * sp2);
+            float s3 = std::sin((bx * std::cos(a3) + by * std::sin(a3)) * 0.013f + t2 * sp3);
+            float caustic = (s1 + s2 + s3) / 3.0f * 0.5f + 0.5f;
+            caustic = caustic * caustic;
+
+            float alpha = caustic * 0.10f;
+            if (alpha < 0.01f) return;
+
+            // Shift button light color with position
+            float hueB = std::sin(bx * 0.003f + by * 0.004f + t2 * 0.01f) * 0.5f + 0.5f;
+            juce::Colour btnCol = juce::Colour(0xff60c8c0).interpolatedWith(juce::Colour(0xff4098d0), hueB);
+
+            juce::ColourGradient topLight(
+                btnCol.withAlpha(alpha), b.getCentreX(), b.getY(),
+                btnCol.withAlpha(alpha * 0.2f), b.getCentreX(), b.getBottom(), false);
+            g.setGradientFill(topLight);
+            g.fillRoundedRectangle(b, 12.0f);
+        };
+
+        // Hit all visible buttons
+        for (int ci = 0; ci < getNumChildComponents(); ++ci)
+        {
+            auto* child = getChildComponent(ci);
+            if (child != nullptr && child->isVisible()
+                && dynamic_cast<juce::Button*>(child) != nullptr)
+                lightOnButton(*child);
+        }
+    }
 
     // Draw green border on play button (flashes when playing)
     if (playButton.isVisible())
@@ -5651,6 +5902,7 @@ void MainComponent::resized()
             area.removeFromBottom(20); // home indicator safe area
 #endif
             timelineComponent->setVisible(true);
+
             timelineComponent->setBounds(area);
         }
     }
@@ -5856,6 +6108,174 @@ void MainComponent::setVisControlsVisible()
     lissZoomInBtn.setVisible(liss);
     lissZoomOutBtn.setVisible(liss);
     lissDotsBtn.setVisible(liss);
+}
+
+// ── Glass/Liquid animation methods ──
+
+void MainComponent::addRipple(float x, float y)
+{
+    if (rippleCount < MAX_RIPPLES)
+    {
+        ripples[static_cast<size_t>(rippleCount)] = { x, y, 0.0f, 120.0f };
+        ++rippleCount;
+    }
+}
+
+void MainComponent::drawWaterCaustics(juce::Graphics& g, juce::Rectangle<int> area)
+{
+    // Caustic network — overlapping sine waves at different angles
+    // create the diamond-mesh light pattern seen on shallow ocean floors.
+    // Rendered as a grid of soft dots whose brightness is modulated.
+    float t = static_cast<float>(glassAnimTime);
+    auto& c = themeManager.getColors();
+    juce::Colour accent(c.amber);
+
+    float w = static_cast<float>(area.getWidth());
+    float h = static_cast<float>(area.getHeight());
+    float ax = static_cast<float>(area.getX());
+    float ay = static_cast<float>(area.getY());
+
+    // Organic caustic network — waves moving in different directions
+    // Directions shift slowly over time so the flow feels alive
+    float step = 32.0f;
+    float blobR = 44.0f;
+
+    // Wave directions wander — multiple sines at different periods
+    // create occasional noticeable direction shifts like currents changing
+    float angle1 = std::sin(t * 0.003f) * 1.5f
+                  + std::sin(t * 0.0017f + 1.0f) * 0.8f
+                  + std::sin(t * 0.0007f + 0.3f) * 2.0f;  // slow big swings
+    float angle2 = std::sin(t * 0.0025f + 2.0f) * 1.3f
+                  + std::sin(t * 0.0013f + 3.0f) * 0.9f
+                  + std::sin(t * 0.0005f + 1.7f) * 1.8f;
+    float angle3 = std::sin(t * 0.002f + 4.5f) * 1.6f
+                  + std::sin(t * 0.0011f + 5.0f) * 0.7f
+                  + std::sin(t * 0.0004f + 4.0f) * 2.2f;
+    float cos1 = std::cos(angle1), sin1 = std::sin(angle1);
+    float cos2 = std::cos(angle2), sin2 = std::sin(angle2);
+    float cos3 = std::cos(angle3), sin3 = std::sin(angle3);
+
+    // Speeds breathe with occasional surges
+    float speed1 = 0.015f + 0.012f * (std::sin(t * 0.005f) * 0.5f + 0.5f)
+                           + 0.008f * juce::jmax(0.0f, std::sin(t * 0.002f));  // occasional surge
+    float speed2 = 0.012f + 0.010f * (std::sin(t * 0.004f + 1.5f) * 0.5f + 0.5f)
+                           + 0.006f * juce::jmax(0.0f, std::sin(t * 0.0015f + 1.0f));
+    float speed3 = 0.010f + 0.008f * (std::sin(t * 0.003f + 3.0f) * 0.5f + 0.5f)
+                           + 0.007f * juce::jmax(0.0f, std::sin(t * 0.0018f + 2.0f));
+
+    // Render caustics to a cached image at quarter resolution — update every 3rd frame
+    int cw = (int)(w / 4.0f);
+    int ch = (int)(h / 4.0f);
+    if (cw < 2 || ch < 2) return;
+
+    static juce::Image causticImg;
+    static int causticFrame = 0;
+
+    bool needsUpdate = (causticImg.getWidth() != cw || causticImg.getHeight() != ch);
+    if (needsUpdate)
+        causticImg = juce::Image(juce::Image::ARGB, cw, ch, true);
+
+    if (needsUpdate || ++causticFrame >= 3)
+    {
+        causticFrame = 0;
+        causticImg.clear(causticImg.getBounds());
+
+        juce::Colour warmTone(0xff60c8c0);
+        juce::Colour coolTone(0xff4098d0);
+
+        for (int py = 0; py < ch; ++py)
+        {
+            float y = ay + (float)py * 4.0f;
+            for (int px = 0; px < cw; ++px)
+            {
+                float x = ax + (float)px * 4.0f;
+
+                float d1 = (x * cos1 + y * sin1) * 0.016f + t * speed1;
+                float d2 = (x * cos2 + y * sin2) * 0.020f + t * speed2;
+                float d3 = (x * cos3 + y * sin3) * 0.013f + t * speed3;
+
+                float caustic = (std::sin(d1) + std::sin(d2) + std::sin(d3)) / 3.0f;
+                caustic = caustic * 0.5f + 0.5f;
+                caustic = caustic * caustic;
+
+                float alpha = caustic * 0.15f;  // boosted for visibility
+                if (alpha < 0.02f) continue;
+
+                float hueShift = std::sin(x * 0.003f + y * 0.004f + t * 0.01f) * 0.5f + 0.5f;
+                juce::Colour col = warmTone.interpolatedWith(coolTone, hueShift);
+
+                causticImg.setPixelAt(px, py, col.withAlpha(juce::jlimit(0.0f, 1.0f, alpha)));
+            }
+        }
+    }
+
+    // Draw scaled up — bilinear filtering makes it smooth and soft
+    g.setOpacity(1.0f);
+    g.drawImage(causticImg, area.toFloat(),
+                juce::RectanglePlacement::stretchToFit);
+}
+
+void MainComponent::drawRipples(juce::Graphics& g)
+{
+    auto& c = themeManager.getColors();
+    juce::Colour accent(c.amber);
+
+    for (int i = 0; i < rippleCount; ++i)
+    {
+        auto& rip = ripples[static_cast<size_t>(i)];
+        float progress = rip.age / 1.2f;  // 0..1 over 1.2 seconds
+        float alpha = (1.0f - progress) * 0.3f;
+        float radius = rip.maxRadius * progress;
+
+        if (alpha > 0.01f)
+        {
+            // Expanding ring
+            g.setColour(accent.withAlpha(alpha));
+            g.drawEllipse(rip.x - radius, rip.y - radius,
+                          radius * 2, radius * 2, 1.5f);
+
+            // Inner ring (slightly behind)
+            float innerR = radius * 0.6f;
+            float innerA = alpha * 0.5f;
+            g.setColour(accent.withAlpha(innerA));
+            g.drawEllipse(rip.x - innerR, rip.y - innerR,
+                          innerR * 2, innerR * 2, 1.0f);
+        }
+    }
+}
+
+void MainComponent::drawBreathingStripe(juce::Graphics& g)
+{
+    // Slow drifting orbs — soft glowing pools of light
+    auto& c = themeManager.getColors();
+    float t = static_cast<float>(glassAnimTime);
+    float w = static_cast<float>(getWidth());
+    float h = static_cast<float>(getHeight());
+    juce::Colour accent(c.amber);
+
+    juce::Colour warmOrb(0xff60c8c0);
+    juce::Colour coolOrb(0xff4098d0);
+
+    for (int i = 0; i < 5; ++i)
+    {
+        float fi = static_cast<float>(i);
+        // Each orb has its own wandering path — multiple sines for non-repeating drift
+        float cx = w * (0.1f + 0.8f * (0.5f + 0.3f * std::sin(t * 0.008f + fi * 1.3f)
+                                             + 0.2f * std::sin(t * 0.013f + fi * 2.7f)));
+        float cy = h * (0.1f + 0.8f * (0.5f + 0.3f * std::cos(t * 0.006f + fi * 1.7f)
+                                             + 0.2f * std::cos(t * 0.011f + fi * 3.1f)));
+        float r = 120.0f + 60.0f * std::sin(t * 0.01f + fi * 2.0f);
+        float alpha = 0.12f + 0.06f * std::sin(t * 0.012f + fi * 0.9f);
+
+        float hue = std::sin(t * 0.007f + fi * 1.2f) * 0.5f + 0.5f;
+        juce::Colour col = warmOrb.interpolatedWith(coolOrb, hue);
+
+        juce::ColourGradient grad(
+            col.withAlpha(alpha), cx, cy,
+            col.withAlpha(0.0f), cx + r, cy + r, true);
+        g.setGradientFill(grad);
+        g.fillEllipse(cx - r, cy - r, r * 2, r * 2);
+    }
 }
 
 void MainComponent::applyThemeToControls()
