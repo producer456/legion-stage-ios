@@ -707,7 +707,10 @@ void TimelineComponent::mouseDoubleClick(const juce::MouseEvent& e)
         {
             auto* lane = track.automationLanes[autoHit.laneIndex];
             if (autoHit.pointIndex < lane->points.size())
+            {
                 lane->points.remove(autoHit.pointIndex);
+                lane->resetSearchCache();
+            }
             // Remove empty lanes
             if (lane->points.isEmpty())
                 track.automationLanes.remove(autoHit.laneIndex);

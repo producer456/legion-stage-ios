@@ -23,6 +23,8 @@ struct AutomationLane
     juce::String parameterName;
     juce::Array<AutomationPoint> points;
 
+    void resetSearchCache() { lastSearchIndex = 0; }
+
     // Cached index for faster sequential lookups (audio thread calls in order)
     mutable int lastSearchIndex = 0;
 
