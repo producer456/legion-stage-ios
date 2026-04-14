@@ -83,6 +83,8 @@ target_sources(Sequencer PRIVATE
     src/DeviceMotion.mm
     src/AUPresetHelper.h
     src/AUPresetHelper.mm
+    src/FileAccessHelper.h
+    src/FileAccessHelper.mm
     src/SpectrumComponent.h
     src/LissajousComponent.h
     src/WaveTerrainComponent.h

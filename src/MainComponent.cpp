@@ -1,5 +1,6 @@
 #include "MainComponent.h"
 #include "AUPresetHelper.h"
+#include "FileAccessHelper.h"
 #if JUCE_IOS
 #include "AUScanner.h"
 #endif
@@ -3268,29 +3269,17 @@ void MainComponent::saveProject()
             }
         }
 
-        // Ensure file has .seqproj extension
-        auto saveFile = file;
-        if (!saveFile.hasFileExtension("seqproj"))
-            saveFile = saveFile.withFileExtension("seqproj");
-
-        // Try writing — create parent directory if needed
+        // Always save to app documents directory (reliable on iOS sandbox)
+        auto fileName = file.getFileNameWithoutExtension() + ".seqproj";
+        auto saveFile = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory)
+            .getChildFile(fileName);
         saveFile.getParentDirectory().createDirectory();
 
         auto xmlString = xml->toString();
         if (saveFile.replaceWithText(xmlString))
-        {
-            statusLabel.setText("Saved: " + saveFile.getFileName(), juce::dontSendNotification);
-        }
+            statusLabel.setText("Saved: " + fileName, juce::dontSendNotification);
         else
-        {
-            // Try alternative: write to app documents as fallback
-            auto fallback = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory)
-                .getChildFile(saveFile.getFileName());
-            if (fallback.replaceWithText(xmlString))
-                statusLabel.setText("Saved to app storage: " + fallback.getFileName(), juce::dontSendNotification);
-            else
-                statusLabel.setText("SAVE FAILED — " + saveFile.getFullPathName(), juce::dontSendNotification);
-        }
+            statusLabel.setText("SAVE FAILED", juce::dontSendNotification);
     });
 }
 
@@ -3311,12 +3300,38 @@ void MainComponent::loadProject()
         if (eng.isRecording()) eng.toggleRecord();
         audioPlayer.setProcessor(nullptr);  // disconnect audio thread from graph
 
-        auto xml = juce::parseXML(file);
+        // Read file — try app documents first (where we save), then original path
+        juce::String fileContent;
+
+        // Try app documents directory first (where save always writes)
+        auto appDoc = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory)
+            .getChildFile(file.getFileName());
+        if (appDoc.existsAsFile())
+            fileContent = appDoc.loadFileAsString();
+
+        // Fallback: try the file picker path directly
+        if (fileContent.isEmpty())
+            fileContent = file.loadFileAsString();
+
+        // Fallback: ObjC security-scoped read
+        if (fileContent.isEmpty())
+            fileContent = FileAccessHelper::readFileContent(file);
+
+        if (fileContent.isEmpty())
+        {
+            statusLabel.setText("Cannot read file: " + file.getFileName(), juce::dontSendNotification);
+            audioPlayer.setProcessor(&pluginHost);
+            return;
+        }
+
+        auto xml = juce::parseXML(fileContent);
 
         if (xml == nullptr || !xml->hasTagName("SequencerProject"))
         {
-            statusLabel.setText("Invalid project file", juce::dontSendNotification);
-            audioPlayer.setProcessor(&pluginHost);  // reconnect on error
+            // Show more detail about what went wrong
+            juce::String reason = (xml == nullptr) ? "XML parse failed" : ("wrong root tag: " + xml->getTagName());
+            statusLabel.setText("Invalid project: " + reason, juce::dontSendNotification);
+            audioPlayer.setProcessor(&pluginHost);
             return;
         }
 
