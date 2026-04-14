@@ -3166,13 +3166,23 @@ void MainComponent::saveProject()
             if (track.plugin)
             {
                 auto* pluginXml = trackXml->createNewChildElement("Plugin");
-                // Find matching description from known list
-                for (const auto& desc : pluginHost.getPluginList().getTypes())
+                // Get description directly from the loaded plugin instance
+                auto* instance = dynamic_cast<juce::AudioPluginInstance*>(track.plugin);
+                if (instance != nullptr)
                 {
-                    if (desc.name == track.plugin->getName() && desc.isInstrument)
+                    auto desc = instance->getPluginDescription();
+                    pluginXml->addChildElement(desc.createXml().release());
+                }
+                else
+                {
+                    // Fallback: search known list by name
+                    for (const auto& desc : pluginHost.getPluginList().getTypes())
                     {
-                        pluginXml->addChildElement(desc.createXml().release());
-                        break;
+                        if (desc.name == track.plugin->getName())
+                        {
+                            pluginXml->addChildElement(desc.createXml().release());
+                            break;
+                        }
                     }
                 }
                 // Save plugin state (presets, parameters)
@@ -3189,12 +3199,22 @@ void MainComponent::saveProject()
                     auto* fxXml = trackXml->createNewChildElement("FX");
                     fxXml->setAttribute("slot", fx);
                     fxXml->setAttribute("bypassed", track.fxSlots[fx].bypassed);
-                    for (const auto& desc : pluginHost.getPluginList().getTypes())
+                    // Get description directly from the loaded FX instance
+                    auto* fxInstance = dynamic_cast<juce::AudioPluginInstance*>(track.fxSlots[fx].processor);
+                    if (fxInstance != nullptr)
                     {
-                        if (desc.name == track.fxSlots[fx].processor->getName() && !desc.isInstrument)
+                        auto desc = fxInstance->getPluginDescription();
+                        fxXml->addChildElement(desc.createXml().release());
+                    }
+                    else
+                    {
+                        for (const auto& desc : pluginHost.getPluginList().getTypes())
                         {
-                            fxXml->addChildElement(desc.createXml().release());
-                            break;
+                            if (desc.name == track.fxSlots[fx].processor->getName())
+                            {
+                                fxXml->addChildElement(desc.createXml().release());
+                                break;
+                            }
                         }
                     }
                     juce::MemoryBlock fxState;
@@ -3276,6 +3296,7 @@ void MainComponent::saveProject()
         saveFile.getParentDirectory().createDirectory();
 
         auto xmlString = xml->toString();
+
         if (saveFile.replaceWithText(xmlString))
             statusLabel.setText("Saved: " + fileName, juce::dontSendNotification);
         else
@@ -3586,8 +3607,10 @@ void MainComponent::loadProject()
                 auto* pluginXml = trackXml->getChildByName("Plugin");
                 if (pluginXml != nullptr)
                 {
+                    int numChildren = 0;
                     for (auto* descXml : pluginXml->getChildIterator())
                     {
+                        numChildren++;
                         juce::PluginDescription desc;
                         if (desc.loadFromXml(*descXml))
                         {
@@ -3605,7 +3628,7 @@ void MainComponent::loadProject()
                                 }
                             }
                             else
-                                loadErrors.add("Track " + juce::String(t + 1) + ": " + desc.name + " — " + err);
+                                loadErrors.add("Track " + juce::String(t + 1) + ": " + desc.name + " LOAD FAILED: " + err);
                             break;
                         }
                     }
@@ -3643,8 +3666,11 @@ void MainComponent::loadProject()
                 }
             }
             audioPlayer.setProcessor(&pluginHost);
-            updateTrackDisplay();
+            selectTrack(selectedTrackIndex);  // refresh plugin selector, presets, UI
+            updatePresetList();
+            updateParamSliders();
             if (timelineComponent) timelineComponent->repaint();
+
             if (loadErrors.isEmpty())
                 statusLabel.setText("Loaded: " + fileName, juce::dontSendNotification);
             else
