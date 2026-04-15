@@ -327,6 +327,7 @@ private:
     void updatePresetList();
     void loadPreset(int index);
     int paramPageOffset = 0;
+    bool paramSmartPage = true;
     juce::TextButton paramPageLeft { "<" };
     juce::TextButton paramPageRight { ">" };
     juce::Label paramPageLabel;

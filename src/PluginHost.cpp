@@ -595,14 +595,31 @@ void PluginHost::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer
 
             auto& params = track.plugin->getParameters();
 
-            for (auto* lane : track.automationLanes)
+            // Check if user is currently touching a param on this track
+            int touchedIdx = track.touchedParamIndex.load();
+            int64_t touchedTime = track.touchedParamTime.load();
+            bool hasFreshTouch = (touchedIdx >= 0)
+                && ((static_cast<int64_t>(juce::Time::getMillisecondCounter()) - touchedTime) < 500);
+
+            // If the touch has expired, clear it
+            if (touchedIdx >= 0 && !hasFreshTouch)
+                track.touchedParamIndex.store(-1);
+
             {
-                if (lane->parameterIndex >= 0 && lane->parameterIndex < params.size()
-                    && !lane->points.isEmpty())
+                const juce::SpinLock::ScopedLockType lock(track.automationLock);
+                for (auto* lane : track.automationLanes)
                 {
-                    float val = lane->getValueAtBeat(beat);
-                    if (val >= 0.0f)
-                        params[lane->parameterIndex]->setValue(val);
+                    if (lane->parameterIndex >= 0 && lane->parameterIndex < params.size()
+                        && !lane->points.isEmpty())
+                    {
+                        // Skip automation playback for the param the user is actively touching
+                        if (hasFreshTouch && lane->parameterIndex == touchedIdx)
+                            continue;
+
+                        float val = lane->getValueAtBeat(beat);
+                        if (val >= 0.0f)
+                            params[lane->parameterIndex]->setValue(val);
+                    }
                 }
             }
         }

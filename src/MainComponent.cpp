@@ -234,7 +234,10 @@ MainComponent::MainComponent()
     clearAutoButton.onClick = [this] {
         takeSnapshot();
         auto& track = pluginHost.getTrack(selectedTrackIndex);
-        track.automationLanes.clear();
+        {
+            const juce::SpinLock::ScopedLockType lock(track.automationLock);
+            track.automationLanes.clear();
+        }
         statusLabel.setText("Automation cleared", juce::dontSendNotification);
         if (timelineComponent) timelineComponent->repaint();
     };
@@ -414,7 +417,14 @@ MainComponent::MainComponent()
     paramPageNameLabel.setJustificationType(juce::Justification::centredLeft);
     paramPageNameLabel.setFont(juce::Font(13.0f));
     paramPageLeft.onClick = [this] {
-        paramPageOffset = juce::jmax(0, paramPageOffset - NUM_PARAM_SLIDERS);
+        if (!paramSmartPage && paramPageOffset == 0)
+        {
+            paramSmartPage = true;
+        }
+        else
+        {
+            paramPageOffset = juce::jmax(0, paramPageOffset - NUM_PARAM_SLIDERS);
+        }
         updateParamSliders();
     };
     paramPageRight.onClick = [this] {
@@ -422,7 +432,12 @@ MainComponent::MainComponent()
         if (track.plugin != nullptr)
         {
             int total = track.plugin->getParameters().size();
-            if (paramPageOffset + NUM_PARAM_SLIDERS < total)
+            if (paramSmartPage)
+            {
+                paramSmartPage = false;
+                paramPageOffset = 0;
+            }
+            else if (paramPageOffset + NUM_PARAM_SLIDERS < total)
                 paramPageOffset += NUM_PARAM_SLIDERS;
             updateParamSliders();
         }
@@ -966,6 +981,10 @@ MainComponent::MainComponent()
 
             params[realIdx]->setValue(static_cast<float>(slider->getValue()));
 
+            // Mark this param as "touched" so automation playback won't fight the user
+            track.touchedParamIndex.store(realIdx);
+            track.touchedParamTime.store(static_cast<int64_t>(juce::Time::getMillisecondCounter()));
+
             // Show full param name and highlight this knob
             paramPageNameLabel.setText(params[realIdx]->getName(50), juce::dontSendNotification);
             highlightParamKnob(paramIdx);
@@ -974,6 +993,8 @@ MainComponent::MainComponent()
             auto& eng = pluginHost.getEngine();
             if (eng.isPlaying() && eng.isRecording() && !eng.isInCountIn())
             {
+                const juce::SpinLock::ScopedLockType lock(track.automationLock);
+
                 AutomationLane* lane = nullptr;
                 for (auto* l : track.automationLanes)
                 {
@@ -990,7 +1011,17 @@ MainComponent::MainComponent()
                 AutomationPoint pt;
                 pt.beat = eng.getPositionInBeats();
                 pt.value = static_cast<float>(slider->getValue());
+
+                // Remove nearby existing points to prevent accumulation
+                for (int j = lane->points.size() - 1; j >= 0; --j)
+                {
+                    if (std::abs(lane->points[j].beat - pt.beat) < 0.01)
+                        lane->points.remove(j);
+                }
                 lane->points.add(pt);
+
+                std::sort(lane->points.begin(), lane->points.end(),
+                    [](const AutomationPoint& a, const AutomationPoint& b) { return a.beat < b.beat; });
             }
         };
 
@@ -1711,6 +1742,7 @@ void MainComponent::updateTrackDisplay()
     trackInfoLabel.setText(info, juce::dontSendNotification);
 
     paramPageOffset = 0;
+    paramSmartPage = true;
     updateParamSliders();
     updatePresetList();
 
@@ -1861,6 +1893,7 @@ void MainComponent::loadSelectedPlugin()
                 if (auto* self = safeThis.getComponent())
                 {
                     self->paramPageOffset = 0;
+                    self->paramSmartPage = true;
                     self->updateParamSliders();
                     self->updateFxDisplay();
                     self->updatePresetList();
@@ -2502,17 +2535,18 @@ void MainComponent::updateParamSliders()
     if (paramPageOffset >= total) paramPageOffset = juce::jmax(0, total - NUM_PARAM_SLIDERS);
     if (paramPageOffset < 0) paramPageOffset = 0;
 
-    // Update page label
-    int totalPages = juce::jmax(1, (total + NUM_PARAM_SLIDERS - 1) / NUM_PARAM_SLIDERS);
-    int page = (paramPageOffset / NUM_PARAM_SLIDERS) + 1;
+    // Update page label (page 0 = smart, then sequential pages add 1 more)
+    int seqPages = juce::jmax(1, (total + NUM_PARAM_SLIDERS - 1) / NUM_PARAM_SLIDERS);
+    int totalPages = 1 + seqPages; // smart page + sequential pages
+    int page = paramSmartPage ? 1 : (paramPageOffset / NUM_PARAM_SLIDERS) + 2;
     paramPageLabel.setText(juce::String(page) + "/" + juce::String(totalPages), juce::dontSendNotification);
 
     // Show plugin name in the page name label
     juce::String plugName = track.plugin->getName();
     paramPageNameLabel.setText(plugName, juce::dontSendNotification);
 
-    // ── Page 1: smart selection (plugin-specific + macros + common names) ──
-    if (paramPageOffset == 0)
+    // ── Page 0: smart selection (plugin-specific + macros + common names) ──
+    if (paramSmartPage)
     {
         juce::Array<juce::AudioProcessorParameter*> selectedParams;
 
@@ -2573,7 +2607,7 @@ void MainComponent::updateParamSliders()
             for (auto& cn : commonNames)
                 for (auto* param : allParams)
                     if (param->getName(30).toLowerCase().contains(cn))
-                    { selectedParams.add(param); break; }
+                    { if (!selectedParams.contains(param)) selectedParams.add(param); break; }
         }
 
         // Fill remaining with first available
@@ -3773,20 +3807,23 @@ void MainComponent::loadProject()
             }
 
             // Load automation lanes
-            track.automationLanes.clear();
-            for (auto* autoXml : trackXml->getChildWithTagNameIterator("Automation"))
             {
-                auto* lane = new AutomationLane();
-                lane->parameterIndex = autoXml->getIntAttribute("paramIndex", -1);
-                lane->parameterName = autoXml->getStringAttribute("paramName");
-                for (auto* ptXml : autoXml->getChildWithTagNameIterator("Point"))
+                const juce::SpinLock::ScopedLockType lock(track.automationLock);
+                track.automationLanes.clear();
+                for (auto* autoXml : trackXml->getChildWithTagNameIterator("Automation"))
                 {
-                    AutomationPoint pt;
-                    pt.beat = ptXml->getDoubleAttribute("beat", 0.0);
-                    pt.value = static_cast<float>(ptXml->getDoubleAttribute("value", 0.0));
-                    lane->points.add(pt);
+                    auto* lane = new AutomationLane();
+                    lane->parameterIndex = autoXml->getIntAttribute("paramIndex", -1);
+                    lane->parameterName = autoXml->getStringAttribute("paramName");
+                    for (auto* ptXml : autoXml->getChildWithTagNameIterator("Point"))
+                    {
+                        AutomationPoint pt;
+                        pt.beat = ptXml->getDoubleAttribute("beat", 0.0);
+                        pt.value = static_cast<float>(ptXml->getDoubleAttribute("value", 0.0));
+                        lane->points.add(pt);
+                    }
+                    track.automationLanes.add(lane);
                 }
-                track.automationLanes.add(lane);
             }
         }
 
@@ -6925,6 +6962,7 @@ void MainComponent::loadPreset(int index)
 
     // Refresh param knobs with new preset values
     paramPageOffset = 0;
+    paramSmartPage = true;
     updateParamSliders();
 }
 

@@ -37,6 +37,12 @@ struct Track {
     ClipPlayerNode* clipPlayer = nullptr;
     juce::AudioProcessor* plugin = nullptr;
     juce::OwnedArray<AutomationLane> automationLanes;
+    juce::SpinLock automationLock;
+
+    // "Param touch" mechanism: while the user is actively touching a knob,
+    // automation playback must not overwrite their value.
+    std::atomic<int> touchedParamIndex { -1 };
+    std::atomic<int64_t> touchedParamTime { 0 };
 
     static constexpr int NUM_FX_SLOTS = 3;
     FxSlot fxSlots[NUM_FX_SLOTS];

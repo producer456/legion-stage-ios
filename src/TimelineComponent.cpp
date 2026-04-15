@@ -385,12 +385,15 @@ void TimelineComponent::mouseDrag(const juce::MouseEvent& e)
         if (dragAutoPoint.laneIndex < track.automationLanes.size())
         {
             auto* lane = track.automationLanes[dragAutoPoint.laneIndex];
+            const juce::SpinLock::ScopedLockType lock(track.automationLock);
             if (dragAutoPoint.pointIndex < lane->points.size())
             {
                 auto& pt = lane->points.getReference(dragAutoPoint.pointIndex);
                 pt.beat = juce::jmax(0.0, snapToGrid(xToBeat(mx)));
                 pt.value = yToAutoValue(dragAutoPoint.trackIndex, my);
             }
+            std::sort(lane->points.begin(), lane->points.end(),
+                [](const AutomationPoint& a, const AutomationPoint& b) { return a.beat < b.beat; });
         }
         repaint();
         return;
@@ -706,6 +709,7 @@ void TimelineComponent::mouseDoubleClick(const juce::MouseEvent& e)
         auto& track = pluginHost.getTrack(autoHit.trackIndex);
         if (autoHit.laneIndex < track.automationLanes.size())
         {
+            const juce::SpinLock::ScopedLockType lock(track.automationLock);
             auto* lane = track.automationLanes[autoHit.laneIndex];
             if (autoHit.pointIndex < lane->points.size())
                 lane->points.remove(autoHit.pointIndex);
