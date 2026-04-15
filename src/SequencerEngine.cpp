@@ -82,7 +82,7 @@ double SequencerEngine::advancePosition(int numSamples, double sampleRate)
     // Handle count-in
     if (countingIn.load())
     {
-        countInBeatsRemaining -= beatsThisBlock;
+        countInBeatsRemaining.store(countInBeatsRemaining.load() - beatsThisBlock);
 
         // ALWAYS play metronome clicks during count-in (regardless of metronome toggle)
         // Fire first click immediately

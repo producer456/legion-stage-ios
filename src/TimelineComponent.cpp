@@ -1073,7 +1073,6 @@ void TimelineComponent::paint(juce::Graphics& g)
     bool isGlassPane = dawLnf && dawLnf->isGlassOverlayTheme();
     if (isGlassPane)
     {
-        setOpaque(false);
         juce::Path clip;
         clip.addRoundedRectangle(getLocalBounds().toFloat(), 12.0f);
         g.reduceClipRegion(clip);

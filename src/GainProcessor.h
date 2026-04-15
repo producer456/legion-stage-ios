@@ -53,7 +53,7 @@ public:
     std::atomic<float> cpuPercent { 0.0f };
 
     // Per-track Lissajous feed
-    LissajousComponent* lissajousDisplay = nullptr;
+    std::atomic<LissajousComponent*> lissajousDisplay { nullptr };
 
 private:
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(GainProcessor)

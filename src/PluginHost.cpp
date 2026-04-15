@@ -612,7 +612,8 @@ void PluginHost::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer
     engine.renderMetronome(buffer, buffer.getNumSamples(), storedSampleRate);
 
     // Feed spectrum analyzer (mono mix of L+R)
-    if (spectrumDisplay != nullptr && buffer.getNumChannels() >= 2)
+    auto* spectrum = spectrumDisplay.load();
+    if (spectrum != nullptr && buffer.getNumChannels() >= 2)
     {
         int n = buffer.getNumSamples();
         const float* L = buffer.getReadPointer(0);
@@ -624,22 +625,22 @@ void PluginHost::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer
         for (int i = 0; i < count; ++i)
             mono[i] = (L[i] + R[i]) * 0.5f;
 
-        spectrumDisplay->pushSamples(mono, count);
+        spectrum->pushSamples(mono, count);
 
-        if (waveTerrainDisplay != nullptr)
-            waveTerrainDisplay->pushSamples(mono, count);
-        if (shaderToyDisplay != nullptr)
-            shaderToyDisplay->pushSamples(mono, count);
-        if (analyzerDisplay != nullptr)
-            analyzerDisplay->pushSamples(mono, count);
-        if (geissDisplay != nullptr)
-            geissDisplay->pushSamples(mono, count);
-        if (projectMDisplay != nullptr)
-            projectMDisplay->pushSamples(mono, count);
-        if (heartbeatDisplay != nullptr)
-            heartbeatDisplay->pushSamples(mono, count);
-        if (bioResonanceDisplay != nullptr)
-            bioResonanceDisplay->pushSamples(mono, count);
+        if (auto* wt = waveTerrainDisplay.load())
+            wt->pushSamples(mono, count);
+        if (auto* st = shaderToyDisplay.load())
+            st->pushSamples(mono, count);
+        if (auto* az = analyzerDisplay.load())
+            az->pushSamples(mono, count);
+        if (auto* gs = geissDisplay.load())
+            gs->pushSamples(mono, count);
+        if (auto* pm = projectMDisplay.load())
+            pm->pushSamples(mono, count);
+        if (auto* hb = heartbeatDisplay.load())
+            hb->pushSamples(mono, count);
+        if (auto* br = bioResonanceDisplay.load())
+            br->pushSamples(mono, count);
     }
 
 }

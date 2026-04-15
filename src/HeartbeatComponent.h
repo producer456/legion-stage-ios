@@ -60,7 +60,7 @@ public:
         // Convert BPM to phase step per timer tick (30 Hz timer)
         // One cardiac cycle = one beat
         double beatsPerSecond = bpm / 60.0;
-        double phaseStepPerTick = beatsPerSecond / 30.0;
+        double phaseStepPerTick = beatsPerSecond / 60.0;
 
         // Generate EKG samples into circular buffer
         for (int s = 0; s < 3; ++s)

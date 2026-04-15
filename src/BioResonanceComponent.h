@@ -204,9 +204,9 @@ public:
         double hrBpm = heartRate.heartRateBpm.load();
         if (hrBpm < MIN_HR_THRESHOLD) hrBpm = FALLBACK_REST_HR;  // fallback resting rate if no data
 
-        // Phase advances per timer tick (30 Hz)
-        musicPhase += (musicBpm / 60.0) / 30.0;
-        heartPhase += (hrBpm / 60.0) / 30.0;
+        // Phase advances per timer tick (60 Hz)
+        musicPhase += (musicBpm / 60.0) / 60.0;
+        heartPhase += (hrBpm / 60.0) / 60.0;
 
         // Trigger ripple on heartbeat (phase wraps from ~1.0 to ~0.0)
         float hp = static_cast<float>(std::fmod(heartPhase, 1.0));

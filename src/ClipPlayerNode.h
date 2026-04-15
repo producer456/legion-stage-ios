@@ -77,7 +77,7 @@ public:
     std::atomic<bool> sendAllNotesOff { false };
 
     // Audio track mode — set by PluginHost when track type changes
-    bool audioMode = false;
+    std::atomic<bool> audioMode { false };
 
     static constexpr int MAX_SLOTS = 256;
 

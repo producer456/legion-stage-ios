@@ -897,6 +897,8 @@ MainComponent::MainComponent()
             glassAnimEnabled = animDefault;
             glassAnimButton.setToggleState(animDefault, juce::dontSendNotification);
             // Start/stop accelerometer and boost timer for glass themes
+            if (timelineComponent)
+                timelineComponent->setOpaque(!themeManager.isGlassOverlay());
             if (themeManager.isGlassOverlay())
             {
                 DeviceMotion::getInstance().start();
@@ -1037,7 +1039,8 @@ MainComponent::MainComponent()
     applyThemeToControls();
 
     // Force layout after all controls are set up (handles side panels etc.)
-    juce::MessageManager::callAsync([this] { resized(); repaint(); });
+    auto safeThis = juce::Component::SafePointer<MainComponent>(this);
+    juce::MessageManager::callAsync([safeThis] { if (safeThis) { safeThis->resized(); safeThis->repaint(); } });
 
     startTimerHz(themeManager.isGlassOverlay() ? getGlassTimerHz() : getBaseTimerHz());
 }
@@ -1048,6 +1051,10 @@ MainComponent::~MainComponent()
     pluginHost.waveTerrainDisplay = nullptr;
     pluginHost.geissDisplay = nullptr;
     pluginHost.projectMDisplay = nullptr;
+    pluginHost.shaderToyDisplay = nullptr;
+    pluginHost.analyzerDisplay = nullptr;
+    pluginHost.heartbeatDisplay = nullptr;
+    pluginHost.bioResonanceDisplay = nullptr;
     // Clear Lissajous pointer from all tracks
     for (int t = 0; t < PluginHost::NUM_TRACKS; ++t)
     {
@@ -1336,6 +1343,7 @@ void MainComponent::timerCallback()
             cpuHistory.remove(0);
 
         // Advance EKG sweep — generate PQRST samples into circular buffer
+        if (!glassHighRate)
         {
             float cpu = totalCpu / 100.0f;
             // Heart rate mirrors CPU load like a real heart:
@@ -3665,7 +3673,7 @@ void MainComponent::loadProject()
                 }
 
                 slot.clip->events.updateMatchedPairs();
-                slot.state.store(ClipSlot::Playing);
+                slot.state.store(ClipSlot::Stopped);
             }
 
             // Load AudioClips
@@ -3699,7 +3707,7 @@ void MainComponent::loadProject()
                             slot.audioClip->samples.setSample(ch, si, *ptr++);
                 }
 
-                slot.state.store(ClipSlot::Playing);
+                slot.state.store(ClipSlot::Stopped);
             }
 
             // Load automation lanes
@@ -3752,7 +3760,7 @@ void MainComponent::loadProject()
                                     juce::MemoryBlock state;
                                     state.fromBase64Encoding(stateStr);
                                     auto* plugin = pluginHost.getTrack(t).plugin;
-                                    if (plugin != nullptr)
+                                    if (plugin != nullptr && state.getSize() > 0)
                                         plugin->setStateInformation(state.getData(), static_cast<int>(state.getSize()));
                                 }
                             }
@@ -3782,7 +3790,7 @@ void MainComponent::loadProject()
                                     juce::MemoryBlock state;
                                     state.fromBase64Encoding(stateStr);
                                     auto* proc = pluginHost.getTrack(t).fxSlots[fxSlot].processor;
-                                    if (proc != nullptr)
+                                    if (proc != nullptr && state.getSize() > 0)
                                         proc->setStateInformation(state.getData(), static_cast<int>(state.getSize()));
                                 }
                                 pluginHost.setFxBypassed(t, fxSlot, fxXml->getBoolAttribute("bypassed", false));
@@ -4251,7 +4259,7 @@ void MainComponent::showPhoneMenu()
                 resized();
                 repaint();
             }
-            else if (result >= 100 && result <= 105) {
+            else if (result >= 100 && result <= 107) {
                 currentVisMode = result - 100;
                 visSelector.setSelectedId(currentVisMode + 1, juce::dontSendNotification);
                 resized();
@@ -4767,7 +4775,7 @@ void MainComponent::paintOverChildren(juce::Graphics& g)
             {
                 int panelSlideOff2 = (int)((1.0f - panelSlideProgress) * (float)getPanelWidth());
                 int panelX = getWidth() - getPanelWidth() + panelSlideOff2;
-                drawGlassPane(juce::Rectangle<float>((float)panelX, 0, 180.0f, (float)getHeight()), 12.0f);
+                drawGlassPane(juce::Rectangle<float>((float)panelX, 0, (float)getPanelWidth(), (float)getHeight()), 12.0f);
             }
         } // end !isPhone
 

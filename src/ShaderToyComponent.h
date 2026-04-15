@@ -39,7 +39,7 @@ public:
 
     void timerCallback() override
     {
-        time += 1.0f / 30.0f;
+        time += 1.0f / 60.0f;
 
         if (fftReady.exchange(false))
         {

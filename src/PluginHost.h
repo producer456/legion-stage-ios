@@ -152,14 +152,14 @@ public:
     std::atomic<int> soloCount { 0 };
 
     // Spectrum analyzer — set from UI, read from audio thread
-    SpectrumComponent* spectrumDisplay = nullptr;
-    WaveTerrainComponent* waveTerrainDisplay = nullptr;
-    ShaderToyComponent* shaderToyDisplay = nullptr;
-    AnalyzerComponent* analyzerDisplay = nullptr;
-    GeissComponent* geissDisplay = nullptr;
-    ProjectMComponent* projectMDisplay = nullptr;
-    HeartbeatComponent* heartbeatDisplay = nullptr;
-    BioResonanceComponent* bioResonanceDisplay = nullptr;
+    std::atomic<SpectrumComponent*> spectrumDisplay { nullptr };
+    std::atomic<WaveTerrainComponent*> waveTerrainDisplay { nullptr };
+    std::atomic<ShaderToyComponent*> shaderToyDisplay { nullptr };
+    std::atomic<AnalyzerComponent*> analyzerDisplay { nullptr };
+    std::atomic<GeissComponent*> geissDisplay { nullptr };
+    std::atomic<ProjectMComponent*> projectMDisplay { nullptr };
+    std::atomic<HeartbeatComponent*> heartbeatDisplay { nullptr };
+    std::atomic<BioResonanceComponent*> bioResonanceDisplay { nullptr };
 
 private:
     juce::AudioPluginFormatManager formatManager;

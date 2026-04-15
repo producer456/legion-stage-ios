@@ -95,6 +95,6 @@ void GainProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuf
     }
 
     // Feed per-track Lissajous
-    if (lissajousDisplay != nullptr && buffer.getNumChannels() >= 2)
-        lissajousDisplay->pushSamples(buffer.getReadPointer(0), buffer.getReadPointer(1), numSamples);
+    if (auto* lj = lissajousDisplay.load(); lj != nullptr && buffer.getNumChannels() >= 2)
+        lj->pushSamples(buffer.getReadPointer(0), buffer.getReadPointer(1), numSamples);
 }
