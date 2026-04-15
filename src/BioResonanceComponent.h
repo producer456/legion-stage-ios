@@ -36,7 +36,7 @@ public:
     BioResonanceComponent(SequencerEngine& eng, HeartRateManager& hrm)
         : engine(eng), heartRate(hrm)
     {
-        startTimerHz(30);
+        startTimerHz(60);
 
         connectButton.setButtonText("Connect Watch");
         connectButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff334455));

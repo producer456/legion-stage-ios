@@ -15,7 +15,7 @@ public:
 
     SpectrumComponent()
     {
-        startTimerHz(30);
+        startTimerHz(60);
     }
 
     ~SpectrumComponent() override { stopTimer(); }

@@ -26,7 +26,7 @@ void DeviceMotion::start()
     if ([mm isDeviceMotionAvailable])
     {
         // Use device motion (gravity vector — best quality)
-        mm.deviceMotionUpdateInterval = 1.0 / 30.0;
+        mm.deviceMotionUpdateInterval = 1.0 / 60.0;  // 60Hz for smooth tilt response
         [mm startDeviceMotionUpdatesToQueue:[NSOperationQueue mainQueue]
                                 withHandler:^(CMDeviceMotion* motion, NSError* error) {
             if (motion && !error)

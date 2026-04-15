@@ -5,7 +5,8 @@ TimelineComponent::TimelineComponent(PluginHost& host)
     : pluginHost(host)
 {
     setWantsKeyboardFocus(true);
-    startTimerHz(30);
+    // Pro devices get 120Hz for butter-smooth playhead and scrolling
+    startTimerHz(60);
 }
 
 // ── Coordinate conversion ────────────────────────────────────────────────────
@@ -1078,7 +1079,7 @@ void TimelineComponent::paint(juce::Graphics& g)
         g.reduceClipRegion(clip);
         // Tint — adapt to light/dark theme
         bool lightTheme = (tc && juce::Colour(tc->body).getBrightness() > 0.5f);
-        g.fillAll(lightTheme ? juce::Colour(0xe0f0f0f4) : juce::Colour(0xe0080810));
+        g.fillAll(lightTheme ? juce::Colour(0xd0f0f0f4) : juce::Colour(0xb0080810));
     }
     else
     {
@@ -1129,7 +1130,7 @@ void TimelineComponent::drawHeader(juce::Graphics& g)
     auto* lnf = dynamic_cast<DawLookAndFeel*>(&getLookAndFeel());
     bool glassPane = lnf && lnf->isGlassOverlayTheme();
     bool lightHeader = glassPane && tc && juce::Colour(tc->body).getBrightness() > 0.5f;
-    g.setColour(glassPane ? (lightHeader ? juce::Colour(0xd0e8e8f0) : juce::Colour(0xd0080810))
+    g.setColour(glassPane ? (lightHeader ? juce::Colour(0xc0e8e8f0) : juce::Colour(0xa0080810))
                           : juce::Colour(tc ? tc->bodyDark : 0xff0a0a0a));
     g.fillRect(0, 0, getWidth(), headerHeight);
 

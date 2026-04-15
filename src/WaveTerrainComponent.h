@@ -11,7 +11,7 @@ public:
     static constexpr int numLines = 48;       // number of stacked waveforms
     static constexpr int lineResolution = 128; // samples per line
 
-    WaveTerrainComponent() { startTimerHz(30); }
+    WaveTerrainComponent() { startTimerHz(60); }
     ~WaveTerrainComponent() override { stopTimer(); }
 
     void pushSamples(const float* data, int numSamples)

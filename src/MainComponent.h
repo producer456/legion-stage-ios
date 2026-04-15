@@ -77,6 +77,7 @@ public:
     MainComponent();
     ~MainComponent() override;
 
+
     void paint(juce::Graphics& g) override;
     void paintOverChildren(juce::Graphics& g) override;
     void resized() override;
@@ -352,6 +353,10 @@ private:
     bool rightPanelVisible = true;
     float panelSlideProgress = 1.0f;   // 1.0 = fully open, 0.0 = fully closed
     float panelSlideTarget = 1.0f;
+    int getPanelWidth() const { return getWidth() >= 1100 ? 260 : 180; }
+    bool isProDevice() const { return getWidth() >= 1100; }
+    int getGlassTimerHz() const { return isProDevice() ? 120 : 30; }
+    int getBaseTimerHz() const { return isProDevice() ? 30 : 15; }  // non-glass themes
     float panelAnimStartValue = 1.0f;
     double panelAnimStartTime = 0.0;
     bool panelAnimating = false;
@@ -388,6 +393,8 @@ private:
 
     // ── Glass/Liquid animations ──
     double glassAnimTime = 0.0;  // continuous time for caustics & breathing
+    float smoothTiltX = 0.0f;   // smoothed accelerometer values
+    float smoothTiltY = 0.0f;
     struct Ripple {
         float x, y;        // center position
         float age;          // seconds since tap

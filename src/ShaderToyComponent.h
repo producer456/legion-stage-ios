@@ -14,7 +14,7 @@ public:
     static constexpr int fftSize = 1 << fftOrder;
     static constexpr int numBands = 16;
 
-    ShaderToyComponent() { startTimerHz(30); }
+    ShaderToyComponent() { startTimerHz(60); }
     ~ShaderToyComponent() override { stopTimer(); }
 
     void pushSamples(const float* data, int numSamples)

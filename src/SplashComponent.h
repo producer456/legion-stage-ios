@@ -18,14 +18,14 @@ public:
         setOpaque(true);
         buildTextPixels();
         buildBootLines();
-        startTimerHz(60);
+        startTimerHz(120);
     }
 
     ~SplashComponent() override { stopTimer(); }
 
     void timerCallback() override
     {
-        elapsed += 1.0f / 60.0f;
+        elapsed += 1.0f / 120.0f;
 
         repaint();
 

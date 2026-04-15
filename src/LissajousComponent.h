@@ -14,7 +14,7 @@ public:
 
     LissajousComponent()
     {
-        startTimerHz(30);
+        startTimerHz(60);
     }
 
     ~LissajousComponent() override { stopTimer(); }

@@ -13,7 +13,7 @@ public:
     static constexpr int fftSize = 1 << fftOrder;
     static constexpr int numPoints = 256;            // curve resolution
 
-    AnalyzerComponent() { startTimerHz(30); }
+    AnalyzerComponent() { startTimerHz(60); }
     ~AnalyzerComponent() override { stopTimer(); }
 
     void pushSamples(const float* data, int numSamples)

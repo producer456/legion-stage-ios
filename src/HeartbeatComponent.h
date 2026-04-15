@@ -18,7 +18,7 @@ class HeartbeatComponent : public juce::Component, public juce::Timer
 public:
     HeartbeatComponent(SequencerEngine& eng) : engine(eng)
     {
-        startTimerHz(30);
+        startTimerHz(60);
     }
 
     ~HeartbeatComponent() override { stopTimer(); }

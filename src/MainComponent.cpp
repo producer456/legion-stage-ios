@@ -1,6 +1,7 @@
 #include "MainComponent.h"
 #include "AUPresetHelper.h"
 #include "FileAccessHelper.h"
+#include "DeviceMotion.h"
 #if JUCE_IOS
 #include "AUScanner.h"
 #endif
@@ -460,7 +461,7 @@ MainComponent::MainComponent()
     fullscreenButton.setClickingTogglesState(true);
     fullscreenButton.onClick = [this] {
         visualizerFullScreen = fullscreenButton.getToggleState();
-        projectorMode = visualizerFullScreen;  // always projector mode
+        projectorMode = visualizerFullScreen;
         resized();
         repaint();
     };
@@ -895,6 +896,17 @@ MainComponent::MainComponent()
             bool animDefault = (idx != ThemeManager::LiquidGlassLight);
             glassAnimEnabled = animDefault;
             glassAnimButton.setToggleState(animDefault, juce::dontSendNotification);
+            // Start/stop accelerometer and boost timer for glass themes
+            if (themeManager.isGlassOverlay())
+            {
+                DeviceMotion::getInstance().start();
+                startTimerHz(getGlassTimerHz());
+            }
+            else
+            {
+                DeviceMotion::getInstance().stop();
+                startTimerHz(getBaseTimerHz());
+            }
             panelBlurImage = juce::Image();
             panelBlurUpdateCounter = 8;
             resized();
@@ -1027,7 +1039,7 @@ MainComponent::MainComponent()
     // Force layout after all controls are set up (handles side panels etc.)
     juce::MessageManager::callAsync([this] { resized(); repaint(); });
 
-    startTimerHz(15);
+    startTimerHz(themeManager.isGlassOverlay() ? getGlassTimerHz() : getBaseTimerHz());
 }
 
 MainComponent::~MainComponent()
@@ -1070,7 +1082,7 @@ void MainComponent::timerCallback()
         {
             panelSlideProgress = panelSlideTarget;
             panelAnimating = false;
-            startTimerHz(15);
+            startTimerHz(themeManager.isGlassOverlay() ? getGlassTimerHz() : getBaseTimerHz());
         }
         resized();
         repaint();
@@ -1080,7 +1092,62 @@ void MainComponent::timerCallback()
     // flash counters, CPU polling, etc. at their normal rate
     if (panelAnimating)
     {
-        if (++panelAnimFrameSkip < 4) return;  // skip 3 of every 4 frames
+        int panelSkip = isProDevice() ? 8 : 4;  // keep EKG/CPU at ~15Hz
+        if (++panelAnimFrameSkip < panelSkip) return;
+        panelAnimFrameSkip = 0;
+    }
+
+    // Glass themes run timer faster — skip non-glass code to keep EKG/CPU at ~15Hz
+    bool glassHighRate = themeManager.isGlassOverlay() && glassAnimEnabled && !panelAnimating;
+    if (glassHighRate)
+    {
+        int skipCount = getGlassTimerHz() / 15;  // 60/15=4 on Pro, 30/15=2 on mini
+        if (++panelAnimFrameSkip < skipCount)
+        {
+            // Still update glass animation and repaint, but skip CPU/flash
+            glassAnimTime = juce::Time::getMillisecondCounterHiRes() * 0.001;
+            auto rawTilt = DeviceMotion::getInstance().getTilt();
+            float lerpRate = isProDevice() ? 0.04f : 0.15f;
+            smoothTiltX += (rawTilt.x - smoothTiltX) * lerpRate;
+            smoothTiltY += (rawTilt.y - smoothTiltY) * lerpRate;
+
+            // Age ripples at full rate for smooth expansion
+            for (int ri = 0; ri < rippleCount; )
+            {
+                ripples[static_cast<size_t>(ri)].age += 1.0f / (float)getGlassTimerHz();
+                if (ripples[static_cast<size_t>(ri)].age > 1.2f)
+                {
+                    for (int rj = ri; rj < rippleCount - 1; ++rj)
+                        ripples[static_cast<size_t>(rj)] = ripples[static_cast<size_t>(rj + 1)];
+                    --rippleCount;
+                }
+                else ++ri;
+            }
+
+            // Generate 1 EKG sample per frame for smooth sweep at any timer rate
+            {
+                float cpu = currentCpuPercent / 100.0f;
+                double beatsPerSec = (63.0 + static_cast<double>(cpu) * 37.0) / 60.0;
+                double phaseStep = beatsPerSec / static_cast<double>(getGlassTimerHz());
+
+                ekgPhase += phaseStep;
+                float p = static_cast<float>(std::fmod(ekgPhase, 1.0));
+                float v = 0.0f;
+                if (p < 0.12f) { float tt = (p - 0.06f) / 0.04f; v = 0.12f * std::exp(-tt * tt); }
+                else if (p < 0.18f) { v = 0.0f; }
+                else if (p < 0.22f) { float tt = (p - 0.20f) / 0.015f; v = -0.1f * std::exp(-tt * tt); }
+                else if (p < 0.28f) { float w2 = 0.018f + cpu * 0.01f; float tt = (p - 0.25f) / w2; v = (0.7f + cpu * 0.3f) * std::exp(-tt * tt); }
+                else if (p < 0.34f) { float tt = (p - 0.31f) / 0.02f; v = -(0.15f + cpu * 0.1f) * std::exp(-tt * tt); }
+                else if (p < 0.48f) { v = cpu * 0.15f; }
+                else if (p < 0.64f) { float tt = (p - 0.56f) / 0.05f; float tA = 0.2f + cpu * 0.1f; if (cpu > 0.85f) tA = -tA * 0.5f; v = tA * std::exp(-tt * tt); }
+
+                ekgBuffer[static_cast<size_t>(ekgWritePos)] = v;
+                ekgWritePos = (ekgWritePos + 1) % EKG_BUFFER_SIZE;
+            }
+
+            repaint();
+            return;
+        }
         panelAnimFrameSkip = 0;
     }
 
@@ -1088,10 +1155,18 @@ void MainComponent::timerCallback()
     if (themeManager.isGlassOverlay() && glassAnimEnabled)
     {
         glassAnimTime = juce::Time::getMillisecondCounterHiRes() * 0.001;
+
+        // Smooth the accelerometer input — lerp toward raw tilt for fluid motion
+        auto rawTilt = DeviceMotion::getInstance().getTilt();
+        float lerpRate = isProDevice() ? 0.04f : 0.15f;  // lower at 60Hz for same feel
+        smoothTiltX += (rawTilt.x - smoothTiltX) * lerpRate;
+        smoothTiltY += (rawTilt.y - smoothTiltY) * lerpRate;
+
         // Age ripples
         for (int i = 0; i < rippleCount; )
         {
-            ripples[static_cast<size_t>(i)].age += 1.0f / 15.0f;  // still 15Hz timer rate
+            float timerRate = themeManager.isGlassOverlay() ? (float)getGlassTimerHz() : 15.0f;
+            ripples[static_cast<size_t>(i)].age += 1.0f / timerRate;
             if (ripples[static_cast<size_t>(i)].age > 1.2f)
             {
                 // Remove expired ripple
@@ -1263,15 +1338,16 @@ void MainComponent::timerCallback()
         // Advance EKG sweep — generate PQRST samples into circular buffer
         {
             float cpu = totalCpu / 100.0f;
-            // Heart rate: 60 BPM at 0% CPU → 180 BPM at 100% CPU
-            // Timer runs at 15 Hz, 3 sub-samples per tick = 45 samples/sec
-            // 60 BPM = 1 cycle/sec = 1/45 phase per sample
-            // 180 BPM = 3 cycles/sec = 3/45 phase per sample
-            double beatsPerSec = (60.0 + static_cast<double>(cpu) * 120.0) / 60.0;
-            double phaseStep = beatsPerSec / 45.0;
+            // Heart rate mirrors CPU load like a real heart:
+            // ~63 BPM at rest (low CPU) → tachycardia ~100 BPM at high CPU
+            // Samples/sec = timerHz * subSamples — keep constant at ~45 regardless of timer rate
+            double beatsPerSec = (63.0 + static_cast<double>(cpu) * 37.0) / 60.0;
+            int currentHz = themeManager.isGlassOverlay() ? getGlassTimerHz() : getBaseTimerHz();
+            int subSamples = juce::jmax(1, 45 / currentHz);  // 15Hz→3, 30Hz→1
+            double samplesPerSec = static_cast<double>(currentHz * subSamples);
+            double phaseStep = beatsPerSec / samplesPerSec;
 
-            // Generate a few samples per timer tick for smooth sweep
-            for (int s = 0; s < 3; ++s)
+            for (int s = 0; s < subSamples; ++s)
             {
                 ekgPhase += phaseStep;
                 float p = static_cast<float>(std::fmod(ekgPhase, 1.0));
@@ -2235,7 +2311,7 @@ void MainComponent::toggleRightPanel()
     panelAnimStartValue = panelSlideProgress;
     panelAnimStartTime = juce::Time::getMillisecondCounterHiRes() * 0.001;
     panelAnimating = true;
-    startTimerHz(60); // boost frame rate for smooth animation
+    startTimerHz(isProDevice() ? 120 : 60); // boost frame rate for smooth animation
     panelToggleButton.setButtonText(rightPanelVisible
         ? juce::String::charToString(0x25C0)   // ◀ (hide)
         : juce::String::charToString(0x25B6));  // ▶ (show)
@@ -3809,7 +3885,7 @@ void MainComponent::mouseDown(const juce::MouseEvent& e)
         // iPad: detect swipe near the panel edge or right screen edge
         // When panel is open, zone starts at the panel's left edge
         // When panel is closed, zone is the rightmost 80px of screen
-        int panelW = (int)(180.0f * panelSlideProgress);
+        int panelW = (int)((float)getPanelWidth() * panelSlideProgress);
         int edgeStart = getWidth() - panelW - 80;
         if (e.position.x > edgeStart)
         {
@@ -4293,7 +4369,7 @@ void MainComponent::paint(juce::Graphics& g)
             {
                 // Custom top bar (e.g. wood grain) — stop before oak strip
                 int sidePW = lnf->getSidePanelWidth();
-                int rpW = (int)(180.0f * panelSlideProgress);
+                int rpW = (int)((float)getPanelWidth() * panelSlideProgress);
                 int topBarWidth = getWidth() - sidePW - rpW - sidePW - sidePW;
                 lnf->drawTopBarBackground(g, sidePW, 0, topBarWidth, topBarDrawH);
             }
@@ -4315,14 +4391,15 @@ void MainComponent::paint(juce::Graphics& g)
     if (auto* dlnf = dynamic_cast<DawLookAndFeel*>(&getLookAndFeel()))
         if (dlnf->getSidePanelWidth() > 0)
             oakW = dlnf->getSidePanelWidth();
-    int rpW = (int)(180.0f * panelSlideProgress);
+    int rpW = (int)((float)getPanelWidth() * panelSlideProgress);
     int rightPanelTotal = rpW + oakW + oakW;  // right panel + oak strip + side panel
     int toolbarRight = getWidth() - rightPanelTotal;
 
     // Paint right panel background — full 180px width, translated to match slide position
-    int panelSlideOff = (int)((1.0f - panelSlideProgress) * 180.0f);
-    int panelPaintLeft = getWidth() - (oakW > 0 ? oakW : 0) - 180 + panelSlideOff;
-    int panelPaintW = 180;
+    int pw = getPanelWidth();
+    int panelSlideOff = (int)((1.0f - panelSlideProgress) * (float)pw);
+    int panelPaintLeft = getWidth() - (oakW > 0 ? oakW : 0) - pw + panelSlideOff;
+    int panelPaintW = pw;
     if (panelSlideProgress > 0.01f && !glassOverlay)
     {
         auto panelRect = juce::Rectangle<int>(panelPaintLeft, 0, panelPaintW, getHeight());
@@ -4448,7 +4525,7 @@ void MainComponent::paint(juce::Graphics& g)
                 // Draw decorative strip to the left of the right panel
                 int sidePW = lnf->getSidePanelWidth();
                 int stripW = sidePW;
-                int rpW2 = (int)(180.0f * panelSlideProgress);
+                int rpW2 = (int)((float)getPanelWidth() * panelSlideProgress);
                 int stripX = getWidth() - sidePW - rpW2 - stripW;
                 lnf->drawInnerStrip(g, stripX, 0, stripW, getHeight());
             }
@@ -4576,25 +4653,27 @@ void MainComponent::paintOverChildren(juce::Graphics& g)
         {
             int topBarBottom = statusBarPad + topBarH;
             int toolbarBottom = topBarBottom + 65;
-            int rpW = (int)(180.0f * panelSlideProgress);
+            int rpW = (int)((float)getPanelWidth() * panelSlideProgress);
 
             // ── Glass pane refractive edges ──
             float t3 = static_cast<float>(glassAnimTime);
             if (!glassAnimEnabled) t3 = 0.0f;  // freeze animation
 
-            // Same wave calc as background caustics — identical angles and speeds
-            float ea1 = std::sin(t3 * 0.003f) * 1.5f + std::sin(t3 * 0.0017f + 1.0f) * 0.8f + std::sin(t3 * 0.0007f + 0.3f) * 2.0f;
-            float ea2 = std::sin(t3 * 0.0025f + 2.0f) * 1.3f + std::sin(t3 * 0.0013f + 3.0f) * 0.9f + std::sin(t3 * 0.0005f + 1.7f) * 1.8f;
-            float ea3 = std::sin(t3 * 0.002f + 4.5f) * 1.6f + std::sin(t3 * 0.0011f + 5.0f) * 0.7f + std::sin(t3 * 0.0004f + 4.0f) * 2.2f;
+            // Same wave calc as background caustics — with tilt offset
+            float etx = smoothTiltX * 1.5f, ety = smoothTiltY * 1.5f;
+            float ea1 = std::sin(t3 * 0.003f) * 1.5f + std::sin(t3 * 0.0017f + 1.0f) * 0.8f + std::sin(t3 * 0.0007f + 0.3f) * 2.0f + etx;
+            float ea2 = std::sin(t3 * 0.0025f + 2.0f) * 1.3f + std::sin(t3 * 0.0013f + 3.0f) * 0.9f + std::sin(t3 * 0.0005f + 1.7f) * 1.8f + ety;
+            float ea3 = std::sin(t3 * 0.002f + 4.5f) * 1.6f + std::sin(t3 * 0.0011f + 5.0f) * 0.7f + std::sin(t3 * 0.0004f + 4.0f) * 2.2f + (etx + ety) * 0.5f;
             float eco1 = std::cos(ea1), esi1 = std::sin(ea1);
             float eco2 = std::cos(ea2), esi2 = std::sin(ea2);
             float eco3 = std::cos(ea3), esi3 = std::sin(ea3);
 
             auto edgeLight = [&](float ex, float ey) -> float
             {
-                float d1 = (ex * eco1 + ey * esi1) * 0.016f + t3 * 0.065f;
-                float d2 = (ex * eco2 + ey * esi2) * 0.020f + t3 * 0.052f;
-                float d3 = (ex * eco3 + ey * esi3) * 0.013f + t3 * 0.042f;
+                float eMul = getWidth() >= 1100 ? 18.0f : 1.0f;
+                float d1 = (ex * eco1 + ey * esi1) * 0.016f + t3 * 0.12f * eMul;
+                float d2 = (ex * eco2 + ey * esi2) * 0.020f + t3 * 0.095f * eMul;
+                float d3 = (ex * eco3 + ey * esi3) * 0.013f + t3 * 0.075f * eMul;
                 float cv = (std::sin(d1) + std::sin(d2) + std::sin(d3)) / 3.0f;
                 cv = cv * 0.5f + 0.5f;
                 return cv * cv;
@@ -4686,8 +4765,8 @@ void MainComponent::paintOverChildren(juce::Graphics& g)
             // Right panel glass pane
             if (rpW > 0)
             {
-                int panelSlideOff2 = (int)((1.0f - panelSlideProgress) * 180.0f);
-                int panelX = getWidth() - 180 + panelSlideOff2;
+                int panelSlideOff2 = (int)((1.0f - panelSlideProgress) * (float)getPanelWidth());
+                int panelX = getWidth() - getPanelWidth() + panelSlideOff2;
                 drawGlassPane(juce::Rectangle<float>((float)panelX, 0, 180.0f, (float)getHeight()), 12.0f);
             }
         } // end !isPhone
@@ -4708,12 +4787,14 @@ void MainComponent::paintOverChildren(juce::Graphics& g)
                 float bx = b.getCentreX();
                 float by = b.getCentreY();
 
-                float a1 = std::sin(t2 * 0.003f) * 1.5f + std::sin(t2 * 0.0017f + 1.0f) * 0.8f + std::sin(t2 * 0.0007f + 0.3f) * 2.0f;
-                float a2 = std::sin(t2 * 0.0025f + 2.0f) * 1.3f + std::sin(t2 * 0.0013f + 3.0f) * 0.9f + std::sin(t2 * 0.0005f + 1.7f) * 1.8f;
-                float a3 = std::sin(t2 * 0.002f + 4.5f) * 1.6f + std::sin(t2 * 0.0011f + 5.0f) * 0.7f + std::sin(t2 * 0.0004f + 4.0f) * 2.2f;
-                float sp1 = 0.050f;
-                float sp2 = 0.040f;
-                float sp3 = 0.032f;
+                float btx = smoothTiltX * 1.5f, bty = smoothTiltY * 1.5f;
+                float a1 = std::sin(t2 * 0.003f) * 1.5f + std::sin(t2 * 0.0017f + 1.0f) * 0.8f + std::sin(t2 * 0.0007f + 0.3f) * 2.0f + btx;
+                float a2 = std::sin(t2 * 0.0025f + 2.0f) * 1.3f + std::sin(t2 * 0.0013f + 3.0f) * 0.9f + std::sin(t2 * 0.0005f + 1.7f) * 1.8f + bty;
+                float a3 = std::sin(t2 * 0.002f + 4.5f) * 1.6f + std::sin(t2 * 0.0011f + 5.0f) * 0.7f + std::sin(t2 * 0.0004f + 4.0f) * 2.2f + (btx + bty) * 0.5f;
+                float bSpeedMul = getWidth() >= 1100 ? 18.0f : 1.0f;
+                float sp1 = 0.12f * bSpeedMul;
+                float sp2 = 0.095f * bSpeedMul;
+                float sp3 = 0.075f * bSpeedMul;
                 float s1 = std::sin((bx * std::cos(a1) + by * std::sin(a1)) * 0.016f + t2 * sp1);
                 float s2 = std::sin((bx * std::cos(a2) + by * std::sin(a2)) * 0.020f + t2 * sp2);
                 float s3 = std::sin((bx * std::cos(a3) + by * std::sin(a3)) * 0.013f + t2 * sp3);
@@ -4804,7 +4885,7 @@ void MainComponent::resized()
     int topBarH = 80;
 #endif
     int bottomBarH = isPhone ? 0 : 45;
-    int rightPanelW = isPhone ? 0 : (int)(180.0f * panelSlideProgress);
+    int rightPanelW = isPhone ? 0 : (int)((float)getPanelWidth() * panelSlideProgress);
 
     // ── Top Bar ──
     auto topBar = area.removeFromTop(topBarH).reduced(4, isPhone ? 2 : 10);
@@ -5438,7 +5519,7 @@ void MainComponent::resized()
         volumeLabel.setVisible(true);
         volumeSlider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
         volumeLabel.setBounds(rightPanel.removeFromTop(labelH));
-        auto volArea = rightPanel.removeFromTop(80);
+        auto volArea = rightPanel.removeFromTop(getPanelWidth() > 200 ? 110 : 80);
         int volSz = juce::jmin(volArea.getWidth(), volArea.getHeight());
         volumeSlider.setBounds(volArea.withSizeKeepingCentre(volSz, volSz));
         rightPanel.removeFromTop(paramGap);
@@ -5543,7 +5624,7 @@ void MainComponent::resized()
 #endif
     // Reset to default for iPad/desktop
     if (timelineComponent)
-        timelineComponent->setVisibleTracks(8);
+        timelineComponent->setVisibleTracks(isProDevice() ? 12 : 8);
 
     // Hide right panel components only when fully off-screen
     bool panelComponentsVisible = !isPhone && panelSlideProgress > 0.02f;
@@ -5568,7 +5649,7 @@ void MainComponent::resized()
     }
     // Panel slides off-screen to the right at full 180px width
     // fullArea carves the panel from the right edge, then we translate it off-screen
-    int fullPanelW = 180;
+    int fullPanelW = getPanelWidth();
     int slideOffset = (int)((1.0f - panelSlideProgress) * fullPanelW);
 
     // Build panel rect from the RIGHT edge of the screen (not from area)
@@ -5865,22 +5946,25 @@ void MainComponent::resized()
     // Plugin parameter knobs — paged grid
     if (paramSliders.size() > 0)
     {
-        int knobSize = juce::jmin(44, (rightPanel.getWidth() - 8) / 3);
+        bool widePanel = getPanelWidth() > 200;
+        int knobGap = widePanel ? 12 : 4;
+        int knobSize = juce::jmin(widePanel ? 60 : 44, (rightPanel.getWidth() - knobGap * 2) / 3);
         int numRows = (NUM_PARAM_SLIDERS + 2) / 3;
-        int labelH = 18;
-        int knobRowH = knobSize + labelH + 2;  // knob + label + gap
+        int labelH = widePanel ? 20 : 18;
+        int rowGap = widePanel ? 8 : 2;
+        int knobRowH = knobSize + labelH + rowGap;
         int knobAreaH = numRows * knobRowH + 4;
         auto knobArea = rightPanel.removeFromTop(knobAreaH);
         rightPanel.removeFromTop(4);
 
-        int gridW = 3 * knobSize + 2 * 4; // 3 knobs + 2 gaps
+        int gridW = 3 * knobSize + 2 * knobGap;
         int gridOffsetX = (knobArea.getWidth() - gridW) / 2;
 
         for (int i = 0; i < NUM_PARAM_SLIDERS; ++i)
         {
             int col = i % 3;
             int row = i / 3;
-            int kx = knobArea.getX() + gridOffsetX + col * (knobSize + 4);
+            int kx = knobArea.getX() + gridOffsetX + col * (knobSize + knobGap);
             int ky = knobArea.getY() + row * knobRowH;
 
             paramLabels[i]->setBounds(kx, ky, knobSize, labelH);
@@ -5928,7 +6012,7 @@ void MainComponent::resized()
         volumeLabel.setVisible(false);
         volumeSlider.setTextBoxStyle(juce::Slider::NoTextBox, true, 0, 0);
         volumeSlider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
-        int volSz = juce::jmin(mixArea.getWidth(), mixArea.getHeight(), 110);
+        int volSz = juce::jmin(mixArea.getWidth(), mixArea.getHeight(), getPanelWidth() > 200 ? 140 : 110);
         volumeSlider.setBounds(mixArea.withSizeKeepingCentre(volSz, volSz));
     }
 
@@ -6205,33 +6289,41 @@ void MainComponent::drawWaterCaustics(juce::Graphics& g, juce::Rectangle<int> ar
     float ax = static_cast<float>(area.getX());
     float ay = static_cast<float>(area.getY());
 
-    // Organic caustic network — waves moving in different directions
-    // Directions shift slowly over time so the flow feels alive
-    float step = 32.0f;
-    float blobR = 44.0f;
+    // ── Realistic ocean caustics ──
+    // 5 wave layers at different angles create the characteristic bright
+    // concentrated lines and dark pools of real underwater light.
+    // Pro devices render at half-res for detail, others at quarter-res.
 
-    // Wave directions wander — multiple sines at different periods
-    // create occasional noticeable direction shifts like currents changing
-    float angle1 = std::sin(t * 0.003f) * 1.5f
-                  + std::sin(t * 0.0017f + 1.0f) * 0.8f
-                  + std::sin(t * 0.0007f + 0.3f) * 2.0f;  // slow big swings
-    float angle2 = std::sin(t * 0.0025f + 2.0f) * 1.3f
-                  + std::sin(t * 0.0013f + 3.0f) * 0.9f
-                  + std::sin(t * 0.0005f + 1.7f) * 1.8f;
-    float angle3 = std::sin(t * 0.002f + 4.5f) * 1.6f
-                  + std::sin(t * 0.0011f + 5.0f) * 0.7f
-                  + std::sin(t * 0.0004f + 4.0f) * 2.2f;
+    float tiltOffsetX = smoothTiltX * 1.5f;
+    float tiltOffsetY = smoothTiltY * 1.5f;
+
+    // 5 wave directions that wander independently
+    float angle1 = std::sin(t * 0.003f) * 1.5f + std::sin(t * 0.0017f + 1.0f) * 0.8f
+                  + std::sin(t * 0.0007f + 0.3f) * 2.0f + tiltOffsetX;
+    float angle2 = std::sin(t * 0.0025f + 2.0f) * 1.3f + std::sin(t * 0.0013f + 3.0f) * 0.9f
+                  + std::sin(t * 0.0005f + 1.7f) * 1.8f + tiltOffsetY;
+    float angle3 = std::sin(t * 0.002f + 4.5f) * 1.6f + std::sin(t * 0.0011f + 5.0f) * 0.7f
+                  + std::sin(t * 0.0004f + 4.0f) * 2.2f + (tiltOffsetX + tiltOffsetY) * 0.5f;
+    float angle4 = std::sin(t * 0.0018f + 1.2f) * 1.4f + std::sin(t * 0.0009f + 2.8f) * 1.1f
+                  + tiltOffsetX * 0.7f;
+    float angle5 = std::sin(t * 0.0022f + 3.7f) * 1.2f + std::sin(t * 0.0015f + 0.5f) * 0.6f
+                  + tiltOffsetY * 0.8f;
+
     float cos1 = std::cos(angle1), sin1 = std::sin(angle1);
     float cos2 = std::cos(angle2), sin2 = std::sin(angle2);
     float cos3 = std::cos(angle3), sin3 = std::sin(angle3);
+    float cos4 = std::cos(angle4), sin4 = std::sin(angle4);
+    float cos5 = std::cos(angle5), sin5 = std::sin(angle5);
 
-    float speed1 = 0.065f;
-    float speed2 = 0.052f;
-    float speed3 = 0.042f;
+    bool pro = isProDevice();
+    float speedMul = pro ? 18.0f : 1.0f;
+    float sp1 = 0.12f * speedMul, sp2 = 0.095f * speedMul, sp3 = 0.075f * speedMul;
+    float sp4 = 0.11f * speedMul, sp5 = 0.065f * speedMul;
 
-    // Render caustics to a cached image at quarter resolution — update every 3rd frame
-    int cw = (int)(w / 4.0f);
-    int ch = (int)(h / 4.0f);
+    // Pro: half-res for sharper detail. Mini: quarter-res for performance.
+    float resFactor = pro ? 2.0f : 4.0f;
+    int cw = (int)(w / resFactor);
+    int ch = (int)(h / resFactor);
     if (cw < 2 || ch < 2) return;
 
     static juce::Image causticImg;
@@ -6241,44 +6333,72 @@ void MainComponent::drawWaterCaustics(juce::Graphics& g, juce::Rectangle<int> ar
     if (needsUpdate)
         causticImg = juce::Image(juce::Image::ARGB, cw, ch, true);
 
-    if (needsUpdate || ++causticFrame >= 3)
+    int cacheInterval = pro ? 2 : 3;
+    if (needsUpdate || ++causticFrame >= cacheInterval)
     {
         causticFrame = 0;
         causticImg.clear(causticImg.getBounds());
 
-        // Detect light theme — boost alpha so caustics are visible on bright backgrounds
         bool lightTheme = (themeManager.getCurrentTheme() == ThemeManager::LiquidGlassLight);
-        juce::Colour warmTone = lightTheme ? juce::Colour(0xff2090d0) : juce::Colour(0xff60c8c0);
-        juce::Colour coolTone = lightTheme ? juce::Colour(0xff1060a0) : juce::Colour(0xff4098d0);
-        float alphaScale = lightTheme ? 0.35f : 0.15f;
+
+        // Richer color palette for ocean light
+        juce::Colour brightAqua = lightTheme ? juce::Colour(0xff1888cc) : juce::Colour(0xff70e0d0);
+        juce::Colour deepBlue   = lightTheme ? juce::Colour(0xff0858a0) : juce::Colour(0xff3090c0);
+        juce::Colour warmCyan   = lightTheme ? juce::Colour(0xff20a0d8) : juce::Colour(0xff50c8b8);
+        float alphaScale = lightTheme ? 0.35f : 0.18f;
 
         for (int py = 0; py < ch; ++py)
         {
-            float y = ay + (float)py * 4.0f;
+            float y = ay + (float)py * resFactor;
             for (int px = 0; px < cw; ++px)
             {
-                float x = ax + (float)px * 4.0f;
+                float x = ax + (float)px * resFactor;
 
-                float d1 = (x * cos1 + y * sin1) * 0.016f + t * speed1;
-                float d2 = (x * cos2 + y * sin2) * 0.020f + t * speed2;
-                float d3 = (x * cos3 + y * sin3) * 0.013f + t * speed3;
+                // 5-wave interference — creates realistic caustic network
+                float d1 = (x * cos1 + y * sin1) * 0.018f + t * sp1;
+                float d2 = (x * cos2 + y * sin2) * 0.022f + t * sp2;
+                float d3 = (x * cos3 + y * sin3) * 0.015f + t * sp3;
+                float d4 = (x * cos4 + y * sin4) * 0.025f + t * sp4;
+                float d5 = (x * cos5 + y * sin5) * 0.013f + t * sp5;
 
-                float caustic = (std::sin(d1) + std::sin(d2) + std::sin(d3)) / 3.0f;
-                caustic = caustic * 0.5f + 0.5f;
-                caustic = caustic * caustic;
+                float s1 = std::sin(d1);
+                float s2 = std::sin(d2);
+                float s3 = std::sin(d3);
+                float s4 = std::sin(d4);
+                float s5 = std::sin(d5);
 
-                float alpha = caustic * alphaScale;
-                if (alpha < 0.02f) continue;
+                // Caustic = constructive interference peaks
+                // Real caustics: light concentrates into bright thin lines
+                float raw = (s1 + s2 + s3 + s4 + s5) / 5.0f;  // -1 to 1
+                raw = raw * 0.5f + 0.5f;                        // 0 to 1
 
-                float hueShift = std::sin(x * 0.003f + y * 0.004f + t * 0.01f) * 0.5f + 0.5f;
-                juce::Colour col = warmTone.interpolatedWith(coolTone, hueShift);
+                // Sharp peaks — cubic power concentrates brightness into thin lines
+                float caustic = raw * raw * raw;
+
+                // Secondary layer at different scale for fine detail
+                float fine1 = std::sin((x * cos2 - y * sin1) * 0.035f + t * sp3 * 1.3f);
+                float fine2 = std::sin((x * cos4 + y * sin3) * 0.030f + t * sp1 * 0.8f);
+                float fineDetail = (fine1 + fine2) * 0.25f + 0.5f;
+                fineDetail = fineDetail * fineDetail;
+
+                // Blend coarse caustic network with fine shimmer
+                float combined = caustic * 0.7f + fineDetail * 0.3f;
+
+                float alpha = combined * alphaScale;
+                if (alpha < 0.01f) continue;
+
+                // Color varies across the pattern — brighter lines get warmer color
+                float hueShift = std::sin(x * 0.003f + y * 0.004f + t * 0.008f) * 0.5f + 0.5f;
+                float brightShift = caustic;  // bright lines get a different hue
+                juce::Colour col = deepBlue.interpolatedWith(brightAqua, hueShift)
+                                            .interpolatedWith(warmCyan, brightShift * 0.4f);
 
                 causticImg.setPixelAt(px, py, col.withAlpha(juce::jlimit(0.0f, 1.0f, alpha)));
             }
         }
     }
 
-    // Draw scaled up — bilinear filtering makes it smooth and soft
+    // Draw scaled up — bilinear filtering smooths the pixels into organic shapes
     g.setOpacity(1.0f);
     g.drawImage(causticImg, area.toFloat(),
                 juce::RectanglePlacement::stretchToFit);

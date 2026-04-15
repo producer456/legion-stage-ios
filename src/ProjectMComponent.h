@@ -20,7 +20,7 @@ public:
     {
         waveBuffer.fill(0.0f);
         buildPalette();
-        startTimerHz(30);
+        startTimerHz(60);
     }
 
     ~ProjectMComponent() override { stopTimer(); }

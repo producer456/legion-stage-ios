@@ -19,7 +19,7 @@ public:
     GeissComponent()
     {
         waveBuffer.fill(0.0f);
-        startTimerHz(30);
+        startTimerHz(60);
     }
 
     ~GeissComponent() override { stopTimer(); }

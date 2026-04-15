@@ -39,7 +39,7 @@ public:
     MixerComponent(PluginHost& host) : pluginHost(host)
     {
         setWantsKeyboardFocus(false);
-        startTimerHz(10);  // reduced from 20Hz — meters don't need 20fps
+        startTimerHz(30);  // smooth VU meters
     }
 
     ~MixerComponent() override { stopTimer(); }
