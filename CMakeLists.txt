@@ -112,10 +112,14 @@ target_sources(Sequencer PRIVATE
     src/ChordDetector.h
     src/AUScanner.h
     src/AUScanner.mm
+    src/MetalCausticRenderer.h
+    src/MetalCausticRenderer.mm
+    src/CausticShaders.metal
 )
 
-# Force ARC for HeartRateManager.mm — HealthKit needs proper Obj-C memory management
+# Force ARC for Obj-C++ files that use Apple frameworks
 set_source_files_properties(src/HeartRateManager.mm PROPERTIES COMPILE_FLAGS "-fobjc-arc")
+set_source_files_properties(src/MetalCausticRenderer.mm PROPERTIES COMPILE_FLAGS "-fobjc-arc")
 
 target_compile_definitions(Sequencer PRIVATE
     JUCE_WEB_BROWSER=0
@@ -180,6 +184,11 @@ elseif(APPLE)
         find_library(COREMOTION_FRAMEWORK CoreMotion)
         if(COREMOTION_FRAMEWORK)
             target_link_libraries(Sequencer PRIVATE ${COREMOTION_FRAMEWORK})
+        endif()
+        find_library(METAL_FRAMEWORK Metal)
+        find_library(METALKIT_FRAMEWORK MetalKit)
+        if(METAL_FRAMEWORK AND METALKIT_FRAMEWORK)
+            target_link_libraries(Sequencer PRIVATE ${METAL_FRAMEWORK} ${METALKIT_FRAMEWORK})
         endif()
     else()
         find_library(AUDIOUNIT_FRAMEWORK AudioUnit)

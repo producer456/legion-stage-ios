@@ -490,6 +490,8 @@ MainComponent::MainComponent()
         projectorMode = false;
         fullscreenButton.setToggleState(false, juce::dontSendNotification);
         projectorButton.setToggleState(false, juce::dontSendNotification);
+        // Restore normal timer rate now that main UI needs repainting again
+        startTimerHz(themeManager.isGlassOverlay() ? getGlassTimerHz() : getBaseTimerHz());
         // Re-assert MIDI routing after exiting fullscreen
         pluginHost.setSelectedTrack(selectedTrackIndex);
         resized();
@@ -502,7 +504,14 @@ MainComponent::MainComponent()
     projectorButton.onClick = [this] {
         projectorMode = projectorButton.getToggleState();
         if (projectorMode)
+        {
             visualizerFullScreen = true;
+            startTimerHz(5);  // Minimal rate — visualizer has its own 60Hz timer
+        }
+        else
+        {
+            startTimerHz(themeManager.isGlassOverlay() ? getGlassTimerHz() : getBaseTimerHz());
+        }
         resized();
         repaint();
     };
@@ -909,6 +918,10 @@ MainComponent::MainComponent()
                 DeviceMotion::getInstance().stop();
                 startTimerHz(getBaseTimerHz());
             }
+#if JUCE_IOS
+            if (metalRenderer && metalRendererAttached)
+                metalRenderer->setVisible(themeManager.isGlassOverlay() && glassAnimEnabled);
+#endif
             panelBlurImage = juce::Image();
             panelBlurUpdateCounter = 8;
             resized();
@@ -1042,6 +1055,10 @@ MainComponent::MainComponent()
     auto safeThis = juce::Component::SafePointer<MainComponent>(this);
     juce::MessageManager::callAsync([safeThis] { if (safeThis) { safeThis->resized(); safeThis->repaint(); } });
 
+#if JUCE_IOS
+    metalRenderer = std::make_unique<MetalCausticRenderer>();
+#endif
+
     startTimerHz(themeManager.isGlassOverlay() ? getGlassTimerHz() : getBaseTimerHz());
 }
 
@@ -1061,6 +1078,10 @@ MainComponent::~MainComponent()
         auto& track = pluginHost.getTrack(t);
         if (track.gainProcessor) track.gainProcessor->lissajousDisplay = nullptr;
     }
+#if JUCE_IOS
+    if (metalRenderer) metalRenderer->detach();
+    metalRenderer.reset();
+#endif
     setLookAndFeel(nullptr);  // clear before ThemeManager destructs
     stopTimer();
     disableCurrentMidiDevice();
@@ -1073,6 +1094,24 @@ MainComponent::~MainComponent()
 
 void MainComponent::timerCallback()
 {
+    // ── Skip main UI repainting when visualizer is fullscreen ──
+    // The visualizer's own 60Hz timer handles all rendering; avoid competing repaints.
+    if (visualizerFullScreen)
+    {
+        // Still poll CPU/RAM so visualizers that use it (Heartbeat, BioSync) stay accurate
+        float totalCpu = static_cast<float>(deviceManager.getCpuUsage() * 100.0);
+        int ramMB = 0;
+#if JUCE_IOS || JUCE_MAC
+        struct mach_task_basic_info info;
+        mach_msg_type_number_t size = MACH_TASK_BASIC_INFO_COUNT;
+        if (task_info(mach_task_self(), MACH_TASK_BASIC_INFO, (task_info_t)&info, &size) == KERN_SUCCESS)
+            ramMB = static_cast<int>(info.resident_size / (1024 * 1024));
+#endif
+        currentCpuPercent = totalCpu;
+        currentRamMB = ramMB;
+        return;
+    }
+
     // ── Right Panel slide animation (time-based, independent of timer rate) ──
     if (panelAnimating)
     {
@@ -1152,7 +1191,12 @@ void MainComponent::timerCallback()
                 ekgWritePos = (ekgWritePos + 1) % EKG_BUFFER_SIZE;
             }
 
-            repaint();
+#if JUCE_IOS
+            if (metalRendererAttached)
+                updateMetalCaustics();
+            else
+#endif
+                repaint();
             return;
         }
         panelAnimFrameSkip = 0;
@@ -1184,7 +1228,14 @@ void MainComponent::timerCallback()
             else
                 ++i;
         }
-        repaint();
+
+#if JUCE_IOS
+        // Use Metal GPU renderer if attached — skip CPU repaint for caustics
+        if (metalRendererAttached)
+            updateMetalCaustics();
+        else
+#endif
+            repaint();
     }
 
     // Update panel frosted glass blur
@@ -3859,6 +3910,7 @@ void MainComponent::mouseDown(const juce::MouseEvent& e)
             visualizerFullScreen = true;
             projectorMode = true;
             fullscreenButton.setToggleState(true, juce::dontSendNotification);
+            startTimerHz(5);  // Minimal rate — visualizer has its own 60Hz timer
             resized();
             repaint();
             return;
@@ -4251,6 +4303,7 @@ void MainComponent::showPhoneMenu()
                 visualizerFullScreen = true;
                 projectorMode = true;
                 fullscreenButton.setToggleState(true, juce::dontSendNotification);
+                startTimerHz(5);  // Minimal rate — visualizer has its own 60Hz timer
                 resized();
                 repaint();
             }
@@ -4337,9 +4390,14 @@ void MainComponent::paint(juce::Graphics& g)
                 g.fillAll();
             }
 
-            // Caustics on phone
+            // Caustics on phone — skip if Metal GPU renderer is active
             if (glassAnimEnabled)
-                drawWaterCaustics(g, getLocalBounds());
+            {
+#if JUCE_IOS
+                if (!metalRendererAttached)
+#endif
+                    drawWaterCaustics(g, getLocalBounds());
+            }
         }
         else
         {
@@ -4481,7 +4539,12 @@ void MainComponent::paint(juce::Graphics& g)
     if (glassOverlay)
     {
         // No accent stripe for glass themes — caustics replace it (or nothing when anim off)
+        // On iOS, Metal handles caustics — skip CPU rendering
+#if JUCE_IOS
+        if (glassAnimEnabled && !metalRendererAttached)
+#else
         if (glassAnimEnabled)
+#endif
         {
             if (timelineComponent && timelineComponent->isVisible())
             {
@@ -4780,7 +4843,12 @@ void MainComponent::paintOverChildren(juce::Graphics& g)
         } // end !isPhone
 
         // ── These effects apply on both iPhone and iPad ──
+        // On iOS with Metal, ripples and button glow are GPU-rendered
+#if JUCE_IOS
+        if (glassAnimEnabled && !metalRendererAttached)
+#else
         if (glassAnimEnabled)
+#endif
         {
             // Draw ripple effects
             drawRipples(g);
@@ -4866,6 +4934,10 @@ void MainComponent::resized()
     auto area = getLocalBounds();
 
 #if JUCE_IOS
+    attachMetalRendererIfNeeded();
+    if (metalRenderer && metalRendererAttached)
+        metalRenderer->setBounds(0, 0, getWidth(), getHeight());
+
     bool isPhone = AUScanner::isIPhone() && !forceIPadLayout;
 #else
     bool isPhone = false;
@@ -6147,6 +6219,7 @@ bool MainComponent::keyPressed(const juce::KeyPress& key)
     {
         visualizerFullScreen = false;
         fullscreenButton.setToggleState(false, juce::dontSendNotification);
+        startTimerHz(themeManager.isGlassOverlay() ? getGlassTimerHz() : getBaseTimerHz());
         resized();
         repaint();
         grabKeyboardFocus();
@@ -7064,3 +7137,95 @@ void MainComponent::applyMidiCC(const MidiMapping& mapping, int value)
         default: break;
     }
 }
+
+// ─── Metal GPU Caustic Renderer Integration ────────────────────────
+#if JUCE_IOS
+
+void MainComponent::attachMetalRendererIfNeeded()
+{
+    if (!metalRenderer || metalRendererAttached) return;
+    if (!isShowing()) return;
+    auto* peer = getPeer();
+    if (!peer) return;
+
+    metalRenderer->attachToView(peer->getNativeHandle());
+    if (metalRenderer->isAttached())
+    {
+        metalRendererAttached = true;
+        metalRenderer->setBounds(0, 0, getWidth(), getHeight());
+        metalRenderer->setVisible(themeManager.isGlassOverlay() && glassAnimEnabled);
+    }
+}
+
+void MainComponent::updateMetalCaustics()
+{
+    if (!metalRenderer || !metalRendererAttached) return;
+
+    bool shouldShow = themeManager.isGlassOverlay() && glassAnimEnabled && !visualizerFullScreen;
+    metalRenderer->setVisible(shouldShow);
+    if (!shouldShow) return;
+
+    // Update layer bounds if needed
+    metalRenderer->setBounds(0, 0, getWidth(), getHeight());
+
+    // ── Caustic uniforms ──
+    CausticUniforms cu {};
+    cu.time = static_cast<float>(glassAnimTime);
+    cu.tiltX = smoothTiltX;
+    cu.tiltY = smoothTiltY;
+    cu.lightTheme = (themeManager.getCurrentTheme() == ThemeManager::LiquidGlassLight) ? 1 : 0;
+    cu.alphaScale = cu.lightTheme ? 0.35f : 0.18f;
+    cu.speedMul = isProDevice() ? 18.0f : 1.0f;
+    cu.viewWidth = static_cast<float>(getWidth());
+    cu.viewHeight = static_cast<float>(getHeight());
+
+    // Ripple data
+    cu.rippleCount = rippleCount;
+    for (int i = 0; i < rippleCount; ++i)
+    {
+        cu.rippleX[i] = ripples[static_cast<size_t>(i)].x;
+        cu.rippleY[i] = ripples[static_cast<size_t>(i)].y;
+        cu.rippleAge[i] = ripples[static_cast<size_t>(i)].age;
+        cu.rippleMaxRadius[i] = ripples[static_cast<size_t>(i)].maxRadius;
+    }
+    // Accent color for ripples
+    auto& c = themeManager.getColors();
+    juce::Colour accent(c.amber);
+    cu.rippleColor[0] = accent.getFloatRed();
+    cu.rippleColor[1] = accent.getFloatGreen();
+    cu.rippleColor[2] = accent.getFloatBlue();
+    cu.rippleColor[3] = 1.0f;
+
+    metalRenderer->setCausticUniforms(cu);
+
+    // ── Button glow uniforms ──
+    ButtonUniforms bu {};
+    bu.time = cu.time;
+    bu.tiltX = cu.tiltX;
+    bu.tiltY = cu.tiltY;
+    bu.speedMul = cu.speedMul;
+    bu.viewWidth = cu.viewWidth;
+    bu.viewHeight = cu.viewHeight;
+    bu.lightTheme = cu.lightTheme;
+    bu.buttonCount = 0;
+
+    for (int ci = 0; ci < getNumChildComponents() && bu.buttonCount < 64; ++ci)
+    {
+        auto* child = getChildComponent(ci);
+        if (child && child->isVisible() && dynamic_cast<juce::Button*>(child))
+        {
+            auto b = child->getBounds();
+            bu.buttons[bu.buttonCount] = { static_cast<float>(b.getX()),
+                                            static_cast<float>(b.getY()),
+                                            static_cast<float>(b.getWidth()),
+                                            static_cast<float>(b.getHeight()) };
+            bu.buttonCount++;
+        }
+    }
+    metalRenderer->setButtonUniforms(bu);
+
+    // Render the Metal frame
+    metalRenderer->render();
+}
+
+#endif // JUCE_IOS

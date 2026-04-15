@@ -22,6 +22,7 @@
 #include "ArrangerMinimapComponent.h"
 #include "HeartbeatComponent.h"
 #include "BioResonanceComponent.h"
+#include "MetalCausticRenderer.h"
 
 class PluginEditorWindow : public juce::DocumentWindow, public juce::ComponentListener
 {
@@ -407,6 +408,14 @@ private:
     void drawWaterCaustics(juce::Graphics& g, juce::Rectangle<int> area);
     void drawRipples(juce::Graphics& g);
     void drawBreathingStripe(juce::Graphics& g);
+
+#if JUCE_IOS
+    // Metal GPU-accelerated caustic renderer
+    std::unique_ptr<MetalCausticRenderer> metalRenderer;
+    bool metalRendererAttached = false;
+    void updateMetalCaustics();
+    void attachMetalRendererIfNeeded();
+#endif
 
     // ── Bottom Bar ──
     juce::Label statusLabel;
