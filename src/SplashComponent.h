@@ -30,8 +30,9 @@ public:
 
         repaint();
 
-        // Finish after logo fade completes (3.5s = holdEnd 2.5 + 1.0s fade)
-        if (elapsed > 3.5f && onFinished)
+        // Finish after logo fade completes
+        float finishTime = AUScanner::isJamieEdition() ? 4.5f : 3.5f;
+        if (elapsed > finishTime && onFinished)
         {
             stopTimer();
             onFinished();
@@ -50,10 +51,10 @@ public:
 
         // Phase timing
         float assembleEnd = 1.5f;
-        float holdEnd = 2.5f;
+        float holdEnd = AUScanner::isJamieEdition() ? 3.5f : 2.5f;
 
         // ── Phase 1 & 2: Logo animation ──
-        if (elapsed < holdEnd + 0.5f)
+        if (elapsed < holdEnd + 1.0f)
         {
             drawLogoPhase(g, w, h, ice);
         }
@@ -101,10 +102,11 @@ private:
         if (elapsed > 1.5f && elapsed < 2.5f)
             glowPulse = 0.3f + 0.2f * std::sin((elapsed - 1.5f) * 6.0f);
 
-        // Fade logo during boot sequence
+        // Fade logo after hold
+        float fadeStart = AUScanner::isJamieEdition() ? 3.5f : 2.5f;
         float logoAlpha = 1.0f;
-        if (elapsed > 2.5f)
-            logoAlpha = juce::jmax(0.0f, 1.0f - (elapsed - 2.5f) / 1.0f);
+        if (elapsed > fadeStart)
+            logoAlpha = juce::jmax(0.0f, 1.0f - (elapsed - fadeStart) / 1.0f);
         if (logoAlpha <= 0.0f) return;
 
         for (size_t i = 0; i < textPixels.size(); ++i)
@@ -163,14 +165,14 @@ private:
             // Jamie Edition label for iPad Mini 7
             if (AUScanner::isJamieEdition())
             {
-                float jamieAlpha = juce::jmin(1.0f, (elapsed - 2.0f) / 0.4f) * logoAlpha;
+                float jamieAlpha = juce::jmin(1.0f, (elapsed - 1.8f) / 0.3f) * logoAlpha;
                 if (jamieAlpha > 0.0f)
                 {
-                    g.setColour(juce::Colour(0xffd4af37).withAlpha(jamieAlpha * 0.7f));  // gold
-                    g.setFont(juce::Font(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 9.0f, juce::Font::italic)));
+                    g.setColour(juce::Colour(0xffd4af37).withAlpha(jamieAlpha * 0.9f));  // gold
+                    g.setFont(juce::Font(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 18.0f, juce::Font::italic)));
                     g.drawText("J A M I E   E D I T I O N", 0,
-                               static_cast<int>(offsetY + textDrawH + pixScale * 3 + 18),
-                               w, 16, juce::Justification::centred);
+                               static_cast<int>(offsetY + textDrawH + pixScale * 3 + 28),
+                               w, 26, juce::Justification::centred);
                 }
             }
         }

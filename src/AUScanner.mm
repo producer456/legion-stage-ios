@@ -84,6 +84,12 @@ bool AUScanner::isIPhone()
 
 juce::String AUScanner::getDeviceModelId()
 {
+#if TARGET_OS_SIMULATOR
+    // In simulator, utsname returns the Mac's model — use the sim env var instead
+    const char* simModel = getenv("SIMULATOR_MODEL_IDENTIFIER");
+    if (simModel && simModel[0])
+        return juce::String(simModel);
+#endif
     struct utsname systemInfo;
     uname(&systemInfo);
     return juce::String(systemInfo.machine);
