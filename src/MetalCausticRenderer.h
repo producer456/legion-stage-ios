@@ -1,6 +1,11 @@
 #pragma once
 
 // Uniform structures matching the Metal shader — no JUCE dependency
+// NOTE: Struct layout must exactly match Metal shader structs.
+// float4 in Metal requires 16-byte alignment — use padding to match.
+
+static constexpr int MAX_BUTTON_RECTS = 96;
+
 struct CausticUniforms {
     float time;
     float tiltX;
@@ -15,12 +20,14 @@ struct CausticUniforms {
     float rippleY[6];
     float rippleAge[6];
     float rippleMaxRadius[6];
-    float rippleColor[4]; // RGBA
+    float _pad0;            // align rippleColor to 16-byte boundary for float4
+    float rippleColor[4];   // RGBA — maps to float4 in Metal
 };
 
 struct BlurUniforms {
     float direction[2];
     float radius;
+    float _pad0;  // pad to 16-byte struct alignment for float2
 };
 
 struct ButtonRect {
@@ -36,7 +43,7 @@ struct ButtonUniforms {
     float viewHeight;
     int   lightTheme;
     int   buttonCount;
-    ButtonRect buttons[64];
+    ButtonRect buttons[MAX_BUTTON_RECTS];
 };
 
 /**

@@ -46,7 +46,8 @@ public:
         setupCausticPipeline();
         setupButtonGlowPipeline();
 
-        metalAvailable = true;
+        // Only mark available if the caustic pipeline actually compiled
+        metalAvailable = (causticPipeline != nil);
     }
 
     ~Impl()
@@ -115,15 +116,22 @@ public:
         metalLayer.pixelFormat = MTLPixelFormatBGRA8Unorm;
         metalLayer.framebufferOnly = YES;
         metalLayer.opaque = NO;  // Transparent — composites over app background
-        metalLayer.contentsScale = juceView.window.screen.scale;
+
+        // contentsScale: fall back to mainScreen if view has no window yet
+        CGFloat scale = juceView.window.screen.scale;
+        if (scale < 1.0) scale = [UIScreen mainScreen].scale;
+        metalLayer.contentsScale = scale;
 
         CGRect frame = juceView.bounds;
+        if (frame.size.width < 1 || frame.size.height < 1) { metalLayer = nil; return; }
         metalLayer.frame = frame;
-        metalLayer.drawableSize = CGSizeMake(frame.size.width * metalLayer.contentsScale,
-                                              frame.size.height * metalLayer.contentsScale);
+        metalLayer.drawableSize = CGSizeMake(frame.size.width * scale,
+                                              frame.size.height * scale);
 
-        // Insert behind all other sublayers (behind JUCE's rendering)
+        // Insert behind all other sublayers and set negative zPosition
+        // so JUCE sublayer reordering can't push Metal in front
         [juceView.layer insertSublayer:metalLayer atIndex:0];
+        metalLayer.zPosition = -1;
 
         attached = true;
     }
@@ -180,7 +188,7 @@ public:
 
     void setBounds(int x, int y, int width, int height)
     {
-        if (metalLayer)
+        if (metalLayer && width > 0 && height > 0)
         {
             [CATransaction begin];
             [CATransaction setDisableActions:YES];

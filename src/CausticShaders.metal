@@ -18,8 +18,8 @@ struct CausticUniforms {
     float rippleY[6];
     float rippleAge[6];
     float rippleMaxRadius[6];
-    // Accent color for ripples (RGBA)
-    float4 rippleColor;
+    float _pad0;            // align to 16-byte boundary for float4
+    float4 rippleColor;     // RGBA accent color for ripples
 };
 
 // ─── Vertex Shader (fullscreen quad) ───────────────────────────────
@@ -132,8 +132,8 @@ fragment float4 causticFragment(VertexOut in [[stage_in]],
     }
 
     float4 result = float4(col, clamp(alpha, 0.0, 1.0));
-    // Additive blend ripples on top
-    result.rgb += rippleAccum.rgb * rippleAccum.a;
+    // Additive blend ripples on top — clamp to prevent overbright whiteout
+    result.rgb = clamp(result.rgb + rippleAccum.rgb * rippleAccum.a, 0.0, 1.0);
     result.a = clamp(result.a + rippleAccum.a, 0.0, 1.0);
 
     return result;
@@ -244,7 +244,7 @@ struct ButtonUniforms {
     float viewHeight;
     int   lightTheme;
     int   buttonCount;
-    ButtonRect buttons[64];  // up to 64 visible buttons
+    ButtonRect buttons[96];  // up to 96 visible buttons
 };
 
 fragment float4 buttonGlowFragment(VertexOut in [[stage_in]],
@@ -255,8 +255,10 @@ fragment float4 buttonGlowFragment(VertexOut in [[stage_in]],
 
     float4 result = float4(0.0);
 
-    for (int i = 0; i < u.buttonCount; ++i) {
+    int count = min(u.buttonCount, 96);
+    for (int i = 0; i < count; ++i) {
         ButtonRect btn = u.buttons[i];
+        if (btn.w < 1.0 || btn.h < 1.0) continue;  // skip zero-size buttons
         // Check if pixel is inside this button (with 12px corner radius)
         float2 center = float2(btn.x + btn.w * 0.5, btn.y + btn.h * 0.5);
         float2 halfSize = float2(btn.w * 0.5, btn.h * 0.5);
@@ -281,7 +283,7 @@ fragment float4 buttonGlowFragment(VertexOut in [[stage_in]],
         if (alpha < 0.01) continue;
 
         // Top-to-bottom gradient within button
-        float yFrac = (py - btn.y) / btn.h;
+        float yFrac = (py - btn.y) / max(btn.h, 1.0);
         alpha *= mix(1.0, 0.2, yFrac);
 
         float hueB = sin(bx * 0.003 + by * 0.004 + t * 0.01) * 0.5 + 0.5;

@@ -462,6 +462,10 @@ MainComponent::MainComponent()
     fullscreenButton.onClick = [this] {
         visualizerFullScreen = fullscreenButton.getToggleState();
         projectorMode = visualizerFullScreen;
+        if (visualizerFullScreen)
+            startTimerHz(5);  // Minimal rate — visualizer has its own 60Hz timer
+        else
+            startTimerHz(themeManager.isGlassOverlay() ? getGlassTimerHz() : getBaseTimerHz());
         resized();
         repaint();
     };
@@ -510,6 +514,7 @@ MainComponent::MainComponent()
         }
         else
         {
+            visualizerFullScreen = false;
             startTimerHz(themeManager.isGlassOverlay() ? getGlassTimerHz() : getBaseTimerHz());
         }
         resized();
@@ -6218,7 +6223,9 @@ bool MainComponent::keyPressed(const juce::KeyPress& key)
     if (key == juce::KeyPress::escapeKey && visualizerFullScreen)
     {
         visualizerFullScreen = false;
+        projectorMode = false;
         fullscreenButton.setToggleState(false, juce::dontSendNotification);
+        projectorButton.setToggleState(false, juce::dontSendNotification);
         startTimerHz(themeManager.isGlassOverlay() ? getGlassTimerHz() : getBaseTimerHz());
         resized();
         repaint();
@@ -7209,7 +7216,7 @@ void MainComponent::updateMetalCaustics()
     bu.lightTheme = cu.lightTheme;
     bu.buttonCount = 0;
 
-    for (int ci = 0; ci < getNumChildComponents() && bu.buttonCount < 64; ++ci)
+    for (int ci = 0; ci < getNumChildComponents() && bu.buttonCount < MAX_BUTTON_RECTS; ++ci)
     {
         auto* child = getChildComponent(ci);
         if (child && child->isVisible() && dynamic_cast<juce::Button*>(child))
