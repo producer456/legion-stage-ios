@@ -6,6 +6,7 @@
 #if TARGET_OS_IOS || TARGET_OS_SIMULATOR
 #import <UIKit/UIDevice.h>
 #endif
+#include <sys/utsname.h>
 
 // Now include JUCE
 #include "AUScanner.h"
@@ -81,6 +82,69 @@ bool AUScanner::isIPhone()
     return [[UIDevice currentDevice] userInterfaceIdiom] == UIUserInterfaceIdiomPhone;
 }
 
+juce::String AUScanner::getDeviceModelId()
+{
+    struct utsname systemInfo;
+    uname(&systemInfo);
+    return juce::String(systemInfo.machine);
+}
+
+AUScanner::DeviceTier AUScanner::getDeviceTier()
+{
+    static DeviceTier cachedTier = [] {
+        juce::String model = getDeviceModelId();
+
+        // iPad Mini 7 = iPad16,1 or iPad16,2 (A17 Pro) — Jamie Edition
+        if (model == "iPad16,1" || model == "iPad16,2")
+            return DeviceTier::JamieEdition;
+
+        // M-series iPads (High tier)
+        // iPad Pro M1: iPad13,4-11  iPad Air M1: iPad13,16-17
+        // iPad Pro M2: iPad14,3-6   iPad Air M2: iPad14,8-9
+        // iPad Pro M4: iPad16,3-6   iPad Air M3: iPad14,10-11
+        // iPad (A16): iPad14,12 (10th gen refresh)
+        int majorNum = model.upToFirstOccurrenceOf(",", false, false)
+                            .fromFirstOccurrenceOf("iPad", false, false)
+                            .getIntValue();
+
+        if (majorNum >= 16 && !model.startsWith("iPad16,1") && !model.startsWith("iPad16,2"))
+            return DeviceTier::High;  // M4 Pro and newer
+        if (majorNum == 14)
+        {
+            // iPad14,1-2 = iPad Mini 6 (A15) — Mid tier
+            int minorNum = model.fromFirstOccurrenceOf(",", false, false).getIntValue();
+            if (minorNum <= 2)
+                return DeviceTier::Mid;
+            return DeviceTier::High;  // iPad14,3+ = M2 Pro, M1 Air, M2 Air, M3 Air
+        }
+        if (majorNum == 13)
+        {
+            // iPad13,16-17 = Air M1, iPad13,4-11 = Pro M1
+            // iPad13,1-3 = iPad Air 4 (A14) — Mid tier
+            int minorNum = model.fromFirstOccurrenceOf(",", false, false).getIntValue();
+            if (minorNum >= 4)
+                return DeviceTier::High;
+            return DeviceTier::Mid;
+        }
+
+        // A12-A17 chips — Mid tier
+        // iPad8,x = Pro A12X, iPad11,x = Air A12, iPad12,x = A14
+        if (majorNum == 12 || majorNum == 11)
+            return DeviceTier::Mid;
+        if (majorNum == 8)
+            return DeviceTier::Mid;  // A12X Pro — still quite capable
+
+        // Everything older: A10X and below — Low tier
+        return DeviceTier::Low;
+    }();
+    return cachedTier;
+}
+
+bool AUScanner::isJamieEdition()
+{
+    return getDeviceTier() == DeviceTier::JamieEdition;
+}
+
 #else
 
 juce::Array<AUScanner::AUInfo> AUScanner::scanAllAudioUnits()
@@ -94,6 +158,21 @@ void AUScanner::pumpRunLoop(int milliseconds)
 }
 
 bool AUScanner::isIPhone()
+{
+    return false;
+}
+
+juce::String AUScanner::getDeviceModelId()
+{
+    return "Desktop";
+}
+
+AUScanner::DeviceTier AUScanner::getDeviceTier()
+{
+    return DeviceTier::High;
+}
+
+bool AUScanner::isJamieEdition()
 {
     return false;
 }

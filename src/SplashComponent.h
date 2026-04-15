@@ -1,6 +1,7 @@
 #pragma once
 
 #include <JuceHeader.h>
+#include "AUScanner.h"
 #include <vector>
 #include <cmath>
 
@@ -158,6 +159,20 @@ private:
             g.setFont(juce::Font(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 11.0f, juce::Font::plain)));
             g.drawText("T O U C H   D A W", 0, static_cast<int>(offsetY + textDrawH + pixScale * 3),
                        w, 20, juce::Justification::centred);
+
+            // Jamie Edition label for iPad Mini 7
+            if (AUScanner::isJamieEdition())
+            {
+                float jamieAlpha = juce::jmin(1.0f, (elapsed - 2.0f) / 0.4f) * logoAlpha;
+                if (jamieAlpha > 0.0f)
+                {
+                    g.setColour(juce::Colour(0xffd4af37).withAlpha(jamieAlpha * 0.7f));  // gold
+                    g.setFont(juce::Font(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 9.0f, juce::Font::italic)));
+                    g.drawText("J A M I E   E D I T I O N", 0,
+                               static_cast<int>(offsetY + textDrawH + pixScale * 3 + 18),
+                               w, 16, juce::Justification::centred);
+                }
+            }
         }
     }
 
@@ -221,7 +236,9 @@ private:
         bootLines.add("#include \"PluginHost.h\"");
         bootLines.add("#include \"SequencerEngine.h\"");
         bootLines.add("");
-        bootLines.add("// Legion Stage v1.1.0");
+        bootLines.add(AUScanner::isJamieEdition()
+            ? "// Legion Stage v1.1.0 — Jamie Edition"
+            : "// Legion Stage v1.1.0");
 #if JUCE_IOS
         bootLines.add("// Touch DAW for iPad & iPhone");
 #else

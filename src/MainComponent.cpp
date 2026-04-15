@@ -11,6 +11,12 @@
 
 MainComponent::MainComponent()
 {
+#if JUCE_IOS
+    deviceTier = AUScanner::getDeviceTier();
+#else
+    deviceTier = AUScanner::DeviceTier::High;
+#endif
+
     themeManager.setTheme(ThemeManager::Ioniq, this);
 
     auto result = deviceManager.initialiseWithDefaultDevices(2, 2);  // 2 in, 2 out for mic recording
@@ -1143,7 +1149,7 @@ void MainComponent::timerCallback()
     // flash counters, CPU polling, etc. at their normal rate
     if (panelAnimating)
     {
-        int panelSkip = isProDevice() ? 8 : 4;  // keep EKG/CPU at ~15Hz
+        int panelSkip = isHighTier() ? 8 : (isLowTier() ? 3 : 4);  // keep EKG/CPU at ~15Hz
         if (++panelAnimFrameSkip < panelSkip) return;
         panelAnimFrameSkip = 0;
     }
@@ -1158,7 +1164,7 @@ void MainComponent::timerCallback()
             // Still update glass animation and repaint, but skip CPU/flash
             glassAnimTime = juce::Time::getMillisecondCounterHiRes() * 0.001;
             auto rawTilt = DeviceMotion::getInstance().getTilt();
-            float lerpRate = isProDevice() ? 0.04f : 0.15f;
+            float lerpRate = isHighTier() ? 0.04f : (isLowTier() ? 0.15f : 0.08f);
             smoothTiltX += (rawTilt.x - smoothTiltX) * lerpRate;
             smoothTiltY += (rawTilt.y - smoothTiltY) * lerpRate;
 
@@ -1214,7 +1220,7 @@ void MainComponent::timerCallback()
 
         // Smooth the accelerometer input — lerp toward raw tilt for fluid motion
         auto rawTilt = DeviceMotion::getInstance().getTilt();
-        float lerpRate = isProDevice() ? 0.04f : 0.15f;  // lower at 60Hz for same feel
+        float lerpRate = isHighTier() ? 0.04f : (isLowTier() ? 0.15f : 0.08f);  // lower at 60Hz for same feel
         smoothTiltX += (rawTilt.x - smoothTiltX) * lerpRate;
         smoothTiltY += (rawTilt.y - smoothTiltY) * lerpRate;
 
@@ -2375,7 +2381,7 @@ void MainComponent::toggleRightPanel()
     panelAnimStartValue = panelSlideProgress;
     panelAnimStartTime = juce::Time::getMillisecondCounterHiRes() * 0.001;
     panelAnimating = true;
-    startTimerHz(isProDevice() ? 120 : 60); // boost frame rate for smooth animation
+    startTimerHz(isHighTier() ? 120 : 60); // boost frame rate for smooth animation
     panelToggleButton.setButtonText(rightPanelVisible
         ? juce::String::charToString(0x25C0)   // ◀ (hide)
         : juce::String::charToString(0x25B6));  // ▶ (show)
@@ -5709,7 +5715,7 @@ void MainComponent::resized()
 #endif
     // Reset to default for iPad/desktop
     if (timelineComponent)
-        timelineComponent->setVisibleTracks(isProDevice() ? 12 : 8);
+        timelineComponent->setVisibleTracks(isHighTier() ? 12 : 8);
 
     // Hide right panel components only when fully off-screen
     bool panelComponentsVisible = !isPhone && panelSlideProgress > 0.02f;
@@ -6403,13 +6409,14 @@ void MainComponent::drawWaterCaustics(juce::Graphics& g, juce::Rectangle<int> ar
     float cos4 = std::cos(angle4), sin4 = std::sin(angle4);
     float cos5 = std::cos(angle5), sin5 = std::sin(angle5);
 
-    bool pro = isProDevice();
-    float speedMul = pro ? 18.0f : 1.0f;
+    bool highPerf = isHighTier();
+    bool jamie = (deviceTier == AUScanner::DeviceTier::JamieEdition);
+    float speedMul = highPerf ? 18.0f : (jamie ? 12.0f : (isLowTier() ? 1.0f : 8.0f));
     float sp1 = 0.12f * speedMul, sp2 = 0.095f * speedMul, sp3 = 0.075f * speedMul;
     float sp4 = 0.11f * speedMul, sp5 = 0.065f * speedMul;
 
-    // Pro: half-res for sharper detail. Mini: quarter-res for performance.
-    float resFactor = pro ? 2.0f : 4.0f;
+    // High: half-res, Jamie/Mid: third-res, Low: quarter-res
+    float resFactor = highPerf ? 2.0f : (jamie ? 2.5f : (isLowTier() ? 4.0f : 3.0f));
     int cw = (int)(w / resFactor);
     int ch = (int)(h / resFactor);
     if (cw < 2 || ch < 2) return;
@@ -6421,7 +6428,7 @@ void MainComponent::drawWaterCaustics(juce::Graphics& g, juce::Rectangle<int> ar
     if (needsUpdate)
         causticImg = juce::Image(juce::Image::ARGB, cw, ch, true);
 
-    int cacheInterval = pro ? 2 : 3;
+    int cacheInterval = highPerf ? 2 : (isLowTier() ? 4 : 3);
     if (needsUpdate || ++causticFrame >= cacheInterval)
     {
         causticFrame = 0;
@@ -7182,7 +7189,9 @@ void MainComponent::updateMetalCaustics()
     cu.tiltY = smoothTiltY;
     cu.lightTheme = (themeManager.getCurrentTheme() == ThemeManager::LiquidGlassLight) ? 1 : 0;
     cu.alphaScale = cu.lightTheme ? 0.35f : 0.18f;
-    cu.speedMul = isProDevice() ? 18.0f : 1.0f;
+    cu.speedMul = isHighTier() ? 18.0f
+               : (deviceTier == AUScanner::DeviceTier::JamieEdition ? 12.0f
+               : (isLowTier() ? 1.0f : 8.0f));
     cu.viewWidth = static_cast<float>(getWidth());
     cu.viewHeight = static_cast<float>(getHeight());
 

@@ -8,6 +8,7 @@
 #include "TimelineComponent.h"
 #include "Midi2Handler.h"
 #include "ThemeManager.h"
+#include "AUScanner.h"
 #include "SpectrumComponent.h"
 #include "LissajousComponent.h"
 #include "WaveTerrainComponent.h"
@@ -355,9 +356,33 @@ private:
     float panelSlideProgress = 1.0f;   // 1.0 = fully open, 0.0 = fully closed
     float panelSlideTarget = 1.0f;
     int getPanelWidth() const { return getWidth() >= 1100 ? 260 : 180; }
-    bool isProDevice() const { return getWidth() >= 1100; }
-    int getGlassTimerHz() const { return isProDevice() ? 120 : 30; }
-    int getBaseTimerHz() const { return isProDevice() ? 30 : 15; }  // non-glass themes
+    bool isProDevice() const { return getWidth() >= 1100; }  // layout only — use deviceTier for perf
+
+    // Performance tier — cached from AUScanner::getDeviceTier() on construction
+    AUScanner::DeviceTier deviceTier = AUScanner::DeviceTier::Mid;
+    bool isHighTier() const { return deviceTier == AUScanner::DeviceTier::High; }
+    bool isMidTier() const { return deviceTier == AUScanner::DeviceTier::Mid
+                                 || deviceTier == AUScanner::DeviceTier::JamieEdition; }
+    bool isLowTier() const { return deviceTier == AUScanner::DeviceTier::Low; }
+
+    int getGlassTimerHz() const {
+        switch (deviceTier) {
+            case AUScanner::DeviceTier::High:           return 120;
+            case AUScanner::DeviceTier::JamieEdition:   return 60;
+            case AUScanner::DeviceTier::Mid:             return 60;
+            case AUScanner::DeviceTier::Low:             return 30;
+        }
+        return 30;
+    }
+    int getBaseTimerHz() const {
+        switch (deviceTier) {
+            case AUScanner::DeviceTier::High:           return 30;
+            case AUScanner::DeviceTier::JamieEdition:   return 30;
+            case AUScanner::DeviceTier::Mid:             return 20;
+            case AUScanner::DeviceTier::Low:             return 15;
+        }
+        return 15;
+    }
     float panelAnimStartValue = 1.0f;
     double panelAnimStartTime = 0.0;
     bool panelAnimating = false;
