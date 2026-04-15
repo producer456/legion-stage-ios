@@ -227,6 +227,11 @@ public:
         bool beat = beatHit.exchange(false);
 
 #if JUCE_IOS
+        // NOTE: When Metal is the active rendering path, the CPU vs1/vs2 buffers
+        // diverge from GPU state. This is acceptable — Metal maintains its own
+        // warp buffers on the GPU. If Metal becomes unavailable, the CPU path
+        // re-initializes vs1/vs2 naturally through the warp+blur pipeline, so
+        // any stale data is quickly overwritten within a few frames.
         if (tryMetalRender(energy, beat)) return;
 #endif
 
@@ -279,8 +284,6 @@ public:
         metalRenderer->setBounds(getScreenX() - getTopLevelComponent()->getScreenX(),
                                   getScreenY() - getTopLevelComponent()->getScreenY(),
                                   getWidth(), getHeight());
-
-        metalRenderer->initWarpBuffers(bufW, bufH);
 
         // GPU warp + blur
         metalRenderer->executeWarpBlur();
@@ -336,6 +339,30 @@ public:
             points.push_back(ep);
         }
 
+        // Solar particles — radial burst from center
+        if (beat || energy >= 0.3f)
+        {
+            int numParticles = static_cast<int>(20 + energy * 60);
+            float maxRadius = juce::jmin(bufW, bufH) * 0.4f * (0.5f + energy);
+            uint32_t seed = static_cast<uint32_t>(effectPhase * 1000.0);
+
+            for (int i = 0; i < numParticles; ++i)
+            {
+                seed = seed * 1664525u + 1013904223u;
+                float angle = static_cast<float>(seed & 0xFFFF) / 65536.0f * juce::MathConstants<float>::twoPi;
+                seed = seed * 1664525u + 1013904223u;
+                float radius = static_cast<float>(seed & 0xFFFF) / 65536.0f * maxRadius;
+
+                float falloff = 1.0f - (radius / maxRadius);
+                EffectPoint ep;
+                ep.x = cx + std::cos(angle) * radius;
+                ep.y = cy + std::sin(angle) * radius;
+                ep.radius = 0.0f;
+                ep.brightness = falloff * (40.0f + energy * 80.0f);
+                points.push_back(ep);
+            }
+        }
+
         // Waveform points (sampled)
         std::array<float, WAVE_SIZE> wave;
         int rp = writePos;
@@ -353,16 +380,52 @@ public:
 
             switch (waveMode)
             {
-                case 0:
+                case 0: // Horizontal centered
                     ep.x = frac * bufW;
                     ep.y = cy + sample * bufH * 0.35f;
                     break;
-                case 1:
+                case 1: // Circular
                 {
                     float angle = frac * juce::MathConstants<float>::twoPi;
                     float r = juce::jmin(bufW, bufH) * 0.25f + sample * bufH * 0.15f;
                     ep.x = cx + std::cos(angle) * r;
                     ep.y = cy + std::sin(angle) * r;
+                    break;
+                }
+                case 2: // Dual mirrored — plot upper point, queue lower via separate push
+                {
+                    ep.x = frac * bufW;
+                    ep.y = cy + std::abs(sample) * bufH * 0.4f;
+                    points.push_back(ep);
+                    // Mirror point above center
+                    EffectPoint ep2;
+                    ep2.x = frac * bufW;
+                    ep2.y = cy - std::abs(sample) * bufH * 0.4f;
+                    ep2.radius = 0.0f;
+                    ep2.brightness = static_cast<float>(brightness);
+                    points.push_back(ep2);
+                    continue; // already pushed both points
+                }
+                case 3: // XY oscilloscope
+                {
+                    float s2 = (i + 1 < WAVE_SIZE) ? wave[i + 1] : wave[i];
+                    ep.x = cx + sample * bufW * 0.35f;
+                    ep.y = cy + s2 * waveScale * (1.0f + energy * 3.0f) * bufH * 0.35f;
+                    break;
+                }
+                case 4: // Spiral
+                {
+                    float angle = frac * juce::MathConstants<float>::twoPi * 3.0f;
+                    float r = frac * juce::jmin(bufW, bufH) * 0.35f + sample * 30.0f;
+                    ep.x = cx + std::cos(angle) * r;
+                    ep.y = cy + std::sin(angle) * r;
+                    break;
+                }
+                case 5: // Dotty scatter
+                {
+                    ep.x = frac * bufW;
+                    ep.y = cy + sample * bufH * 0.4f;
+                    ep.brightness = 80.0f + std::abs(sample) * 400.0f;
                     break;
                 }
                 default:

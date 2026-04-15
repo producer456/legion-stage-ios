@@ -139,7 +139,17 @@ public:
         id<MTLCommandBuffer> cmdBuf = [commandQueue commandBuffer];
         id<MTLRenderCommandEncoder> enc = [cmdBuf renderCommandEncoderWithDescriptor:passDesc];
         [enc setRenderPipelineState:pipeline];
-        [enc setFragmentBytes:uniforms length:size atIndex:0];
+
+        if (size <= 4096) {
+            [enc setFragmentBytes:uniforms length:size atIndex:0];
+        } else {
+            // Uniforms exceed Metal's 4KB setFragmentBytes limit; use an MTLBuffer
+            if (!uniformBuffer || [uniformBuffer length] < size)
+                uniformBuffer = [device newBufferWithLength:size options:MTLResourceStorageModeShared];
+            memcpy([uniformBuffer contents], uniforms, size);
+            [enc setFragmentBuffer:uniformBuffer offset:0 atIndex:0];
+        }
+
         [enc drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
         [enc endEncoding];
         [cmdBuf presentDrawable:drawable];
@@ -334,6 +344,7 @@ public:
     id<MTLTexture> warpMapTex = nil;
     id<MTLTexture> paletteTex = nil;
     id<MTLBuffer> effectPointBuffer = nil;
+    id<MTLBuffer> uniformBuffer = nil;
     int effectPointCount = 0;
 };
 

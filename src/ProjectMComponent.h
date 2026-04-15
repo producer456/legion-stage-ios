@@ -200,7 +200,6 @@ public:
                                   getScreenY() - getTopLevelComponent()->getScreenY(),
                                   getWidth(), getHeight());
 
-        metalRenderer->initWarpBuffers(bufW, bufH);
         metalRenderer->executeWarpBlur();
 
         // Collect effect points for all effects
@@ -257,6 +256,55 @@ public:
             ep.radius = 0.0f;
             ep.brightness = static_cast<float>(brightness);
             points.push_back(ep);
+        }
+
+        // Pulsars — expanding ring points on active pulsars
+        for (int p = 0; p < MAX_PULSARS; ++p)
+        {
+            if (pulsarAge[p] > 1.0f) continue;
+
+            float age = pulsarAge[p];
+            float radius = age * juce::jmin(bufW, bufH) * 0.4f;
+            float fade = 1.0f - age;
+            float pBrt = fade * (100.0f + energy * 100.0f);
+
+            float pcx = pulsarX[p];
+            float pcy = pulsarY[p];
+            int numRingPts = juce::jmax(20, juce::jmin(static_cast<int>(radius * 6.28f), 400));
+
+            for (int i = 0; i < numRingPts; i += 2) // sample every other point for GPU efficiency
+            {
+                float angle = static_cast<float>(i) / numRingPts * juce::MathConstants<float>::twoPi;
+                EffectPoint ep;
+                ep.x = pcx + std::cos(angle) * radius;
+                ep.y = pcy + std::sin(angle) * radius;
+                ep.radius = 0.0f;
+                ep.brightness = pBrt;
+                points.push_back(ep);
+            }
+        }
+
+        // Flow particles — random dot placement across the field
+        {
+            int numParticles = static_cast<int>(30 + energy * 80);
+            uint32_t seed = static_cast<uint32_t>(t * 500.0);
+            float addBrt = 30.0f + energy * 60.0f;
+            if (beat) addBrt += 40.0f;
+
+            for (int i = 0; i < numParticles; ++i)
+            {
+                seed = seed * 1664525u + 1013904223u;
+                float fpx = static_cast<float>(seed % static_cast<uint32_t>(bufW));
+                seed = seed * 1664525u + 1013904223u;
+                float fpy = static_cast<float>(seed % static_cast<uint32_t>(bufH));
+
+                EffectPoint ep;
+                ep.x = fpx;
+                ep.y = fpy;
+                ep.radius = 0.0f;
+                ep.brightness = addBrt;
+                points.push_back(ep);
+            }
         }
     }
 #endif

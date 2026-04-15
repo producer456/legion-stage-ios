@@ -311,7 +311,7 @@ private:
 
     // ── Plugin Parameters ──
 #if JUCE_IOS
-    static constexpr int NUM_PARAM_SLIDERS = 12;
+    static constexpr int NUM_PARAM_SLIDERS = 16;
 #else
     static constexpr int NUM_PARAM_SLIDERS = 6;
 #endif
@@ -489,6 +489,7 @@ private:
         None, Volume, Pan, Bpm,
         Play, Stop, Record, Metronome, Loop,
         Param0, Param1, Param2, Param3, Param4, Param5, Param6, Param7, Param8,
+        Param9, Param10, Param11, Param12, Param13, Param14, Param15,
         TrackNext, TrackPrev,
         GeissWaveform, GeissPalette, GeissScene,
         GeissWaveScale, GeissWarpLock, GeissPaletteLock, GeissSpeed,

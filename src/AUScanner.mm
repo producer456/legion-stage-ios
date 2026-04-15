@@ -113,7 +113,7 @@ AUScanner::DeviceTier AUScanner::getDeviceTier()
                             .fromFirstOccurrenceOf("iPad", false, false)
                             .getIntValue();
 
-        if (majorNum >= 16 && !model.startsWith("iPad16,1") && !model.startsWith("iPad16,2"))
+        if (majorNum >= 16 && model != "iPad16,1" && model != "iPad16,2")
             return DeviceTier::High;  // M4 Pro and newer
         if (majorNum == 14)
         {
@@ -127,8 +127,9 @@ AUScanner::DeviceTier AUScanner::getDeviceTier()
         {
             // iPad13,16-17 = Air M1, iPad13,4-11 = Pro M1
             // iPad13,1-3 = iPad Air 4 (A14) — Mid tier
+            // iPad13,18-19 = iPad 10th gen (A14) — Mid tier
             int minorNum = model.fromFirstOccurrenceOf(",", false, false).getIntValue();
-            if (minorNum >= 4)
+            if (minorNum >= 4 && minorNum <= 17)
                 return DeviceTier::High;
             return DeviceTier::Mid;
         }

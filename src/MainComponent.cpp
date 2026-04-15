@@ -4752,7 +4752,7 @@ void MainComponent::paintOverChildren(juce::Graphics& g)
 
             auto edgeLight = [&](float ex, float ey) -> float
             {
-                float eMul = getWidth() >= 1100 ? 18.0f : 1.0f;
+                float eMul = isHighTier() ? 18.0f : (deviceTier == AUScanner::DeviceTier::JamieEdition ? 12.0f : (isLowTier() ? 1.0f : 8.0f));
                 float d1 = (ex * eco1 + ey * esi1) * 0.016f + t3 * 0.12f * eMul;
                 float d2 = (ex * eco2 + ey * esi2) * 0.020f + t3 * 0.095f * eMul;
                 float d3 = (ex * eco3 + ey * esi3) * 0.013f + t3 * 0.075f * eMul;
@@ -4878,7 +4878,7 @@ void MainComponent::paintOverChildren(juce::Graphics& g)
                 float a1 = std::sin(t2 * 0.003f) * 1.5f + std::sin(t2 * 0.0017f + 1.0f) * 0.8f + std::sin(t2 * 0.0007f + 0.3f) * 2.0f + btx;
                 float a2 = std::sin(t2 * 0.0025f + 2.0f) * 1.3f + std::sin(t2 * 0.0013f + 3.0f) * 0.9f + std::sin(t2 * 0.0005f + 1.7f) * 1.8f + bty;
                 float a3 = std::sin(t2 * 0.002f + 4.5f) * 1.6f + std::sin(t2 * 0.0011f + 5.0f) * 0.7f + std::sin(t2 * 0.0004f + 4.0f) * 2.2f + (btx + bty) * 0.5f;
-                float bSpeedMul = getWidth() >= 1100 ? 18.0f : 1.0f;
+                float bSpeedMul = isHighTier() ? 18.0f : (deviceTier == AUScanner::DeviceTier::JamieEdition ? 12.0f : (isLowTier() ? 1.0f : 8.0f));
                 float sp1 = 0.12f * bSpeedMul;
                 float sp2 = 0.095f * bSpeedMul;
                 float sp3 = 0.075f * bSpeedMul;
@@ -5904,8 +5904,9 @@ void MainComponent::resized()
     themeSelector.setBounds(rightPanel.removeFromTop(30));
     rightPanel.removeFromTop(8);
 
-    // Visualizer display
-    auto visPanelArea = rightPanel.removeFromTop(70);
+    // Visualizer display — compact on Jamie Edition to save space for volume knob
+    bool jamieLayout = (deviceTier == AUScanner::DeviceTier::JamieEdition);
+    auto visPanelArea = rightPanel.removeFromTop(jamieLayout ? 55 : 70);
     if (currentVisMode == 0)  // Spectrum
     {
         spectrumDisplay.setBounds(visPanelArea);
@@ -5965,6 +5966,9 @@ void MainComponent::resized()
         auto& currentTrack = pluginHost.getTrack(selectedTrackIndex);
         bool isAudioTrack = (currentTrack.type == TrackType::Audio);
 
+        int fxRowH = jamieLayout ? 24 : 30;
+        int fxGap = jamieLayout ? 1 : 2;
+
         if (isAudioTrack)
         {
             // Audio track: FX selector + preset + no MIDI/plugin selector
@@ -5976,16 +5980,16 @@ void MainComponent::resized()
             // FX slots with preset browser for first FX
             for (int i = 0; i < NUM_FX_SLOTS; ++i)
             {
-                auto fxRow = rightPanel.removeFromTop(30);
-                fxEditorButtons[i]->setBounds(fxRow.removeFromRight(32));
+                auto fxRow = rightPanel.removeFromTop(fxRowH);
+                fxEditorButtons[i]->setBounds(fxRow.removeFromRight(jamieLayout ? 26 : 32));
                 fxRow.removeFromRight(2);
                 fxSelectors[i]->setBounds(fxRow);
-                rightPanel.removeFromTop(2);
+                rightPanel.removeFromTop(fxGap);
             }
-            rightPanel.removeFromTop(2);
+            rightPanel.removeFromTop(fxGap);
 
             // Preset row moved below param knobs
-            rightPanel.removeFromTop(3);
+            rightPanel.removeFromTop(jamieLayout ? 1 : 3);
         }
         else
         {
@@ -5996,26 +6000,26 @@ void MainComponent::resized()
             midiRefreshButton.setVisible(false);
 
             {
-                auto pluginRow = rightPanel.removeFromTop(32);
-                openEditorButton.setBounds(pluginRow.removeFromRight(32));
+                auto pluginRow = rightPanel.removeFromTop(jamieLayout ? 26 : 32);
+                openEditorButton.setBounds(pluginRow.removeFromRight(jamieLayout ? 26 : 32));
                 openEditorButton.setButtonText("E");
                 pluginRow.removeFromRight(2);
                 pluginSelector.setBounds(pluginRow);
             }
-            rightPanel.removeFromTop(2);
+            rightPanel.removeFromTop(fxGap);
             // Preset row moved below param knobs
-            rightPanel.removeFromTop(3);
+            rightPanel.removeFromTop(jamieLayout ? 1 : 3);
 
             // FX slots
             for (int i = 0; i < NUM_FX_SLOTS; ++i)
             {
-                auto fxRow = rightPanel.removeFromTop(30);
-                fxEditorButtons[i]->setBounds(fxRow.removeFromRight(32));
+                auto fxRow = rightPanel.removeFromTop(fxRowH);
+                fxEditorButtons[i]->setBounds(fxRow.removeFromRight(jamieLayout ? 26 : 32));
                 fxRow.removeFromRight(2);
                 fxSelectors[i]->setBounds(fxRow);
-                rightPanel.removeFromTop(2);
+                rightPanel.removeFromTop(fxGap);
             }
-            rightPanel.removeFromTop(2);
+            rightPanel.removeFromTop(fxGap);
         }
     }
 
@@ -6040,9 +6044,57 @@ void MainComponent::resized()
         bool widePanel = getPanelWidth() > 200;
         int knobGap = widePanel ? 12 : 4;
         int knobSize = juce::jmin(widePanel ? 60 : 44, (rightPanel.getWidth() - knobGap * 2) / 3);
-        int numRows = (NUM_PARAM_SLIDERS + 2) / 3;
         int labelH = widePanel ? 20 : 18;
         int rowGap = widePanel ? 8 : 2;
+
+        if (jamieLayout)
+        {
+            // Jamie Edition: 4-column grid, fit as many rows as we can
+            // while reserving space for preset row + volume knob below
+            int jamieCols = 4;
+            int minVolSpace = 90;
+            int presetAreaH = 24 + 4 + 34 + 4;
+            int availForKnobs = rightPanel.getHeight() - presetAreaH - minVolSpace - 8;
+
+            knobGap = 4;
+            knobSize = juce::jmin(44, (rightPanel.getWidth() - knobGap * (jamieCols - 1)) / jamieCols);
+            labelH = 14;
+            rowGap = 4;
+            int knobRowH = knobSize + labelH + rowGap;
+            int maxRows = juce::jmax(1, availForKnobs / knobRowH);
+            int numRows = juce::jmin((NUM_PARAM_SLIDERS + jamieCols - 1) / jamieCols, maxRows);
+            int knobAreaH = numRows * knobRowH + 4;
+            auto knobArea = rightPanel.removeFromTop(knobAreaH);
+            rightPanel.removeFromTop(2);
+
+            int gridW = jamieCols * knobSize + (jamieCols - 1) * knobGap;
+            int gridOffsetX = (knobArea.getWidth() - gridW) / 2;
+
+            int visibleCount = numRows * jamieCols;
+            for (int i = 0; i < NUM_PARAM_SLIDERS; ++i)
+            {
+                if (i < visibleCount)
+                {
+                    int col = i % jamieCols;
+                    int row = i / jamieCols;
+                    int kx = knobArea.getX() + gridOffsetX + col * (knobSize + knobGap);
+                    int ky = knobArea.getY() + row * knobRowH;
+                    paramLabels[i]->setBounds(kx, ky, knobSize, labelH);
+                    paramLabels[i]->setFont(juce::Font(10.0f));
+                    paramLabels[i]->setVisible(true);
+                    paramSliders[i]->setBounds(kx, ky + labelH, knobSize, knobSize);
+                    paramSliders[i]->setVisible(true);
+                }
+                else
+                {
+                    paramSliders[i]->setVisible(false);
+                    paramLabels[i]->setVisible(false);
+                }
+            }
+        }
+        else
+        {
+        int numRows = (NUM_PARAM_SLIDERS + 2) / 3;
         int knobRowH = knobSize + labelH + rowGap;
         int knobAreaH = numRows * knobRowH + 4;
         auto knobArea = rightPanel.removeFromTop(knobAreaH);
@@ -6062,6 +6114,7 @@ void MainComponent::resized()
             paramLabels[i]->setFont(juce::Font(11.0f));
             paramSliders[i]->setBounds(kx, ky + labelH, knobSize, knobSize);
         }
+        } // end else (non-Jamie layout)
     }
 
     // (FX slots moved above param knobs)
@@ -6082,10 +6135,10 @@ void MainComponent::resized()
     // Preset dropdown + big up/down buttons
     presetPrevButton.setVisible(false);
     presetNextButton.setVisible(false);
-    presetSelector.setBounds(rightPanel.removeFromTop(28));
-    rightPanel.removeFromTop(12);
+    presetSelector.setBounds(rightPanel.removeFromTop(jamieLayout ? 24 : 28));
+    rightPanel.removeFromTop(jamieLayout ? 4 : 12);
     {
-        auto btnArea = rightPanel.removeFromTop(44);
+        auto btnArea = rightPanel.removeFromTop(jamieLayout ? 34 : 44);
         int btnH = btnArea.getHeight();
         int btnW = (btnArea.getWidth() - 8) / 2; // two wide pills with gap
         int gap = 8;
@@ -6103,7 +6156,8 @@ void MainComponent::resized()
         volumeLabel.setVisible(false);
         volumeSlider.setTextBoxStyle(juce::Slider::NoTextBox, true, 0, 0);
         volumeSlider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
-        int volSz = juce::jmin(mixArea.getWidth(), mixArea.getHeight(), getPanelWidth() > 200 ? 140 : 110);
+        int maxVolSz = getPanelWidth() > 200 ? 140 : 110;
+        int volSz = juce::jmax(60, juce::jmin(mixArea.getWidth(), mixArea.getHeight(), maxVolSz));
         volumeSlider.setBounds(mixArea.withSizeKeepingCentre(volSz, volSz));
     }
 
@@ -7008,9 +7062,12 @@ void MainComponent::startMidiLearn(MidiTarget target)
         case MidiTarget::Loop:      targetName = "Loop"; break;
         case MidiTarget::TrackNext: targetName = "Track Next"; break;
         case MidiTarget::TrackPrev: targetName = "Track Prev"; break;
-        case MidiTarget::Param0: case MidiTarget::Param1: case MidiTarget::Param2:
-        case MidiTarget::Param3: case MidiTarget::Param4: case MidiTarget::Param5:
-        case MidiTarget::Param6: case MidiTarget::Param7: case MidiTarget::Param8:
+        case MidiTarget::Param0:  case MidiTarget::Param1:  case MidiTarget::Param2:
+        case MidiTarget::Param3:  case MidiTarget::Param4:  case MidiTarget::Param5:
+        case MidiTarget::Param6:  case MidiTarget::Param7:  case MidiTarget::Param8:
+        case MidiTarget::Param9:  case MidiTarget::Param10: case MidiTarget::Param11:
+        case MidiTarget::Param12: case MidiTarget::Param13: case MidiTarget::Param14:
+        case MidiTarget::Param15:
             targetName = "Param " + juce::String(static_cast<int>(target) - static_cast<int>(MidiTarget::Param0) + 1);
             break;
         case MidiTarget::GeissWaveform:   targetName = "Geiss Wave"; break;
@@ -7102,9 +7159,12 @@ void MainComponent::applyMidiCC(const MidiMapping& mapping, int value)
         case MidiTarget::TrackPrev:
             if (value > 0) selectTrack(juce::jmax(0, selectedTrackIndex - 1));
             break;
-        case MidiTarget::Param0: case MidiTarget::Param1: case MidiTarget::Param2:
-        case MidiTarget::Param3: case MidiTarget::Param4: case MidiTarget::Param5:
-        case MidiTarget::Param6: case MidiTarget::Param7: case MidiTarget::Param8:
+        case MidiTarget::Param0:  case MidiTarget::Param1:  case MidiTarget::Param2:
+        case MidiTarget::Param3:  case MidiTarget::Param4:  case MidiTarget::Param5:
+        case MidiTarget::Param6:  case MidiTarget::Param7:  case MidiTarget::Param8:
+        case MidiTarget::Param9:  case MidiTarget::Param10: case MidiTarget::Param11:
+        case MidiTarget::Param12: case MidiTarget::Param13: case MidiTarget::Param14:
+        case MidiTarget::Param15:
         {
             int idx = static_cast<int>(mapping.target) - static_cast<int>(MidiTarget::Param0);
             if (idx >= 0 && idx < NUM_PARAM_SLIDERS && paramSliders[idx]->isEnabled())
