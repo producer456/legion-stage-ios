@@ -2,6 +2,9 @@
 
 #include <JuceHeader.h>
 #include "DawLookAndFeel.h"
+#if JUCE_IOS
+#include "MetalVisualizerRenderer.h"
+#endif
 
 // Waveform Terrain — stacked waveform lines scrolling back in pseudo-3D,
 // like the Joy Division "Unknown Pleasures" album cover but with live audio.
@@ -49,6 +52,9 @@ public:
 
     void paint(juce::Graphics& g) override
     {
+#if JUCE_IOS
+        if (tryMetalRender()) return;
+#endif
         uint32_t lineColor = 0xffc8e4ff;
         uint32_t bgColor   = 0xff0a0e14;
         if (auto* lnf = dynamic_cast<DawLookAndFeel*>(&getLookAndFeel()))
@@ -103,6 +109,47 @@ public:
         }
     }
 
+
+#if JUCE_IOS
+    bool tryMetalRender()
+    {
+        if (!metalRenderer) metalRenderer = std::make_unique<MetalVisualizerRenderer>();
+        if (!metalRenderer->isAvailable()) return false;
+        if (!metalRenderer->isAttached())
+        {
+            if (auto* peer = getPeer())
+                metalRenderer->attachToView(peer->getNativeHandle());
+        }
+        if (!metalRenderer->isAttached()) return false;
+
+        metalRenderer->setBounds(getScreenX() - getTopLevelComponent()->getScreenX(),
+                                  getScreenY() - getTopLevelComponent()->getScreenY(),
+                                  getWidth(), getHeight());
+
+        uint32_t lineColor = 0xffc8e4ff;
+        uint32_t bgColor   = 0xff0a0e14;
+        if (auto* lnf = dynamic_cast<DawLookAndFeel*>(&getLookAndFeel()))
+        {
+            lineColor = lnf->getTheme().lcdAmber;
+            bgColor   = lnf->getTheme().lcdBg;
+        }
+        auto lc = juce::Colour(lineColor);
+        auto bg = juce::Colour(bgColor);
+
+        WaveTerrainGPUUniforms u {};
+        for (int l = 0; l < numLines; ++l)
+            for (int i = 0; i < lineResolution; ++i)
+                u.lines[l * lineResolution + i] = lines[l][i];
+        u.numLines = numLines;
+        u.lineResolution = lineResolution;
+        u.lineColorR = lc.getFloatRed(); u.lineColorG = lc.getFloatGreen(); u.lineColorB = lc.getFloatBlue();
+        u.bgColorR = bg.getFloatRed(); u.bgColorG = bg.getFloatGreen(); u.bgColorB = bg.getFloatBlue();
+
+        metalRenderer->renderWaveTerrain(u);
+        return true;
+    }
+#endif
+
 private:
     float lines[numLines][lineResolution] = {};
 
@@ -110,6 +157,10 @@ private:
     float ringBuf[ringBufSize] = {};
     int ringIndex = 0;
     int samplesSinceLastLine = 0;
+
+#if JUCE_IOS
+    std::unique_ptr<MetalVisualizerRenderer> metalRenderer;
+#endif
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(WaveTerrainComponent)
 };

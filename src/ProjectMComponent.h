@@ -5,6 +5,9 @@
 #include <array>
 #include <vector>
 #include <algorithm>
+#if JUCE_IOS
+#include "MetalVisualizerRenderer.h"
+#endif
 
 // MilkDrop-inspired software visualizer.
 // Per-pixel warp field with multiple layered effects, audio-reactive
@@ -125,31 +128,38 @@ public:
             mapDx.assign(static_cast<size_t>(w * h), 0);
             mapDy.assign(static_cast<size_t>(w * h), 0);
             mapFrameCounter = 0;
+#if JUCE_IOS
+            if (metalRenderer && metalRenderer->isAvailable())
+                metalRenderer->initWarpBuffers(w, h);
+#endif
         }
 
         if (mapFrameCounter <= 0)
         {
             computeWarpMap();
             mapFrameCounter = MAP_RECOMPUTE_FRAMES;
+#if JUCE_IOS
+            if (metalRenderer && metalRenderer->isAvailable())
+                metalRenderer->uploadWarpMap(mapDx.data(), mapDy.data(), bufW, bufH);
+#endif
         }
         mapFrameCounter--;
 
         float energy = juce::jmin(1.0f, smoothedRms.load() * 5.0f);
         bool beat = beatHit.exchange(false);
 
-        // Warp + blur
-        applyWarpBlur();
+#if JUCE_IOS
+        if (tryMetalRender(energy, beat)) return;
+#endif
 
-        // Render effects
+        // CPU fallback
+        applyWarpBlur();
         renderWarpedWave(energy);
         renderPulsars(energy, beat);
         renderNebulaField(energy);
         renderFlowParticles(energy, beat);
-
-        // Swap
         std::swap(vs1, vs2);
 
-        // Blit with palette rotation
         int rot = static_cast<int>(paletteRotation) % 256;
         int energyShift = static_cast<int>(energy * 25.0f);
 
@@ -173,6 +183,83 @@ public:
         }
         g.drawImageAt(img, 0, 0);
     }
+
+#if JUCE_IOS
+    bool tryMetalRender(float energy, bool beat)
+    {
+        if (!metalRenderer) metalRenderer = std::make_unique<MetalVisualizerRenderer>();
+        if (!metalRenderer->isAvailable()) return false;
+        if (!metalRenderer->isAttached())
+        {
+            if (auto* peer = getPeer())
+                metalRenderer->attachToView(peer->getNativeHandle());
+        }
+        if (!metalRenderer->isAttached()) return false;
+
+        metalRenderer->setBounds(getScreenX() - getTopLevelComponent()->getScreenX(),
+                                  getScreenY() - getTopLevelComponent()->getScreenY(),
+                                  getWidth(), getHeight());
+
+        metalRenderer->initWarpBuffers(bufW, bufH);
+        metalRenderer->executeWarpBlur();
+
+        // Collect effect points for all effects
+        std::vector<EffectPoint> points;
+        collectEffectPoints(points, energy, beat);
+        if (!points.empty())
+        {
+            metalRenderer->uploadEffectPoints(points.data(), static_cast<int>(points.size()));
+            metalRenderer->executeEffects();
+        }
+
+        metalRenderer->swapWarpBuffers();
+
+        PaletteGPUUniforms pu {};
+        pu.paletteRotation = static_cast<int>(paletteRotation) % 256;
+        pu.energyOffset = static_cast<int>(energy * 25.0f);
+        pu.brightMult = 1.0f;
+        metalRenderer->renderPalette(palette.data(), pu);
+        return true;
+    }
+
+    void collectEffectPoints(std::vector<EffectPoint>& points, float energy, bool beat)
+    {
+        float t = static_cast<float>(effectPhase);
+        float cx = bufW * 0.5f, cy = bufH * 0.5f;
+
+        // Nebula blobs
+        for (int n = 0; n < 5; ++n)
+        {
+            EffectPoint ep;
+            ep.x = bufW * (0.5f + 0.35f * std::sin(t * 0.4f * (n + 1) + n * 1.2f));
+            ep.y = bufH * (0.5f + 0.35f * std::cos(t * 0.3f * (n + 1) + n * 0.8f));
+            ep.radius = 6.0f + energy * 10.0f + 4.0f * std::sin(t * (1.0f + n * 0.5f));
+            ep.brightness = 40.0f + energy * 80.0f;
+            points.push_back(ep);
+        }
+
+        // Waveform (simplified for GPU)
+        std::array<float, WAVE_SIZE> wave;
+        int rp = writePos;
+        for (int i = 0; i < WAVE_SIZE; ++i)
+            wave[i] = waveBuffer[(rp + i) % WAVE_SIZE];
+        int brightness = static_cast<int>(120 + energy * 135);
+
+        for (int i = 1; i < WAVE_SIZE; i += 3)
+        {
+            float frac = static_cast<float>(i) / WAVE_SIZE;
+            float sample = wave[i] * (1.0f + energy * 3.0f);
+            float angle = frac * juce::MathConstants<float>::twoPi + t * 0.5f;
+            float r = juce::jmin(bufW, bufH) * 0.2f + sample * bufH * 0.2f;
+            EffectPoint ep;
+            ep.x = cx + std::cos(angle) * r;
+            ep.y = cy + std::sin(angle) * r;
+            ep.radius = 0.0f;
+            ep.brightness = static_cast<float>(brightness);
+            points.push_back(ep);
+        }
+    }
+#endif
 
 private:
     std::array<float, WAVE_SIZE> waveBuffer;
@@ -759,6 +846,11 @@ private:
             }
         }
     }
+
+
+#if JUCE_IOS
+    std::unique_ptr<MetalVisualizerRenderer> metalRenderer;
+#endif
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ProjectMComponent)
 };

@@ -5,6 +5,9 @@
 #include <array>
 #include <vector>
 #include <algorithm>
+#if JUCE_IOS
+#include "MetalVisualizerRenderer.h"
+#endif
 
 // Geiss-inspired visualizer.
 // Software-rendered per-pixel warping with audio-reactive waveforms,
@@ -202,6 +205,10 @@ public:
             mapDy.assign(static_cast<size_t>(w * h), 0);
             mapFrameCounter = 0;
             buildPalette();
+#if JUCE_IOS
+            if (metalRenderer && metalRenderer->isAvailable())
+                metalRenderer->initWarpBuffers(w, h);
+#endif
         }
 
         // Recompute warp map periodically for morphing effect
@@ -209,30 +216,31 @@ public:
         {
             computeWarpMap();
             mapFrameCounter = MAP_RECOMPUTE_FRAMES;
+#if JUCE_IOS
+            if (metalRenderer && metalRenderer->isAvailable())
+                metalRenderer->uploadWarpMap(mapDx.data(), mapDy.data(), bufW, bufH);
+#endif
         }
         if (!warpLocked) mapFrameCounter--;
 
-        // Step 1: Apply per-pixel warp map (VS1 → VS2) with blur
-        applyWarpMapBlur();
-
-        // Step 2: Render effects into VS2
         float energy = juce::jmin(1.0f, smoothedRms.load() * 5.0f);
         bool beat = beatHit.exchange(false);
 
+#if JUCE_IOS
+        if (tryMetalRender(energy, beat)) return;
+#endif
+
+        // CPU fallback path
+        applyWarpMapBlur();
         renderShadeBobs(energy, beat);
         renderSolarParticles(energy, beat);
         renderChasers(energy);
-
-        // Step 3: Render audio waveform
         renderWaveform(energy);
-
-        // Step 4: Swap buffers
         std::swap(vs1, vs2);
 
-        // Step 5: Blit to JUCE image with palette rotation and energy offset
-        int paletteRotation = static_cast<int>(palettePhase * 256.0) % 256;
-        int energyOffset = static_cast<int>(energy * 30.0f);
-        float brightMult = 1.0f - blackoutFade; // 0 during blackout, 1 normally
+        int palRot = static_cast<int>(palettePhase * 256.0) % 256;
+        int energyOff = static_cast<int>(energy * 30.0f);
+        float brightMult = 1.0f - blackoutFade;
 
         juce::Image img(juce::Image::ARGB, w, h, false);
         {
@@ -243,20 +251,129 @@ public:
                 {
                     int idx = vs1[static_cast<size_t>(y * w + x)];
                     idx = juce::jlimit(0, 255, idx);
-                    // Rotate through palette and shift by energy
-                    idx = (idx + paletteRotation + energyOffset) % 256;
+                    idx = (idx + palRot + energyOff) % 256;
                     uint32_t col = palette[static_cast<size_t>(idx)];
                     auto* pixel = bmp.getPixelPointer(x, y);
-                    // JUCE ARGB Image: pixel order is BGRA in memory
-                    pixel[0] = static_cast<uint8_t>(static_cast<float>(col & 0xFF) * brightMult);          // B
-                    pixel[1] = static_cast<uint8_t>(static_cast<float>((col >> 8) & 0xFF) * brightMult);   // G
-                    pixel[2] = static_cast<uint8_t>(static_cast<float>((col >> 16) & 0xFF) * brightMult);  // R
-                    pixel[3] = 0xFF;                                                                        // A
+                    pixel[0] = static_cast<uint8_t>(static_cast<float>(col & 0xFF) * brightMult);
+                    pixel[1] = static_cast<uint8_t>(static_cast<float>((col >> 8) & 0xFF) * brightMult);
+                    pixel[2] = static_cast<uint8_t>(static_cast<float>((col >> 16) & 0xFF) * brightMult);
+                    pixel[3] = 0xFF;
                 }
             }
         }
         g.drawImageAt(img, 0, 0);
     }
+
+#if JUCE_IOS
+    bool tryMetalRender(float energy, bool beat)
+    {
+        if (!metalRenderer) metalRenderer = std::make_unique<MetalVisualizerRenderer>();
+        if (!metalRenderer->isAvailable()) return false;
+        if (!metalRenderer->isAttached())
+        {
+            if (auto* peer = getPeer())
+                metalRenderer->attachToView(peer->getNativeHandle());
+        }
+        if (!metalRenderer->isAttached()) return false;
+
+        metalRenderer->setBounds(getScreenX() - getTopLevelComponent()->getScreenX(),
+                                  getScreenY() - getTopLevelComponent()->getScreenY(),
+                                  getWidth(), getHeight());
+
+        metalRenderer->initWarpBuffers(bufW, bufH);
+
+        // GPU warp + blur
+        metalRenderer->executeWarpBlur();
+
+        // Build effect points for shade bobs, particles, chasers, waveform
+        std::vector<EffectPoint> points;
+        collectEffectPoints(points, energy, beat);
+        if (!points.empty())
+        {
+            metalRenderer->uploadEffectPoints(points.data(), static_cast<int>(points.size()));
+            metalRenderer->executeEffects();
+        }
+
+        metalRenderer->swapWarpBuffers();
+
+        // Palette render
+        PaletteGPUUniforms pu {};
+        pu.paletteRotation = static_cast<int>(palettePhase * 256.0) % 256;
+        pu.energyOffset = static_cast<int>(energy * 30.0f);
+        pu.brightMult = 1.0f - blackoutFade;
+        metalRenderer->renderPalette(palette.data(), pu);
+        return true;
+    }
+
+    void collectEffectPoints(std::vector<EffectPoint>& points, float energy, bool beat)
+    {
+        float t = static_cast<float>(effectPhase);
+
+        // Shade bobs
+        float bobRadius = 8.0f + energy * 12.0f;
+        if (beat) bobRadius += 10.0f;
+        for (int b = 0; b < 3; ++b)
+        {
+            float bPhase = t + b * 2.094f;
+            EffectPoint ep;
+            ep.x = bufW * 0.5f + bufW * 0.35f * std::sin(bPhase * 1.3f + b);
+            ep.y = bufH * 0.5f + bufH * 0.35f * std::cos(bPhase * 0.9f + b * 1.7f);
+            ep.radius = bobRadius;
+            ep.brightness = 60.0f + energy * 120.0f;
+            points.push_back(ep);
+        }
+
+        // Chasers
+        float cx = bufW * 0.5f, cy = bufH * 0.5f;
+        for (int c = 0; c < 2; ++c)
+        {
+            float ct = t * (1.2f + c * 0.3f) + c * 3.14159f;
+            EffectPoint ep;
+            ep.x = cx + bufW * 0.3f * std::cos(ct * 1.1f) * std::sin(ct * 0.7f);
+            ep.y = cy + bufH * 0.3f * std::sin(ct * 0.8f) * std::cos(ct * 1.3f);
+            ep.radius = 3.0f;
+            ep.brightness = 180.0f + energy * 75.0f;
+            points.push_back(ep);
+        }
+
+        // Waveform points (sampled)
+        std::array<float, WAVE_SIZE> wave;
+        int rp = writePos;
+        for (int i = 0; i < WAVE_SIZE; ++i)
+            wave[i] = waveBuffer[(rp + i) % WAVE_SIZE];
+
+        int brightness = static_cast<int>(140 + energy * 115);
+        for (int i = 1; i < WAVE_SIZE; i += 2)
+        {
+            float frac = static_cast<float>(i) / WAVE_SIZE;
+            float sample = wave[i] * waveScale * (1.0f + energy * 3.0f);
+            EffectPoint ep;
+            ep.radius = 0.0f;
+            ep.brightness = static_cast<float>(brightness);
+
+            switch (waveMode)
+            {
+                case 0:
+                    ep.x = frac * bufW;
+                    ep.y = cy + sample * bufH * 0.35f;
+                    break;
+                case 1:
+                {
+                    float angle = frac * juce::MathConstants<float>::twoPi;
+                    float r = juce::jmin(bufW, bufH) * 0.25f + sample * bufH * 0.15f;
+                    ep.x = cx + std::cos(angle) * r;
+                    ep.y = cy + std::sin(angle) * r;
+                    break;
+                }
+                default:
+                    ep.x = frac * bufW;
+                    ep.y = cy + sample * bufH * 0.35f;
+                    break;
+            }
+            points.push_back(ep);
+        }
+    }
+#endif
 
 private:
     // Audio state
@@ -681,6 +798,11 @@ private:
         size_t idx = static_cast<size_t>(y * bufW + x);
         vs2[idx] = juce::jmin(255, vs2[idx] + brightness);
     }
+
+
+#if JUCE_IOS
+    std::unique_ptr<MetalVisualizerRenderer> metalRenderer;
+#endif
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(GeissComponent)
 };

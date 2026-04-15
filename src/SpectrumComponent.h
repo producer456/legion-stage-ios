@@ -2,6 +2,9 @@
 
 #include <JuceHeader.h>
 #include "DawLookAndFeel.h"
+#if JUCE_IOS
+#include "MetalVisualizerRenderer.h"
+#endif
 
 // Real-time FFT spectrum analyzer.
 // Feed audio samples via pushSamples() from the audio thread,
@@ -98,8 +101,52 @@ public:
 
     void paint(juce::Graphics& g) override
     {
-        // Get colors from theme — use lcdAmber for spectrum bars (matches OLED display color)
-        uint32_t barColor = 0xffc8e4ff;  // ice-blue default
+#if JUCE_IOS
+        if (tryMetalRender()) return;
+#endif
+        paintCPU(g);
+    }
+
+#if JUCE_IOS
+    bool tryMetalRender()
+    {
+        if (!metalRenderer) metalRenderer = std::make_unique<MetalVisualizerRenderer>();
+        if (!metalRenderer->isAvailable()) return false;
+        if (!metalRenderer->isAttached())
+        {
+            if (auto* peer = getPeer())
+                metalRenderer->attachToView(peer->getNativeHandle());
+        }
+        if (!metalRenderer->isAttached()) return false;
+
+        metalRenderer->setBounds(getScreenX() - getTopLevelComponent()->getScreenX(),
+                                  getScreenY() - getTopLevelComponent()->getScreenY(),
+                                  getWidth(), getHeight());
+
+        uint32_t barColor = 0xffc8e4ff;
+        uint32_t bgColor  = 0xff0a0e14;
+        if (auto* lnf = dynamic_cast<DawLookAndFeel*>(&getLookAndFeel()))
+        {
+            barColor = lnf->getTheme().lcdAmber;
+            bgColor  = lnf->getTheme().bodyDark;
+        }
+        auto bc = juce::Colour(barColor);
+        auto bg = juce::Colour(bgColor);
+
+        SpectrumGPUUniforms u {};
+        for (int i = 0; i < numBars; ++i) u.barLevels[i] = barLevels[i];
+        u.numBars = numBars;
+        u.barColorR = bc.getFloatRed(); u.barColorG = bc.getFloatGreen(); u.barColorB = bc.getFloatBlue();
+        u.bgColorR = bg.getFloatRed(); u.bgColorG = bg.getFloatGreen(); u.bgColorB = bg.getFloatBlue();
+
+        metalRenderer->renderSpectrum(u);
+        return true;
+    }
+#endif
+
+    void paintCPU(juce::Graphics& g)
+    {
+        uint32_t barColor = 0xffc8e4ff;
         uint32_t bgColor  = 0xff0a0e14;
         if (auto* lnf = dynamic_cast<DawLookAndFeel*>(&getLookAndFeel()))
         {
@@ -120,7 +167,6 @@ public:
             float x = bounds.getX() + static_cast<float>(i) * barW;
             float y = bounds.getBottom() - 1.0f - h;
 
-            // Gradient: brighter at top
             float brightness = barLevels[i];
             auto color = juce::Colour(barColor).withMultipliedBrightness(0.4f + brightness * 0.6f);
 
@@ -142,6 +188,11 @@ private:
     // Controllable parameters
     float decaySpeed = 0.85f;     // 0.5-0.99 bar falloff rate
     float sensitivity = 1.0f;    // 0.1-2.0 input gain
+
+
+#if JUCE_IOS
+    std::unique_ptr<MetalVisualizerRenderer> metalRenderer;
+#endif
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SpectrumComponent)
 };

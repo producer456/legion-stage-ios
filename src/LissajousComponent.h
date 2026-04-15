@@ -2,6 +2,9 @@
 
 #include <JuceHeader.h>
 #include "DawLookAndFeel.h"
+#if JUCE_IOS
+#include "MetalVisualizerRenderer.h"
+#endif
 
 // Lissajous / stereo field visualizer.
 // Plots L vs R channels as an XY scope. Mono = diagonal line,
@@ -55,6 +58,9 @@ public:
 
     void paint(juce::Graphics& g) override
     {
+#if JUCE_IOS
+        if (tryMetalRender()) return;
+#endif
         // Get theme color
         uint32_t dotColor = 0xffc8e4ff;  // ice-blue default
         uint32_t bgColor  = 0xff0a0e14;
@@ -188,15 +194,74 @@ public:
         }
     }
 
+
+#if JUCE_IOS
+    bool tryMetalRender()
+    {
+        if (!metalRenderer) metalRenderer = std::make_unique<MetalVisualizerRenderer>();
+        if (!metalRenderer->isAvailable()) return false;
+        if (!metalRenderer->isAttached())
+        {
+            if (auto* peer = getPeer())
+                metalRenderer->attachToView(peer->getNativeHandle());
+        }
+        if (!metalRenderer->isAttached()) return false;
+
+        metalRenderer->setBounds(getScreenX() - getTopLevelComponent()->getScreenX(),
+                                  getScreenY() - getTopLevelComponent()->getScreenY(),
+                                  getWidth(), getHeight());
+
+        uint32_t dotCol = 0xffc8e4ff;
+        uint32_t bgCol  = 0xff0a0e14;
+        if (auto* lnf = dynamic_cast<DawLookAndFeel*>(&getLookAndFeel()))
+        {
+            dotCol = lnf->getTheme().lcdAmber;
+            bgCol  = lnf->getTheme().lcdBg;
+        }
+        auto dc = juce::Colour(dotCol);
+        auto bg = juce::Colour(bgCol);
+
+        auto plotArea = getLocalBounds().toFloat().reduced(14.0f, 14.0f);
+        float cx = plotArea.getCentreX() / getWidth();
+        float cy = plotArea.getCentreY() / getHeight();
+        float scale = juce::jmin(plotArea.getWidth(), plotArea.getHeight()) * zoom;
+
+        LissajousGPUUniforms u {};
+        int brightCount = juce::jmin(dotCount, trailLength);
+        int brightStart = (writePos - brightCount + bufferSize) % bufferSize;
+        u.numDots = brightCount;
+
+        for (int i = 0; i < brightCount; ++i)
+        {
+            int idx = (brightStart + i) % bufferSize;
+            float l = bufL[idx], r = bufR[idx];
+            u.dotsX[i] = cx + (l - r) * scale / getWidth();
+            u.dotsY[i] = cy - (l + r) * 0.5f * scale / getHeight();
+            float age = static_cast<float>(i) / static_cast<float>(brightCount);
+            u.dotsAlpha[i] = age * age * 0.9f;
+        }
+
+        u.dotColorR = dc.getFloatRed(); u.dotColorG = dc.getFloatGreen(); u.dotColorB = dc.getFloatBlue();
+        u.bgColorR = bg.getFloatRed(); u.bgColorG = bg.getFloatGreen(); u.bgColorB = bg.getFloatBlue();
+        u.dotRadius = 4.0f / juce::jmax(1.0f, static_cast<float>(getWidth()));
+
+        metalRenderer->renderLissajous(u);
+        return true;
+    }
+#endif
+
 private:
     float bufL[bufferSize] = {};
     float bufR[bufferSize] = {};
     int writePos = 0;
     std::atomic<bool> dataReady { false };
 
-    // Controllable parameters
-    float zoom = 3.0f;        // 0.5-10.0 scale factor
-    int dotCount = 256;        // 64-1024 bright dot count
+    float zoom = 3.0f;
+    int dotCount = 256;
+
+#if JUCE_IOS
+    std::unique_ptr<MetalVisualizerRenderer> metalRenderer;
+#endif
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(LissajousComponent)
 };

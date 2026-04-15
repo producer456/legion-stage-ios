@@ -2,6 +2,9 @@
 
 #include <JuceHeader.h>
 #include "DawLookAndFeel.h"
+#if JUCE_IOS
+#include "MetalVisualizerRenderer.h"
+#endif
 
 // Smooth-curve spectrum analyzer (Vengeance Scope style).
 // Logarithmic frequency scale, smooth interpolated line, filled gradient,
@@ -86,6 +89,9 @@ public:
 
     void paint(juce::Graphics& g) override
     {
+#if JUCE_IOS
+        if (tryMetalRender()) return;
+#endif
         uint32_t accentColor = 0xff40c8ff;
         uint32_t bgColor     = 0xff0a0e14;
         uint32_t gridColor   = 0xff1a2030;
@@ -191,6 +197,55 @@ public:
         }
     }
 
+
+#if JUCE_IOS
+    bool tryMetalRender()
+    {
+        if (!metalRenderer) metalRenderer = std::make_unique<MetalVisualizerRenderer>();
+        if (!metalRenderer->isAvailable()) return false;
+        if (!metalRenderer->isAttached())
+        {
+            if (auto* peer = getPeer())
+                metalRenderer->attachToView(peer->getNativeHandle());
+        }
+        if (!metalRenderer->isAttached()) return false;
+
+        metalRenderer->setBounds(getScreenX() - getTopLevelComponent()->getScreenX(),
+                                  getScreenY() - getTopLevelComponent()->getScreenY(),
+                                  getWidth(), getHeight());
+
+        uint32_t accentColor = 0xff40c8ff;
+        uint32_t bgColor     = 0xff0a0e14;
+        uint32_t gridColor   = 0xff1a2030;
+        if (auto* lnf = dynamic_cast<DawLookAndFeel*>(&getLookAndFeel()))
+        {
+            accentColor = lnf->getTheme().lcdAmber;
+            bgColor     = lnf->getTheme().lcdBg;
+            gridColor   = lnf->getTheme().timelineGridMinor;
+        }
+        auto ac = juce::Colour(accentColor);
+        auto bg = juce::Colour(bgColor);
+        auto gc = juce::Colour(gridColor);
+
+        AnalyzerGPUUniforms u {};
+        for (int i = 0; i < numPoints; ++i)
+        {
+            u.levels[i] = smoothLevels[i];
+            u.peakLevels[i] = peakLevels[i];
+        }
+        u.numPoints = numPoints;
+        u.peakHold = peakHold ? 1 : 0;
+        u.accentR = ac.getFloatRed(); u.accentG = ac.getFloatGreen(); u.accentB = ac.getFloatBlue();
+        u.bgR = bg.getFloatRed(); u.bgG = bg.getFloatGreen(); u.bgB = bg.getFloatBlue();
+        u.gridR = gc.getFloatRed(); u.gridG = gc.getFloatGreen(); u.gridB = gc.getFloatBlue();
+        u.dbMin = -90.0f;
+        u.dbMax = 6.0f;
+
+        metalRenderer->renderAnalyzer(u);
+        return true;
+    }
+#endif
+
 private:
     juce::dsp::FFT fft { fftOrder };
     float fifo[fftSize] = {};
@@ -201,6 +256,10 @@ private:
     float smoothLevels[numPoints] = {};
     float peakLevels[numPoints] = {};
     bool peakHold = true;
+
+#if JUCE_IOS
+    std::unique_ptr<MetalVisualizerRenderer> metalRenderer;
+#endif
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(AnalyzerComponent)
 };

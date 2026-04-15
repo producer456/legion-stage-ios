@@ -115,11 +115,15 @@ target_sources(Sequencer PRIVATE
     src/MetalCausticRenderer.h
     src/MetalCausticRenderer.mm
     src/CausticShaders.metal
+    src/MetalVisualizerRenderer.h
+    src/MetalVisualizerRenderer.mm
+    src/VisualizerShaders.metal
 )
 
 # Force ARC for Obj-C++ files that use Apple frameworks
 set_source_files_properties(src/HeartRateManager.mm PROPERTIES COMPILE_FLAGS "-fobjc-arc")
 set_source_files_properties(src/MetalCausticRenderer.mm PROPERTIES COMPILE_FLAGS "-fobjc-arc")
+set_source_files_properties(src/MetalVisualizerRenderer.mm PROPERTIES COMPILE_FLAGS "-fobjc-arc")
 
 target_compile_definitions(Sequencer PRIVATE
     JUCE_WEB_BROWSER=0

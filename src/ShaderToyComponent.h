@@ -2,6 +2,9 @@
 
 #include <JuceHeader.h>
 #include "DawLookAndFeel.h"
+#if JUCE_IOS
+#include "MetalVisualizerRenderer.h"
+#endif
 
 // Audio-reactive Shadertoy-style visualizer.
 // Uses FFT data to drive procedural graphics — no OpenGL needed,
@@ -76,11 +79,52 @@ public:
 
     void paint(juce::Graphics& g) override
     {
+#if JUCE_IOS
+        if (tryMetalRender()) return;
+#endif
+        paintCPU(g);
+    }
+
+#if JUCE_IOS
+    bool tryMetalRender()
+    {
+        if (!metalRenderer) metalRenderer = std::make_unique<MetalVisualizerRenderer>();
+        if (!metalRenderer->isAvailable()) return false;
+
+        if (!metalRenderer->isAttached())
+        {
+            if (auto* peer = getPeer())
+                metalRenderer->attachToView(peer->getNativeHandle());
+        }
+        if (!metalRenderer->isAttached()) return false;
+
+        metalRenderer->setBounds(getScreenX() - getTopLevelComponent()->getScreenX(),
+                                  getScreenY() - getTopLevelComponent()->getScreenY(),
+                                  getWidth(), getHeight());
+
+        ShaderToyUniforms u {};
+        u.time = time;
+        u.bass = (bands[0] + bands[1] + bands[2]) / 3.0f;
+        u.mid = (bands[5] + bands[6] + bands[7]) / 3.0f;
+        u.high = (bands[11] + bands[12] + bands[13]) / 3.0f;
+        u.energy = 0.0f;
+        for (int b = 0; b < numBands; ++b) u.energy += bands[b];
+        u.energy /= numBands;
+        for (int b = 0; b < numBands; ++b) u.bands[b] = bands[b];
+        u.preset = preset;
+        u.numBands = numBands;
+
+        metalRenderer->renderShaderToy(u);
+        return true;
+    }
+#endif
+
+    void paintCPU(juce::Graphics& g)
+    {
         auto bounds = getLocalBounds();
         int w = bounds.getWidth();
         int h = bounds.getHeight();
 
-        // Render at half resolution for performance
         int rw = juce::jmax(1, w / 2);
         int rh = juce::jmax(1, h / 2);
 
@@ -106,7 +150,7 @@ public:
 
                 switch (preset)
                 {
-                case 0: // Plasma waves
+                case 0:
                 {
                     float cx = u - 0.5f, cy = v - 0.5f;
                     float d = std::sqrt(cx * cx + cy * cy);
@@ -119,7 +163,7 @@ public:
                     b  = juce::jlimit(0.0f, 1.0f, 0.5f + 0.3f * p3 + 0.2f * high);
                     break;
                 }
-                case 1: // Radial pulse
+                case 1:
                 {
                     float cx = u - 0.5f, cy = v - 0.5f;
                     float d = std::sqrt(cx * cx + cy * cy);
@@ -134,7 +178,7 @@ public:
                     b  = juce::jlimit(0.0f, 1.0f, ring * 0.7f + high * 0.4f);
                     break;
                 }
-                case 2: // Electric field
+                case 2:
                 {
                     float cx = u - 0.5f, cy = v - 0.5f;
                     float f1x = 0.25f * std::sin(time * 0.7f), f1y = 0.25f * std::cos(time * 0.9f);
@@ -148,7 +192,7 @@ public:
                     b  = juce::jlimit(0.0f, 1.0f, (1.0f - field) * 0.8f + high * 0.5f);
                     break;
                 }
-                default: // Noise ocean
+                default:
                 {
                     float wave = std::sin(u * 10.0f + time + bass * 5.0f)
                                * std::cos(v * 8.0f + time * 0.7f + mid * 4.0f) * 0.5f + 0.5f;
@@ -182,6 +226,10 @@ private:
     static constexpr int numPresets = 4;
 
     juce::Image renderImage;
+
+#if JUCE_IOS
+    std::unique_ptr<MetalVisualizerRenderer> metalRenderer;
+#endif
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ShaderToyComponent)
 };
