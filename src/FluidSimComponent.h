@@ -2,6 +2,7 @@
 
 #include <JuceHeader.h>
 #include <cmath>
+#include <cstring>
 #include <array>
 #include <vector>
 #if JUCE_IOS
@@ -256,8 +257,12 @@ public:
                                   getScreenY() - getTopLevelComponent()->getScreenY(),
                                   getWidth(), getHeight());
 
-        FluidSimGPUUniforms u {};
-        for (int i = 0; i < gridW * gridH && i < 128 * 128; ++i)
+        // FluidSimGPUUniforms is ~192KB — heap allocate to avoid stack overflow
+        if (!gpuUniforms) gpuUniforms = std::make_unique<FluidSimGPUUniforms>();
+        auto& u = *gpuUniforms;
+        std::memset(&u, 0, sizeof(FluidSimGPUUniforms));
+        int count = juce::jmin(gridW * gridH, 128 * 128);
+        for (int i = 0; i < count; ++i)
         {
             u.density[i] = density[i];
             u.vx[i] = vx[i];
@@ -624,6 +629,7 @@ private:
 
 #if JUCE_IOS
     std::unique_ptr<MetalVisualizerRenderer> metalRenderer;
+    std::unique_ptr<FluidSimGPUUniforms> gpuUniforms;
 #endif
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(FluidSimComponent)
