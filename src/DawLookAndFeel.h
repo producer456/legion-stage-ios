@@ -113,7 +113,13 @@ protected:
         return text == "PLAY" || text == "STOP" || text == "MET" ||
                text == "LOOP" || text == "Count-In" || text == "PANIC" ||
                text == "LEARN" || text == "MIX" || text == "KEYS" ||
-               text == "VIS" || text == "PROJ" || text == "CAPT";
+               text == "VIS" || text == "PROJ" ||
+               text == "ARP" || text == "ARP ON" ||
+               text == "Up" || text == "Down" || text == "Up/Dn" ||
+               text == "Rand" || text == "Order" || text == "Chord" ||
+               text == "1/1" || text == "1/2" || text == "1/4" ||
+               text == "1/8" || text == "1/16" || text == "1/32" ||
+               text.startsWith("Oct ");
     }
 
     // Render OLED pixel art for a button. Returns true if handled.

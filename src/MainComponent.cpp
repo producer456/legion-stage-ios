@@ -1655,6 +1655,7 @@ void MainComponent::timerCallback()
     {
         auto& arp = cp->getArpeggiator();
         arpButton.setToggleState(arp.isEnabled(), juce::dontSendNotification);
+        arpButton.setButtonText(arp.isEnabled() ? "ARP ON" : "ARP");
         arpModeButton.setButtonText(arp.getModeName());
         arpRateButton.setButtonText(arp.getRateName());
         arpOctButton.setButtonText("Oct " + juce::String(arp.getOctaveRange()));
@@ -1762,6 +1763,7 @@ void MainComponent::selectTrack(int index)
     {
         auto& arp = cp->getArpeggiator();
         arpButton.setToggleState(arp.isEnabled(), juce::dontSendNotification);
+        arpButton.setButtonText(arp.isEnabled() ? "ARP ON" : "ARP");
         arpModeButton.setButtonText(arp.getModeName());
         arpRateButton.setButtonText(arp.getRateName());
         arpOctButton.setButtonText("Oct " + juce::String(arp.getOctaveRange()));
@@ -5303,11 +5305,11 @@ void MainComponent::resized()
         countInButton.setBounds(row1.removeFromLeft(r1bw));
         row1.removeFromLeft(gap);
         tapTempoButton.setVisible(true);
-        tapTempoButton.setButtonText("Tap");
+        tapTempoButton.setButtonText("TAP");
         tapTempoButton.setBounds(row1.removeFromLeft(r1bw));
         row1.removeFromLeft(gap);
         midiLearnButton.setVisible(true);
-        midiLearnButton.setButtonText("Learn");
+        midiLearnButton.setButtonText("LEARN");
         midiLearnButton.setBounds(row1.removeFromLeft(r1bw));
         row1.removeFromLeft(gap);
         audioSettingsButton.setVisible(false);
@@ -7060,8 +7062,7 @@ void MainComponent::applyThemeToControls()
     redoButton.setColour(juce::TextButton::buttonColourId, juce::Colour(c.btnUndoRedo));
 
     // Capture button
-    captureButton.setColour(juce::TextButton::buttonColourId, juce::Colour(c.btnNav));
-    captureButton.setColour(juce::TextButton::textColourOffId, juce::Colour(c.lcdText));
+    captureButton.setColour(juce::TextButton::buttonColourId, juce::Colour(c.btnNewClip));
 
     for (int i = 0; i < NUM_FX_SLOTS; ++i)
         fxEditorButtons[i]->setColour(juce::TextButton::buttonColourId, juce::Colour(c.btnNav));
