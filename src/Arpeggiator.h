@@ -58,7 +58,25 @@ public:
     // ── Audio thread: process MIDI buffer in-place ──
     void process(juce::MidiBuffer& midi, int numSamples, double bpm, double beatPosition, double sampleRate)
     {
-        if (!enabled.load() || bpm <= 0 || sampleRate <= 0) return;
+        processReset();
+
+        if (!enabled.load() || bpm <= 0 || sampleRate <= 0)
+        {
+            // When disabled, kill any lingering arp note
+            if (currentNoteOn >= 0)
+                killCurrentNote(midi, 0);
+            return;
+        }
+
+        // Rebuild sequence if mode/rate/octave changed since last call
+        Mode curMode = mode.load();
+        int curOct = octaveRange.load();
+        if (curMode != lastMode || curOct != lastOctRange)
+        {
+            lastMode = curMode;
+            lastOctRange = curOct;
+            rebuildSequence();
+        }
 
         // Collect held notes from incoming MIDI
         for (const auto meta : midi)
@@ -68,10 +86,11 @@ public:
             {
                 int note = msg.getNoteNumber();
                 int vel = msg.getVelocity();
-                if (!isHeld(note))
+                if (!isHeld(note) && numHeld < MAX_NOTES)
                 {
-                    heldNotes[numHeld++] = { note, vel, numHeld - 1 };
-                    if (numHeld > MAX_NOTES) numHeld = MAX_NOTES;
+                    int order = numHeld;
+                    heldNotes[numHeld] = { note, vel, order };
+                    numHeld++;
                     rebuildSequence();
                 }
             }
@@ -103,45 +122,54 @@ public:
         static const float rateBeats[] = { 4.0f, 2.0f, 1.0f, 0.5f, 0.25f, 0.125f };
         float stepBeats = rateBeats[rate.load()];
 
-        // Apply swing to odd steps
         float swingAmount = swing.load();
-
+        float gateLen = gate.load();
         double beatsPerSample = bpm / 60.0 / sampleRate;
 
         for (int s = 0; s < numSamples; ++s)
         {
             double currentBeat = beatPosition + s * beatsPerSample;
 
-            // Which step are we on?
-            double rawStep = currentBeat / stepBeats;
-            int stepIndex = static_cast<int>(std::floor(rawStep));
+            // Compute swung step position
+            // Unswung step index for step counting
+            int rawStepIndex = static_cast<int>(std::floor(currentBeat / stepBeats));
 
-            // Swing: offset odd steps
-            double stepStart = stepIndex * stepBeats;
-            if (stepIndex % 2 == 1)
-                stepStart += swingAmount * stepBeats;
+            // Compute the actual swung start of this step
+            double swungStepStart = rawStepIndex * stepBeats;
+            if (rawStepIndex % 2 == 1)
+                swungStepStart += swingAmount * stepBeats;
 
-            double stepEnd = stepStart + stepBeats * gate.load();
-
-            // Detect new step
-            if (stepIndex != lastStepIndex)
+            // Detect new step: trigger when we cross the swung boundary
+            bool newStep = false;
+            if (rawStepIndex != lastStepIndex)
             {
-                lastStepIndex = stepIndex;
+                // Only trigger if we've actually passed the swung start
+                if (currentBeat >= swungStepStart)
+                {
+                    newStep = true;
+                    lastStepIndex = rawStepIndex;
+                }
+            }
 
+            if (newStep)
+            {
                 // Kill previous note
                 killCurrentNote(midi, s);
 
                 // Advance sequence position
-                Mode curMode = mode.load();
                 if (curMode == Mode::Random)
-                    seqPos = static_cast<int>(std::fmod(currentBeat * 7.13, seqLen));
+                {
+                    // Use a hash that feels more random
+                    uint32_t hash = static_cast<uint32_t>(rawStepIndex * 2654435761u);
+                    seqPos = static_cast<int>(hash % static_cast<uint32_t>(seqLen));
+                }
                 else
-                    seqPos = stepIndex % seqLen;
+                    seqPos = rawStepIndex % seqLen;
 
                 if (curMode == Mode::UpDown && seqLen > 1)
                 {
                     int cycle = (seqLen - 1) * 2;
-                    int pos = stepIndex % cycle;
+                    int pos = rawStepIndex % cycle;
                     seqPos = pos < seqLen ? pos : cycle - pos;
                 }
 
@@ -155,13 +183,13 @@ public:
                 midi.addEvent(juce::MidiMessage::noteOn(1, note, static_cast<juce::uint8>(vel)), s);
             }
 
-            // Gate off
+            // Gate off — use swung timing
             if (currentNoteOn >= 0)
             {
                 double noteOnBeat = lastStepIndex * stepBeats;
                 if (lastStepIndex % 2 == 1)
                     noteOnBeat += swingAmount * stepBeats;
-                double gateEnd = noteOnBeat + stepBeats * gate.load();
+                double gateEnd = noteOnBeat + stepBeats * gateLen;
 
                 if (currentBeat >= gateEnd)
                     killCurrentNote(midi, s);
@@ -169,15 +197,23 @@ public:
         }
     }
 
-    // Reset state (e.g., on transport stop)
-    void reset()
+    // Request reset from any thread (processed safely on audio thread)
+    void reset() { resetRequested.store(true); }
+
+    // Called at start of process() to handle pending reset
+    void processReset()
     {
-        numHeld = 0;
-        seqLen = 0;
-        seqPos = 0;
-        lastStepIndex = -1;
-        killPending = false;
-        currentNoteOn = -1;
+        if (resetRequested.exchange(false))
+        {
+            numHeld = 0;
+            seqLen = 0;
+            seqPos = 0;
+            lastStepIndex = -1;
+            killPending = false;
+            currentNoteOn = -1;
+            lastMode = Mode::Up;
+            lastOctRange = 1;
+        }
     }
 
 private:
@@ -206,6 +242,13 @@ private:
     int currentNoteOn = -1;
     int currentNoteChannel = 1;
     bool killPending = false;
+
+    // Track last mode/octave for change detection
+    Mode lastMode = Mode::Up;
+    int lastOctRange = 1;
+
+    // Thread-safe reset flag
+    std::atomic<bool> resetRequested { false };
 
     // Atomic controls
     std::atomic<bool> enabled { false };

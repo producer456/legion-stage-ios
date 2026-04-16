@@ -3554,6 +3554,18 @@ void MainComponent::saveProject()
                 trackXml->setAttribute("soloed", track.gainProcessor->soloed.load());
             }
 
+            // Save arpeggiator settings
+            if (auto* cp = pluginHost.getTrack(t).clipPlayer)
+            {
+                auto& arp = cp->getArpeggiator();
+                trackXml->setAttribute("arpEnabled", arp.isEnabled());
+                trackXml->setAttribute("arpMode", static_cast<int>(arp.getMode()));
+                trackXml->setAttribute("arpRate", arp.getRate());
+                trackXml->setAttribute("arpOctave", arp.getOctaveRange());
+                trackXml->setAttribute("arpGate", static_cast<double>(arp.getGate()));
+                trackXml->setAttribute("arpSwing", static_cast<double>(arp.getSwing()));
+            }
+
             // Save plugin description and state
             if (track.plugin)
             {
@@ -3851,6 +3863,18 @@ void MainComponent::loadProject()
                 track.gainProcessor->pan.store(static_cast<float>(trackXml->getDoubleAttribute("pan", 0.0)));
                 track.gainProcessor->muted.store(trackXml->getBoolAttribute("muted", false));
                 track.gainProcessor->soloed.store(trackXml->getBoolAttribute("soloed", false));
+            }
+
+            // Load arpeggiator settings
+            if (auto* cp = pluginHost.getTrack(t).clipPlayer)
+            {
+                auto& arp = cp->getArpeggiator();
+                arp.setEnabled(trackXml->getBoolAttribute("arpEnabled", false));
+                arp.setMode(static_cast<Arpeggiator::Mode>(trackXml->getIntAttribute("arpMode", 0)));
+                arp.setRate(trackXml->getIntAttribute("arpRate", 3));
+                arp.setOctaveRange(trackXml->getIntAttribute("arpOctave", 1));
+                arp.setGate(static_cast<float>(trackXml->getDoubleAttribute("arpGate", 0.8)));
+                arp.setSwing(static_cast<float>(trackXml->getDoubleAttribute("arpSwing", 0.0)));
             }
 
 #if !JUCE_IOS
