@@ -298,7 +298,10 @@ MainComponent::MainComponent()
         {
             auto& track = pluginHost.getTrack(t);
             if (track.clipPlayer)
+            {
+                track.clipPlayer->panicKill.store(true);
                 track.clipPlayer->sendAllNotesOff.store(true);
+            }
         }
         statusLabel.setText("MIDI Panic - all notes off", juce::dontSendNotification);
         panicAnimEndTime = juce::Time::getMillisecondCounterHiRes() * 0.001 + 3.0;
@@ -6087,45 +6090,47 @@ void MainComponent::resized()
 
     // ── Edit Toolbar ──
     auto toolbar = area.removeFromTop(65).reduced(4, 4);
+
+    // Arp buttons on the right side
+    arpOctButton.setBounds(toolbar.removeFromRight(42));
+    arpOctButton.setVisible(true);
+    toolbar.removeFromRight(2);
+    arpRateButton.setBounds(toolbar.removeFromRight(38));
+    arpRateButton.setVisible(true);
+    toolbar.removeFromRight(2);
+    arpModeButton.setBounds(toolbar.removeFromRight(42));
+    arpModeButton.setVisible(true);
+    toolbar.removeFromRight(2);
+    arpButton.setBounds(toolbar.removeFromRight(48));
+    arpButton.setVisible(true);
+    toolbar.removeFromRight(6);
+
     // Grid + Quantize on the far left
     gridSelector.setBounds(toolbar.removeFromLeft(65));
     toolbar.removeFromLeft(2);
     quantizeButton.setBounds(toolbar.removeFromLeft(70));
     toolbar.removeFromLeft(4);
-    newClipButton.setBounds(toolbar.removeFromLeft(95));
-    toolbar.removeFromLeft(3);
-    deleteClipButton.setBounds(toolbar.removeFromLeft(80));
-    toolbar.removeFromLeft(3);
-    splitClipButton.setBounds(toolbar.removeFromLeft(55));
+    newClipButton.setBounds(toolbar.removeFromLeft(80));
     toolbar.removeFromLeft(2);
-    editClipButton.setBounds(toolbar.removeFromLeft(75));
+    deleteClipButton.setBounds(toolbar.removeFromLeft(60));
     toolbar.removeFromLeft(2);
-    clearAutoButton.setBounds(toolbar.removeFromLeft(75));
+    splitClipButton.setBounds(toolbar.removeFromLeft(50));
+    toolbar.removeFromLeft(2);
+    editClipButton.setBounds(toolbar.removeFromLeft(60));
+    toolbar.removeFromLeft(2);
+    clearAutoButton.setBounds(toolbar.removeFromLeft(65));
+    toolbar.removeFromLeft(3);
+    saveButton.setBounds(toolbar.removeFromLeft(45));
+    toolbar.removeFromLeft(2);
+    loadButton.setBounds(toolbar.removeFromLeft(45));
+    toolbar.removeFromLeft(2);
+    undoButton.setBounds(toolbar.removeFromLeft(42));
+    toolbar.removeFromLeft(2);
+    redoButton.setBounds(toolbar.removeFromLeft(42));
     toolbar.removeFromLeft(4);
-    saveButton.setBounds(toolbar.removeFromLeft(50));
-    toolbar.removeFromLeft(2);
-    loadButton.setBounds(toolbar.removeFromLeft(50));
-    toolbar.removeFromLeft(2);
-    undoButton.setBounds(toolbar.removeFromLeft(50));
-    toolbar.removeFromLeft(2);
-    redoButton.setBounds(toolbar.removeFromLeft(50));
-    toolbar.removeFromLeft(6);
     testNoteButton.setVisible(false);
-    captureButton.setBounds(toolbar.removeFromLeft(55));
+    captureButton.setBounds(toolbar.removeFromLeft(50));
     captureButton.setVisible(true);
-    toolbar.removeFromLeft(4);
-    arpButton.setBounds(toolbar.removeFromLeft(45));
-    arpButton.setVisible(true);
-    toolbar.removeFromLeft(2);
-    arpModeButton.setBounds(toolbar.removeFromLeft(50));
-    arpModeButton.setVisible(true);
-    toolbar.removeFromLeft(2);
-    arpRateButton.setBounds(toolbar.removeFromLeft(45));
-    arpRateButton.setVisible(true);
-    toolbar.removeFromLeft(2);
-    arpOctButton.setBounds(toolbar.removeFromLeft(50));
-    arpOctButton.setVisible(true);
-    toolbar.removeFromLeft(4);
     loopSetButton.setVisible(false);
     // CPU label — takes remaining toolbar space (expands when panel hidden)
     auto cpuArea = toolbar;

@@ -130,26 +130,21 @@ public:
         {
             double currentBeat = beatPosition + s * beatsPerSample;
 
-            // Compute swung step position
-            // Unswung step index for step counting
+            // Compute step index from beat position
             int rawStepIndex = static_cast<int>(std::floor(currentBeat / stepBeats));
 
-            // Compute the actual swung start of this step
-            double swungStepStart = rawStepIndex * stepBeats;
-            if (rawStepIndex % 2 == 1)
-                swungStepStart += swingAmount * stepBeats;
-
-            // Detect new step: trigger when we cross the swung boundary
-            bool newStep = false;
-            if (rawStepIndex != lastStepIndex)
+            // Detect position jumps (loop wrap, backward seek) — force a new step
+            if (lastStepIndex >= 0 && rawStepIndex < lastStepIndex)
             {
-                // Only trigger if we've actually passed the swung start
-                if (currentBeat >= swungStepStart)
-                {
-                    newStep = true;
-                    lastStepIndex = rawStepIndex;
-                }
+                // Position went backwards — kill current note and resync
+                killCurrentNote(midi, s);
+                lastStepIndex = rawStepIndex - 1;
             }
+
+            // Detect new step
+            bool newStep = (rawStepIndex != lastStepIndex);
+            if (newStep)
+                lastStepIndex = rawStepIndex;
 
             if (newStep)
             {

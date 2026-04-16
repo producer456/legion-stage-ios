@@ -80,6 +80,8 @@ public:
 
     // Flag to send all-notes-off on next processBlock
     std::atomic<bool> sendAllNotesOff { false };
+    // When true, also sends allSoundOff (CC 120) to kill tails instantly (panic only)
+    std::atomic<bool> panicKill { false };
 
     // Audio track mode — set by PluginHost when track type changes
     std::atomic<bool> audioMode { false };
@@ -93,6 +95,7 @@ private:
 
     double currentSampleRate = 44100.0;
     double lastPositionInBeats = 0.0;
+    double arpFreeRunBeat = 0.0;  // free-running beat counter for arp when transport is stopped
     std::vector<bool> wasInsideClip;
 
     // Recording slot — atomic for thread safety
@@ -104,7 +107,7 @@ private:
     // Track active notes so we can send explicit note-offs on loop wrap
     // First dimension is channel (0-15), second is note number (0-127)
     bool activePlaybackNotes[16][128] = {};
-    void killActiveNotes(juce::MidiBuffer& midi, int sampleOffset, bool hard = false);
+    void killActiveNotes(juce::MidiBuffer& midi, int sampleOffset, bool hard = false, bool panicKill = false);
 
     void processClipPlayback(int slotIndex, juce::MidiBuffer& midi, int numSamples);
     void processAudioClipPlayback(int slotIndex, juce::AudioBuffer<float>& buffer, int numSamples);

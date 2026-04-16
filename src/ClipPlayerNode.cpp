@@ -21,13 +21,37 @@ void ClipPlayerNode::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBu
 {
     int numSamples = buffer.getNumSamples();
 
-    // Send all-notes-off if flagged (stop/panic — hard kill)
+    // Send all-notes-off if flagged (stop/panic)
     if (sendAllNotesOff.exchange(false))
     {
-        killActiveNotes(midi, 0, true);
+        bool isPanic = panicKill.exchange(false);
+        killActiveNotes(midi, 0, true, isPanic);
         arpeggiator.reset();
         lastPositionInBeats = -1.0;
         std::fill(wasInsideClip.begin(), wasInsideClip.end(), false);
+    }
+
+    // Arpeggiator: transform live MIDI input BEFORE recording captures it.
+    // This way the recorded clip contains the arpeggiated notes, not the raw held chord.
+    if (arpeggiator.isEnabled())
+    {
+        double bpm = engine.getBpm();
+        double beatPos;
+        if (engine.isPlaying())
+        {
+            // engine.getPositionInBeats() is the END of this block (already advanced).
+            // Subtract back to get the START of the block for accurate per-sample timing.
+            double beatsPerSample = (bpm / 60.0) / currentSampleRate;
+            beatPos = engine.getPositionInBeats() - (beatsPerSample * numSamples);
+        }
+        else
+        {
+            // Free-running when transport is stopped
+            double beatsPerSample = bpm / 60.0 / currentSampleRate;
+            beatPos = arpFreeRunBeat;
+            arpFreeRunBeat += beatsPerSample * numSamples;
+        }
+        arpeggiator.process(midi, numSamples, bpm, beatPos, currentSampleRate);
     }
 
     // Check if we should start recording (not during count-in)
@@ -141,13 +165,6 @@ void ClipPlayerNode::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBu
         }
 
         lastPositionInBeats = currentPos;
-
-        // Arpeggiator: transform held/played notes into rhythmic patterns
-        if (arpeggiator.isEnabled() && engine.isPlaying())
-        {
-            arpeggiator.process(midi, numSamples, engine.getBpm(),
-                                engine.getPositionInBeats(), currentSampleRate);
-        }
     }
 
     // Audio passes through unchanged (this node only handles MIDI)
@@ -410,7 +427,7 @@ void ClipPlayerNode::closeOpenNotes(MidiClip& clip)
         clip.events.sort();
 }
 
-void ClipPlayerNode::killActiveNotes(juce::MidiBuffer& midi, int sampleOffset, bool hard)
+void ClipPlayerNode::killActiveNotes(juce::MidiBuffer& midi, int sampleOffset, bool hard, bool panicKill)
 {
     // Send explicit note-offs for every tracked note on the correct channel
     for (int ch = 0; ch < 16; ++ch)
@@ -424,7 +441,6 @@ void ClipPlayerNode::killActiveNotes(juce::MidiBuffer& midi, int sampleOffset, b
     std::memset(activePlaybackNotes, 0, sizeof(activePlaybackNotes));
 
     // Hard kill: send note-off for ALL possible notes on ALL channels
-    // Some plugins ignore CC 120/123, so brute-force every note
     if (hard)
     {
         for (int ch = 1; ch <= 16; ++ch)
@@ -432,7 +448,10 @@ void ClipPlayerNode::killActiveNotes(juce::MidiBuffer& midi, int sampleOffset, b
             for (int note = 0; note < 128; ++note)
                 midi.addEvent(juce::MidiMessage::noteOff(ch, note), sampleOffset);
             midi.addEvent(juce::MidiMessage::allNotesOff(ch), sampleOffset);
-            midi.addEvent(juce::MidiMessage::allSoundOff(ch), sampleOffset);
+            // Only send allSoundOff for panic — not normal stop.
+            // allSoundOff (CC 120) kills release tails and reverb instantly.
+            if (panicKill)
+                midi.addEvent(juce::MidiMessage::allSoundOff(ch), sampleOffset);
         }
     }
 }
