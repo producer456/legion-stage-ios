@@ -667,3 +667,63 @@ void PluginHost::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer
     }
 
 }
+
+// ── Offline Rendering ──────────────────────────────────────────────
+
+void PluginHost::prepareForOfflineRender(double sampleRate, int blockSize)
+{
+    offlineSavedSampleRate = storedSampleRate;
+    offlineSavedBlockSize = storedBlockSize;
+    storedSampleRate = sampleRate;
+    storedBlockSize = blockSize;
+
+    // Reconfigure graph for offline
+    setPlayConfigDetails(2, 2, sampleRate, blockSize);
+    releaseResources();
+    prepareToPlay(sampleRate, blockSize);
+    setNonRealtime(true);
+}
+
+void PluginHost::processBlockOffline(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi, int numSamples)
+{
+    // Advance transport
+    engine.advancePosition(numSamples, storedSampleRate);
+    hostPlayHead.captureState(storedSampleRate);
+
+    // Process the graph (all tracks, plugins, FX, gain)
+    AudioProcessorGraph::processBlock(buffer, midi);
+
+    // Apply automation
+    if (engine.isPlaying() && !engine.isInCountIn())
+    {
+        double beat = engine.getPositionInBeats();
+        for (int t = 0; t < NUM_TRACKS; ++t)
+        {
+            auto& track = tracks[static_cast<size_t>(t)];
+            if (!track.plugin) continue;
+            auto params = track.plugin->getParameters();
+            const juce::SpinLock::ScopedLockType lock(track.automationLock);
+            for (auto* lane : track.automationLanes)
+            {
+                if (lane->parameterIndex >= 0 && lane->parameterIndex < params.size())
+                {
+                    float val = lane->getValueAtBeat(static_cast<float>(beat));
+                    params[lane->parameterIndex]->setValue(val);
+                }
+            }
+        }
+    }
+
+    // NO metronome in export
+    // NO visualizer feeds in export
+}
+
+void PluginHost::restoreFromOfflineRender()
+{
+    setNonRealtime(false);
+    storedSampleRate = offlineSavedSampleRate;
+    storedBlockSize = offlineSavedBlockSize;
+    setPlayConfigDetails(2, 2, storedSampleRate, storedBlockSize);
+    releaseResources();
+    prepareToPlay(storedSampleRate, storedBlockSize);
+}

@@ -152,6 +152,11 @@ public:
 
     void processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages) override;
 
+    // Offline rendering for audio export
+    void prepareForOfflineRender(double sampleRate, int blockSize);
+    void processBlockOffline(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi, int numSamples);
+    void restoreFromOfflineRender();
+
     void setAudioParams(double sampleRate, int blockSize);
 
     // Sequencer engine access
@@ -187,6 +192,10 @@ private:
 
     double storedSampleRate = 44100.0;
     int storedBlockSize = 512;
+
+    // Saved state for offline render restore
+    double offlineSavedSampleRate = 44100.0;
+    int offlineSavedBlockSize = 512;
 
     // AudioPlayHead — provides BPM, position, transport state to plugins
     HostPlayHead hostPlayHead { engine };

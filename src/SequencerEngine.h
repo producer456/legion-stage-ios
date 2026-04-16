@@ -36,6 +36,7 @@ public:
 
     // Loop
     void toggleLoop();
+    void setLoopEnabled(bool on) { loopEnabled.store(on); }
     bool isLoopEnabled() const { return loopEnabled.load(); }
     void setLoopRegion(double startBeat, double endBeat);
     void clearLoopRegion();

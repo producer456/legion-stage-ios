@@ -320,6 +320,69 @@ MainComponent::MainComponent()
     addAndMakeVisible(captureButton);
     captureButton.onClick = [this] { performCapture(); };
 
+    // ── Export Button ──
+    addAndMakeVisible(exportButton);
+    exportButton.onClick = [this] {
+        auto& eng = pluginHost.getEngine();
+
+        // Determine export range
+        double startBeat = 0.0;
+        double endBeat = 16.0;
+        if (eng.isLoopEnabled() && eng.hasLoopRegion())
+        {
+            startBeat = eng.getLoopStart();
+            endBeat = eng.getLoopEnd();
+        }
+        else
+        {
+            // Find the end of the last clip across all tracks
+            double maxEnd = 16.0;
+            for (int t = 0; t < PluginHost::NUM_TRACKS; ++t)
+            {
+                auto* cp = pluginHost.getTrack(t).clipPlayer;
+                if (!cp) continue;
+                for (int s = 0; s < cp->getNumSlots(); ++s)
+                {
+                    auto& slot = cp->getSlot(s);
+                    if (slot.clip && slot.hasContent())
+                    {
+                        double clipEnd = slot.clip->timelinePosition + slot.clip->lengthInBeats;
+                        if (clipEnd > maxEnd) maxEnd = clipEnd;
+                    }
+                    if (slot.audioClip)
+                    {
+                        double clipEnd = slot.audioClip->timelinePosition + slot.audioClip->lengthInBeats;
+                        if (clipEnd > maxEnd) maxEnd = clipEnd;
+                    }
+                }
+            }
+            endBeat = maxEnd;
+        }
+
+        // Stop playback during export
+        eng.stop();
+
+        // Generate filename with timestamp
+        auto now = juce::Time::getCurrentTime();
+        auto filename = "LegionStage_" + now.formatted("%Y%m%d_%H%M%S") + ".wav";
+        auto docsDir = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory);
+        auto outputFile = docsDir.getChildFile(filename);
+
+        statusLabel.setText("Exporting audio...", juce::dontSendNotification);
+
+        double sampleRate = 44100.0;
+        if (auto* device = deviceManager.getCurrentAudioDevice())
+            sampleRate = device->getCurrentSampleRate();
+
+        // Disconnect audio device during export to avoid conflicts
+        audioPlayer.setProcessor(nullptr);
+
+        audioExporter = std::make_unique<AudioExporter>(pluginHost, eng);
+        audioExporter->startExport(outputFile, startBeat, endBeat, sampleRate);
+
+        // Poll for completion via timer (checked in timerCallback)
+    };
+
     // ── Arpeggiator Controls ──
     addAndMakeVisible(arpButton);
     arpButton.setClickingTogglesState(true);
@@ -1662,6 +1725,35 @@ void MainComponent::timerCallback()
         arpModeButton.setButtonText(arp.getModeName());
         arpRateButton.setButtonText(arp.getRateName());
         arpOctButton.setButtonText("Oct " + juce::String(arp.getOctaveRange()));
+    }
+
+    // Check export progress
+    if (audioExporter)
+    {
+        auto state = audioExporter->getState();
+        if (state == AudioExporter::State::Rendering)
+        {
+            int pct = static_cast<int>(audioExporter->getProgress() * 100);
+            statusLabel.setText("Exporting... " + juce::String(pct) + "%", juce::dontSendNotification);
+        }
+        else if (state == AudioExporter::State::Finished)
+        {
+            auto file = audioExporter->getOutputFile();
+            statusLabel.setText("Exported: " + file.getFileName(), juce::dontSendNotification);
+
+            // Reconnect audio device
+            audioPlayer.setProcessor(&pluginHost);
+
+            // Offer to share on iOS
+            // File is in Documents folder — accessible via Files app on iOS
+            audioExporter.reset();
+        }
+        else if (state == AudioExporter::State::Error)
+        {
+            statusLabel.setText("Export failed: " + audioExporter->getErrorMessage(), juce::dontSendNotification);
+            audioPlayer.setProcessor(&pluginHost);
+            audioExporter.reset();
+        }
     }
 
     // Pulse animation for active toggle buttons
@@ -6131,6 +6223,9 @@ void MainComponent::resized()
     testNoteButton.setVisible(false);
     captureButton.setBounds(toolbar.removeFromLeft(50));
     captureButton.setVisible(true);
+    toolbar.removeFromLeft(2);
+    exportButton.setBounds(toolbar.removeFromLeft(55));
+    exportButton.setVisible(true);
     loopSetButton.setVisible(false);
     // CPU label — takes remaining toolbar space (expands when panel hidden)
     auto cpuArea = toolbar;
@@ -7068,6 +7163,7 @@ void MainComponent::applyThemeToControls()
 
     // Capture button
     captureButton.setColour(juce::TextButton::buttonColourId, juce::Colour(c.btnNewClip));
+    exportButton.setColour(juce::TextButton::buttonColourId, juce::Colour(c.btnNewClip));
 
     for (int i = 0; i < NUM_FX_SLOTS; ++i)
         fxEditorButtons[i]->setColour(juce::TextButton::buttonColourId, juce::Colour(c.btnNav));

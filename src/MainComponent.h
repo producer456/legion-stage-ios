@@ -26,6 +26,7 @@
 #include "MetalCausticRenderer.h"
 #include "FluidSimComponent.h"
 #include "RayMarchComponent.h"
+#include "AudioExporter.h"
 
 class PluginEditorWindow : public juce::DocumentWindow, public juce::ComponentListener
 {
@@ -175,6 +176,8 @@ private:
 
     // ── Capture (always-on MIDI ring buffer) ──
     juce::TextButton captureButton { "CAPT" };
+    juce::TextButton exportButton { "EXPORT" };
+    std::unique_ptr<AudioExporter> audioExporter;
     std::array<CaptureEvent, CAPTURE_RING_SIZE> captureRing;
     std::atomic<int> captureWritePos { 0 };
     std::atomic<int> captureCount { 0 };
