@@ -1155,6 +1155,8 @@ MainComponent::~MainComponent()
     pluginHost.analyzerDisplay = nullptr;
     pluginHost.heartbeatDisplay = nullptr;
     pluginHost.bioResonanceDisplay = nullptr;
+    pluginHost.fluidSimDisplay = nullptr;
+    pluginHost.rayMarchDisplay = nullptr;
     // Clear Lissajous pointer from all tracks
     for (int t = 0; t < PluginHost::NUM_TRACKS; ++t)
     {
@@ -2125,8 +2127,10 @@ void MainComponent::handleIncomingMidiMessage(juce::MidiInput* /*source*/, const
         int ch = msg.getChannel();
         int cc = msg.getControllerNumber();
         int val = msg.getControllerValue();
-        juce::MessageManager::callAsync([this, ch, cc, val] {
-            processMidiLearnCC(ch, cc, val);
+        auto safeThis = juce::Component::SafePointer<MainComponent>(this);
+        juce::MessageManager::callAsync([safeThis, ch, cc, val] {
+            if (safeThis == nullptr) return;
+            safeThis->processMidiLearnCC(ch, cc, val);
         });
         return;
     }
@@ -2138,15 +2142,21 @@ void MainComponent::handleIncomingMidiMessage(juce::MidiInput* /*source*/, const
         int cc = msg.getControllerNumber();
         int val = msg.getControllerValue();
 
+        bool mapped = false;
         for (auto& mapping : midiMappings)
         {
             if (mapping.channel == ch && mapping.ccNumber == cc)
             {
-                juce::MessageManager::callAsync([this, mapping, val] {
-                    applyMidiCC(mapping, val);
+                auto safeThis = juce::Component::SafePointer<MainComponent>(this);
+                juce::MessageManager::callAsync([safeThis, mapping, val] {
+                    if (safeThis == nullptr) return;
+                    safeThis->applyMidiCC(mapping, val);
                 });
+                mapped = true;
             }
         }
+        if (mapped)
+            return; // Don't forward learned CCs to the synth plugin
     }
 
     if (midi2Enabled)
@@ -2183,8 +2193,10 @@ void MainComponent::handleIncomingMidiMessage(juce::MidiInput* /*source*/, const
                 }
             }
 
-            juce::MessageManager::callAsync([this, ciInfo, outCount] {
-                trackNameLabel.setText(ciInfo + " sent:" + juce::String(outCount),
+            auto safeThis = juce::Component::SafePointer<MainComponent>(this);
+            juce::MessageManager::callAsync([safeThis, ciInfo, outCount] {
+                if (safeThis == nullptr) return;
+                safeThis->trackNameLabel.setText(ciInfo + " sent:" + juce::String(outCount),
                     juce::dontSendNotification);
             });
 
@@ -2414,6 +2426,14 @@ void MainComponent::disableCurrentMidiDevice()
 {
     if (currentMidiDeviceId.isNotEmpty())
     {
+        // Send all-notes-off to prevent stuck notes
+        for (int t = 0; t < PluginHost::NUM_TRACKS; ++t)
+        {
+            auto* cp = pluginHost.getTrack(t).clipPlayer;
+            if (cp != nullptr)
+                cp->sendAllNotesOff.store(true);
+        }
+
         deviceManager.removeMidiInputDeviceCallback(currentMidiDeviceId, this);
         deviceManager.setMidiInputDeviceEnabled(currentMidiDeviceId, false);
         currentMidiDeviceId.clear();
@@ -3669,6 +3689,7 @@ void MainComponent::loadProject()
         for (int t = 0; t < PluginHost::NUM_TRACKS; ++t)
         {
             pluginHost.unloadPlugin(t);
+            midi2Handler.setPlugin(nullptr); // Clear dangling pointer
             for (int fx = 0; fx < Track::NUM_FX_SLOTS; ++fx)
                 pluginHost.unloadFx(t, fx);
             auto* cp = pluginHost.getTrack(t).clipPlayer;
@@ -3724,6 +3745,24 @@ void MainComponent::loadProject()
                 themeManager.setTheme(static_cast<ThemeManager::Theme>(themeIdx), this);
                 themeSelector.setSelectedId(themeIdx + 1, juce::dontSendNotification);
                 applyThemeToControls();
+                // Start DeviceMotion/Metal for glass themes (same as theme selector onChange)
+                if (timelineComponent)
+                    timelineComponent->setOpaque(!themeManager.isGlassOverlay());
+                if (themeManager.isGlassOverlay())
+                {
+                    DeviceMotion::getInstance().start();
+                    startTimerHz(getGlassTimerHz());
+                    glassAnimEnabled = true;
+                }
+                else
+                {
+                    DeviceMotion::getInstance().stop();
+                    startTimerHz(getBaseTimerHz());
+                }
+#if JUCE_IOS
+                if (metalRenderer && metalRendererAttached)
+                    metalRenderer->setVisible(themeManager.isGlassOverlay() && glassAnimEnabled);
+#endif
             }
         }
 

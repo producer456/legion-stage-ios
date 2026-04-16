@@ -247,9 +247,10 @@ public:
         int energyOff = static_cast<int>(energy * 30.0f);
         float brightMult = 1.0f - blackoutFade;
 
-        juce::Image img(juce::Image::ARGB, w, h, false);
+        if (renderImage.getWidth() != w || renderImage.getHeight() != h)
+            renderImage = juce::Image(juce::Image::ARGB, w, h, false);
         {
-            juce::Image::BitmapData bmp(img, juce::Image::BitmapData::writeOnly);
+            juce::Image::BitmapData bmp(renderImage, juce::Image::BitmapData::writeOnly);
             for (int y = 0; y < h; ++y)
             {
                 for (int x = 0; x < w; ++x)
@@ -266,7 +267,7 @@ public:
                 }
             }
         }
-        g.drawImageAt(img, 0, 0);
+        g.drawImageAt(renderImage, 0, 0);
     }
 
 #if JUCE_IOS
@@ -439,6 +440,8 @@ public:
 #endif
 
 private:
+    juce::Image renderImage;
+
     // Audio state
     std::array<float, WAVE_SIZE> waveBuffer;
     int writePos = 0;

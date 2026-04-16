@@ -23,38 +23,31 @@ void GainProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuf
 {
     auto startTime = juce::Time::getHighResolutionTicks();
 
-    // Check mute
-    if (muted.load())
-    {
-        buffer.clear();
-        peakLevelL.store(0.0f);
-        peakLevelR.store(0.0f);
-        cpuPercent.store(0.0f);
-        return;
-    }
-
-    // Check solo — if any track is soloed and this one isn't, silence
-    if (soloCount != nullptr && soloCount->load() > 0 && !soloed.load())
-    {
-        buffer.clear();
-        peakLevelL.store(0.0f);
-        peakLevelR.store(0.0f);
-        cpuPercent.store(0.0f);
-        return;
-    }
-
     float vol = volume.load();
+    bool isMuted = muted.load();
+    bool soloActive = (soloCount != nullptr && soloCount->load() > 0 && !soloed.load());
+
     float p = pan.load(); // -1.0 to 1.0
 
     // Equal power pan law
     float angle = (p + 1.0f) * 0.25f * juce::MathConstants<float>::pi; // 0 to pi/2
-    float leftGain = vol * std::cos(angle);
-    float rightGain = vol * std::sin(angle);
+    float leftGain = std::cos(angle);
+    float rightGain = std::sin(angle);
 
-    if (buffer.getNumChannels() >= 1)
-        buffer.applyGain(0, 0, buffer.getNumSamples(), leftGain);
-    if (buffer.getNumChannels() >= 2)
-        buffer.applyGain(1, 0, buffer.getNumSamples(), rightGain);
+    float targetVol = vol * (isMuted ? 0.0f : 1.0f) * (soloActive ? 0.0f : 1.0f);
+    float targetL = leftGain * targetVol;
+    float targetR = rightGain * targetVol;
+
+    // Smooth over the block to avoid clicks on volume/mute/solo changes
+    for (int i = 0; i < buffer.getNumSamples(); ++i)
+    {
+        smoothedPanL += (targetL - smoothedPanL) * 0.01f;
+        smoothedPanR += (targetR - smoothedPanR) * 0.01f;
+        if (buffer.getNumChannels() >= 1)
+            buffer.getWritePointer(0)[i] *= smoothedPanL;
+        if (buffer.getNumChannels() >= 2)
+            buffer.getWritePointer(1)[i] *= smoothedPanR;
+    }
 
     // Measure peak levels (post-gain)
     float pkL = 0.0f, pkR = 0.0f;

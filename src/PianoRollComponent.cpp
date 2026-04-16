@@ -119,9 +119,9 @@ void PianoRollComponent::mouseDown(const juce::MouseEvent& e)
 
     int hitIndex = hitTestNote(mx, my);
 
-    if (e.mods.isRightButtonDown())
+    if (e.mods.isRightButtonDown() || (hitIndex >= 0 && e.getNumberOfClicks() == 2))
     {
-        // Right click = delete note
+        // Right click or double-tap = delete note
         if (hitIndex >= 0)
         {
             noteEvents.remove(hitIndex);

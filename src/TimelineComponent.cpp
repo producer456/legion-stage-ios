@@ -140,7 +140,8 @@ void TimelineComponent::timerCallback()
     }
 
     // Long press on clip — show context menu
-    if (longPressTrack >= 0 && !longPressTriggered && mouseDownTime > 0)
+    if (touchScrolling) { longPressTrack = -1; }
+    else if (longPressTrack >= 0 && !longPressTriggered && mouseDownTime > 0)
     {
         juce::int64 holdTime = juce::Time::currentTimeMillis() - mouseDownTime;
         if (holdTime >= longPressMs)
@@ -606,7 +607,10 @@ void TimelineComponent::mouseDrag(const juce::MouseEvent& e)
 void TimelineComponent::mouseUp(const juce::MouseEvent& e)
 {
     if (e.source.getIndex() > 0)
+    {
         touchScrolling = false;
+        clipClickPending = false;
+    }
 
     panning = false;
     draggingLoop = false;
@@ -750,9 +754,9 @@ void TimelineComponent::mouseDoubleClick(const juce::MouseEvent& e)
 
 void TimelineComponent::mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWheelDetails& w)
 {
-    if (e.mods.isCtrlDown())
+    if (e.mods.isCtrlDown() || e.mods.isCommandDown())
     {
-        // Ctrl+wheel = zoom centered on mouse position
+        // Ctrl/Cmd+wheel = zoom centered on mouse position
         double beatAtMouse = xToBeat(static_cast<float>(e.x));
         double zoomFactor = 1.0 + w.deltaY * 0.3;
         pixelsPerBeat = juce::jlimit(10.0, 300.0, pixelsPerBeat * zoomFactor);
@@ -814,14 +818,16 @@ bool TimelineComponent::keyPressed(const juce::KeyPress& key)
         return true;
     }
 
-    if (key.getModifiers().isCtrlDown() && key.getKeyCode() == 'D')
+    bool modDown = key.getModifiers().isCommandDown() || key.getModifiers().isCtrlDown();
+
+    if (modDown && key.getKeyCode() == 'D')
     {
         if (onBeforeEdit) onBeforeEdit();
         duplicateSelectedClip();
         return true;
     }
 
-    if (key.getModifiers().isCtrlDown() && key.getKeyCode() == 'B')
+    if (modDown && key.getKeyCode() == 'B')
     {
         // Split at playhead
         if (selectedClip.isValid())

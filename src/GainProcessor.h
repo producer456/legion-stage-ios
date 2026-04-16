@@ -55,6 +55,10 @@ public:
     // Per-track Lissajous feed
     std::atomic<LissajousComponent*> lissajousDisplay { nullptr };
 
+    // Smoothing state (audio thread only)
+    float smoothedPanL = 1.0f;
+    float smoothedPanR = 1.0f;
+
 private:
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(GainProcessor)
 };

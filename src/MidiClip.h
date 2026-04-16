@@ -27,21 +27,19 @@ struct AutomationLane
     {
         if (points.isEmpty()) return -1.0f; // no data
 
-        // Before first point
-        if (beat <= points.getFirst().beat) return points.getFirst().value;
-        // After last point
+        if (points.size() == 1 || beat <= points.getFirst().beat) return points.getFirst().value;
         if (beat >= points.getLast().beat) return points.getLast().value;
 
-        // Linear interpolation between points
-        for (int i = 0; i < points.size() - 1; ++i)
-        {
-            if (beat >= points[i].beat && beat < points[i + 1].beat)
-            {
-                double t = (beat - points[i].beat) / (points[i + 1].beat - points[i].beat);
-                return points[i].value + static_cast<float>(t) * (points[i + 1].value - points[i].value);
-            }
+        // Binary search for the interval containing beat
+        int lo = 0, hi = points.size() - 2;
+        while (lo < hi) {
+            int mid = (lo + hi + 1) / 2;
+            if (points[mid].beat <= beat) lo = mid;
+            else hi = mid - 1;
         }
-        return points.getLast().value;
+
+        float t = (float)(beat - points[lo].beat) / (float)(points[lo + 1].beat - points[lo].beat + 0.0001);
+        return points[lo].value + (points[lo + 1].value - points[lo].value) * t;
     }
 };
 
