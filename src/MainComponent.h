@@ -28,6 +28,7 @@
 #include "RayMarchComponent.h"
 #include "AudioExporter.h"
 #include "BuiltinSamplerProcessor.h"
+#include "SessionViewComponent.h"
 
 class PluginEditorWindow : public juce::DocumentWindow, public juce::ComponentListener
 {
@@ -475,6 +476,11 @@ private:
 
     // ── Timeline (arrangement view) ──
     std::unique_ptr<TimelineComponent> timelineComponent;
+
+    // ── Session View (clip launcher) ──
+    std::unique_ptr<SessionViewComponent> sessionViewComponent;
+    juce::TextButton sessionViewButton { "SESSION" };
+    bool showingSessionView = false;
 
     // Plugin editor
     std::unique_ptr<juce::AudioProcessorEditor> currentEditor;

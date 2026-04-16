@@ -123,6 +123,7 @@ target_sources(Sequencer PRIVATE
     src/Arpeggiator.h
     src/AudioExporter.h
     src/BuiltinSamplerProcessor.h
+    src/SessionViewComponent.h
 )
 
 # Force ARC for Obj-C++ files that use Apple frameworks

@@ -950,6 +950,29 @@ MainComponent::MainComponent()
         repaint();
     };
 
+    // ── Session View ──
+    sessionViewComponent = std::make_unique<SessionViewComponent>(pluginHost);
+    addAndMakeVisible(*sessionViewComponent);
+    sessionViewComponent->setVisible(false);
+    sessionViewComponent->onTrackSelected = [this](int track) { selectTrack(track); };
+
+    addAndMakeVisible(sessionViewButton);
+    sessionViewButton.setClickingTogglesState(true);
+    sessionViewButton.onClick = [this] {
+        showingSessionView = sessionViewButton.getToggleState();
+        if (showingSessionView)
+        {
+            sessionViewComponent->setVisible(true);
+            if (timelineComponent) timelineComponent->setVisible(false);
+        }
+        else
+        {
+            sessionViewComponent->setVisible(false);
+            if (timelineComponent) timelineComponent->setVisible(true);
+        }
+        resized();
+    };
+
     // ── Loop Set Mode ──
     addAndMakeVisible(loopSetButton);
     loopSetButton.setClickingTogglesState(true);
@@ -1863,6 +1886,10 @@ void MainComponent::selectTrack(int index)
         arpRateButton.setButtonText(arp.getRateName());
         arpOctButton.setButtonText("Oct " + juce::String(arp.getOctaveRange()));
     }
+
+    // Sync session view track selection
+    if (sessionViewComponent)
+        sessionViewComponent->setSelectedTrack(selectedTrackIndex);
 
     // Update track input selector
     updateTrackInputSelector();
@@ -5463,6 +5490,11 @@ void MainComponent::resized()
         mixerButton.setBounds(row2.removeFromRight(36));
         row2.removeFromRight(gap);
 
+        // Session view button
+        sessionViewButton.setBounds(row2.removeFromRight(52));
+        sessionViewButton.setVisible(true);
+        row2.removeFromRight(gap);
+
         // Arp buttons at right side of row 2
         arpOctButton.setBounds(row2.removeFromRight(42));
         arpOctButton.setVisible(true);
@@ -6155,8 +6187,22 @@ void MainComponent::resized()
             if (timelineComponent)
             {
                 timelineComponent->setVisibleTracks(4);
-                timelineComponent->setVisible(true);
-                timelineComponent->setBounds(area);
+                if (showingSessionView)
+                {
+                    timelineComponent->setVisible(false);
+                    if (sessionViewComponent)
+                    {
+                        sessionViewComponent->setVisible(true);
+                        sessionViewComponent->setBounds(area);
+                    }
+                }
+                else
+                {
+                    if (sessionViewComponent)
+                        sessionViewComponent->setVisible(false);
+                    timelineComponent->setVisible(true);
+                    timelineComponent->setBounds(area);
+                }
             }
         }
         return;
@@ -6676,9 +6722,22 @@ void MainComponent::resized()
 #if JUCE_IOS
             area.removeFromBottom(20); // home indicator safe area
 #endif
-            timelineComponent->setVisible(true);
-
-            timelineComponent->setBounds(area);
+            if (showingSessionView)
+            {
+                timelineComponent->setVisible(false);
+                if (sessionViewComponent)
+                {
+                    sessionViewComponent->setVisible(true);
+                    sessionViewComponent->setBounds(area);
+                }
+            }
+            else
+            {
+                if (sessionViewComponent)
+                    sessionViewComponent->setVisible(false);
+                timelineComponent->setVisible(true);
+                timelineComponent->setBounds(area);
+            }
         }
     }
 
@@ -7163,6 +7222,7 @@ void MainComponent::applyThemeToControls()
     mixerButton.setColour(juce::TextButton::buttonOnColourId, juce::Colour(c.lcdText));
     mixerButton.setColour(juce::TextButton::textColourOffId, juce::Colour(c.lcdText));
     mixerButton.setColour(juce::TextButton::textColourOnId, juce::Colour(c.lcdBg));
+    sessionViewButton.setColour(juce::TextButton::buttonColourId, juce::Colour(c.btnNav));
 
     // Arpeggiator buttons
     arpButton.setColour(juce::TextButton::buttonColourId, juce::Colour(c.lcdBg).brighter(0.15f));

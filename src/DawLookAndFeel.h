@@ -114,6 +114,7 @@ protected:
                text == "LOOP" || text == "Count-In" || text == "PANIC" ||
                text == "LEARN" || text == "MIX" || text == "KEYS" ||
                text == "VIS" || text == "PROJ" ||
+               text == "SESSION" ||
                text == "ARP" || text == "ARP ON" ||
                text == "Up" || text == "Down" || text == "Up/Dn" ||
                text == "Rand" || text == "Order" || text == "Chord" ||
@@ -508,6 +509,33 @@ protected:
                             if (letters[ch][row] & (1 << (2 - bit)))
                                 oledPlot(oled, ox + bit, startY + row, dim);
                 }
+            }
+        }
+        else if (text == "SESSION")
+        {
+            // Grid icon — 3x3 clip cells
+            for (int row = 0; row < 3; ++row)
+            {
+                for (int c = 0; c < 3; ++c)
+                {
+                    int cx = icx - 8 + c * 8;
+                    int cy = icy - 6 + row * 5;
+                    for (int dx = 0; dx < 5; ++dx)
+                        for (int dy = 0; dy < 3; ++dy)
+                            oledPlot(oled, cx + dx, cy + dy, dim);
+                }
+            }
+            if (on)
+            {
+                // Highlight one cell animating through the grid
+                int cell = static_cast<int>(t * 3.0f) % 9;
+                int hc = cell % 3;
+                int hr = cell / 3;
+                int hx = icx - 8 + hc * 8;
+                int hy = icy - 6 + hr * 5;
+                for (int dx = 0; dx < 5; ++dx)
+                    for (int dy = 0; dy < 3; ++dy)
+                        oledPlot(oled, hx + dx, hy + dy, bright);
             }
         }
         else if (text == "TAP")
