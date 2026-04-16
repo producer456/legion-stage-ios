@@ -24,6 +24,8 @@
 #include "HeartbeatComponent.h"
 #include "BioResonanceComponent.h"
 #include "MetalCausticRenderer.h"
+#include "FluidSimComponent.h"
+#include "RayMarchComponent.h"
 
 class PluginEditorWindow : public juce::DocumentWindow, public juce::ComponentListener
 {
@@ -118,6 +120,8 @@ private:
     std::unique_ptr<HeartbeatComponent> heartbeatDisplay;
     HeartRateManager heartRateManager;
     std::unique_ptr<BioResonanceComponent> bioResonanceDisplay;
+    FluidSimComponent fluidSimDisplay;
+    RayMarchComponent rayMarchDisplay;
     juce::AudioDeviceManager deviceManager;
     juce::AudioProcessorPlayer audioPlayer;
     PluginHost pluginHost;

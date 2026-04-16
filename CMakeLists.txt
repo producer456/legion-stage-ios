@@ -118,6 +118,8 @@ target_sources(Sequencer PRIVATE
     src/MetalVisualizerRenderer.h
     src/MetalVisualizerRenderer.mm
     src/VisualizerShaders.metal
+    src/FluidSimComponent.h
+    src/RayMarchComponent.h
 )
 
 # Force ARC for Obj-C++ files that use Apple frameworks

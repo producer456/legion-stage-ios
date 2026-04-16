@@ -407,3 +407,336 @@ fragment float4 analyzerFragment(VisVertexOut in [[stage_in]],
     float3 col = mix(bg, float3(u.gridR, u.gridG, u.gridB), gridAlpha);
     return float4(col, 1.0);
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// FLUID SIMULATION — density field visualization with velocity tinting
+// ═══════════════════════════════════════════════════════════════════
+
+struct FluidSimUniforms {
+    float density[128 * 128];   // density field (quarter res)
+    float vx[128 * 128];        // velocity X
+    float vy[128 * 128];        // velocity Y
+    int   gridW;                // grid width (128)
+    int   gridH;                // grid height (128)
+    int   colorMode;            // 0-4 palette
+    float energy;               // overall energy
+    float time;
+};
+
+fragment float4 fluidSimFragment(VisVertexOut in [[stage_in]],
+                                  constant FluidSimUniforms& u [[buffer(0)]]) {
+    float2 uv = in.uv;
+
+    // Map UV to grid coordinates for bilinear sampling
+    float gx = uv.x * float(u.gridW - 1);
+    float gy = uv.y * float(u.gridH - 1);
+
+    int x0 = clamp(int(gx), 0, u.gridW - 2);
+    int y0 = clamp(int(gy), 0, u.gridH - 2);
+    int x1 = x0 + 1;
+    int y1 = y0 + 1;
+
+    float fx = gx - float(x0);
+    float fy = gy - float(y0);
+
+    // Bilinear interpolation of density
+    float d00 = u.density[y0 * u.gridW + x0];
+    float d10 = u.density[y0 * u.gridW + x1];
+    float d01 = u.density[y1 * u.gridW + x0];
+    float d11 = u.density[y1 * u.gridW + x1];
+
+    float d = mix(mix(d00, d10, fx), mix(d01, d11, fx), fy);
+
+    // Bilinear interpolation of velocity
+    float velX = mix(mix(u.vx[y0 * u.gridW + x0], u.vx[y0 * u.gridW + x1], fx),
+                     mix(u.vx[y1 * u.gridW + x0], u.vx[y1 * u.gridW + x1], fx), fy);
+    float velY = mix(mix(u.vy[y0 * u.gridW + x0], u.vy[y0 * u.gridW + x1], fx),
+                     mix(u.vy[y1 * u.gridW + x0], u.vy[y1 * u.gridW + x1], fx), fy);
+
+    float speed = sqrt(velX * velX + velY * velY);
+    float flowAngle = atan2(velY, velX);
+
+    // Velocity-based hue offset
+    float hueShift = flowAngle / (2.0 * M_PI_F) + 0.5;
+
+    // Density-to-color palette mapping
+    float3 col;
+    float ds = clamp(d, 0.0, 1.0);
+
+    switch (u.colorMode) {
+        case 0: // Fire
+        {
+            col.r = clamp(ds * 3.0, 0.0, 1.0);
+            col.g = clamp(ds * 3.0 - 1.0, 0.0, 1.0);
+            col.b = clamp(ds * 3.0 - 2.0, 0.0, 1.0);
+            break;
+        }
+        case 1: // Ocean
+        {
+            col.r = clamp(ds * 0.3, 0.0, 1.0);
+            col.g = clamp(ds * 0.8, 0.0, 1.0);
+            col.b = clamp(0.2 + ds * 0.8, 0.0, 1.0);
+            break;
+        }
+        case 2: // Neon
+        {
+            col.r = clamp(sin(ds * M_PI_F + hueShift * 2.0) * 0.5 + 0.5, 0.0, 1.0);
+            col.g = clamp(sin(ds * M_PI_F + 2.094 + hueShift * 2.0) * 0.5 + 0.5, 0.0, 1.0);
+            col.b = clamp(sin(ds * M_PI_F + 4.189 + hueShift * 2.0) * 0.5 + 0.5, 0.0, 1.0);
+            break;
+        }
+        case 3: // Smoke
+        {
+            float v = clamp(ds * 1.2, 0.0, 1.0);
+            col = float3(v * 0.9, v * 0.92, v);
+            break;
+        }
+        default: // Plasma
+        {
+            col.r = clamp(0.5 + 0.5 * cos(6.2832 * ds + 0.0 + u.time * 0.5), 0.0, 1.0);
+            col.g = clamp(0.5 + 0.5 * cos(6.2832 * ds + 2.094 + u.time * 0.3), 0.0, 1.0);
+            col.b = clamp(0.5 + 0.5 * cos(6.2832 * ds + 4.189 + u.time * 0.7), 0.0, 1.0);
+            break;
+        }
+    }
+
+    // Velocity tinting: flow direction shifts color
+    float tintAmount = clamp(speed * 2.0, 0.0, 0.4);
+    float3 flowTint = float3(0.5 + 0.5 * cos(flowAngle),
+                              0.5 + 0.5 * cos(flowAngle + 2.094),
+                              0.5 + 0.5 * cos(flowAngle + 4.189));
+    col = mix(col, flowTint, tintAmount);
+
+    // Subtle glow around high-density areas
+    // Sample neighbors for glow approximation
+    float glowRadius = 2.0 / float(u.gridW);
+    float glowAccum = 0.0;
+    for (int gy2 = -2; gy2 <= 2; ++gy2) {
+        for (int gx2 = -2; gx2 <= 2; ++gx2) {
+            if (gx2 == 0 && gy2 == 0) continue;
+            float su = uv.x + float(gx2) * glowRadius;
+            float sv = uv.y + float(gy2) * glowRadius;
+            int sx = clamp(int(su * float(u.gridW)), 0, u.gridW - 1);
+            int sy = clamp(int(sv * float(u.gridH)), 0, u.gridH - 1);
+            glowAccum += u.density[sy * u.gridW + sx];
+        }
+    }
+    glowAccum /= 24.0;
+    float glowIntensity = clamp(glowAccum * 0.3 * u.energy, 0.0, 0.25);
+    col += float3(glowIntensity);
+
+    // Modulate overall brightness by energy
+    col *= 0.7 + 0.3 * u.energy;
+
+    return float4(clamp(col, 0.0, 1.0), 1.0);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// RAY MARCH — audio-reactive 3D SDF rendering
+// ═══════════════════════════════════════════════════════════════════
+
+struct RayMarchUniforms {
+    float time;
+    float bass;
+    float mid;
+    float high;
+    float energy;
+    float beatIntensity;
+    int   preset;
+    float camPosX, camPosY, camPosZ;
+    float camRotX, camRotY;
+};
+
+// ─── SDF helpers ─────────────────────────────────────────────────
+
+static float sdSphere(float3 p, float r) {
+    return length(p) - r;
+}
+
+static float smin(float a, float b, float k) {
+    float h = clamp(0.5 + 0.5 * (b - a) / k, 0.0, 1.0);
+    return mix(b, a, h) - k * h * (1.0 - h);
+}
+
+static float hash(float2 p) {
+    return fract(sin(dot(p, float2(127.1, 311.7))) * 43758.5453123);
+}
+
+static float noise(float2 p) {
+    float2 i = floor(p);
+    float2 f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);
+    float a = hash(i);
+    float b = hash(i + float2(1.0, 0.0));
+    float c = hash(i + float2(0.0, 1.0));
+    float d = hash(i + float2(1.0, 1.0));
+    return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+}
+
+static float fbm(float2 p) {
+    float val = 0.0;
+    float amp = 0.5;
+    for (int i = 0; i < 5; ++i) {
+        val += amp * noise(p);
+        p *= 2.0;
+        amp *= 0.5;
+    }
+    return val;
+}
+
+// ─── Scene SDF functions (per preset) ───────────────────────────
+
+static float sceneMorphSphere(float3 p, float time, float bass, float mid) {
+    float radius = 1.0 + bass * 0.8;
+    float disp = sin(p.x * 5.0 + time * 2.0) * sin(p.y * 5.0 + time * 1.7)
+               * sin(p.z * 5.0 + time * 1.3) * mid * 0.5;
+    return sdSphere(p, radius) + disp;
+}
+
+static float sceneTunnel(float3 p, float time) {
+    float angle = atan2(p.y, p.x);
+    float r = length(p.xy);
+    float rings = cos(p.z * 1.5 + time * 0.5) * 0.3;
+    float tunnel = r - (2.0 + rings + sin(angle * 6.0 + p.z * 0.5) * 0.15);
+    return -tunnel; // invert so we're inside
+}
+
+static float sceneMetaballs(float3 p, float time, float bass) {
+    float scale = 1.2 + bass * 0.3;
+    float3 p0 = float3(sin(time * 1.1) * scale, cos(time * 0.9) * scale, sin(time * 0.7) * 0.5);
+    float3 p1 = float3(cos(time * 0.8) * scale, sin(time * 1.2) * scale, cos(time * 0.6) * 0.5);
+    float3 p2 = float3(sin(time * 0.6 + 2.0) * scale, cos(time * 1.0 + 1.0) * scale, sin(time * 0.9) * 0.5);
+    float3 p3 = float3(cos(time * 1.3) * 0.8, sin(time * 0.5) * 0.8, cos(time * 1.1) * scale);
+
+    float d0 = sdSphere(p - p0, 0.6 + bass * 0.2);
+    float d1 = sdSphere(p - p1, 0.5 + bass * 0.15);
+    float d2 = sdSphere(p - p2, 0.55 + bass * 0.18);
+    float d3 = sdSphere(p - p3, 0.45 + bass * 0.12);
+
+    float k = 0.8; // smoothness
+    float d = smin(d0, d1, k);
+    d = smin(d, d2, k);
+    d = smin(d, d3, k);
+    return d;
+}
+
+static float sceneTerrain(float3 p, float time) {
+    float h = fbm(p.xz * 0.5 + float2(time * 0.05, 0.0)) * 3.0 - 1.5;
+    return p.y - h;
+}
+
+// ─── Unified scene dispatcher ───────────────────────────────────
+
+static float scene(float3 p, int preset, float time, float bass, float mid) {
+    switch (preset) {
+        case 0: return sceneMorphSphere(p, time, bass, mid);
+        case 1: return sceneTunnel(p, time);
+        case 2: return sceneMetaballs(p, time, bass);
+        case 3: return sceneTerrain(p, time);
+        default: return sceneMorphSphere(p, time, bass, mid);
+    }
+}
+
+// ─── Normal via central differences ─────────────────────────────
+
+static float3 calcNormal(float3 p, int preset, float time, float bass, float mid) {
+    float2 e = float2(0.002, 0.0);
+    return normalize(float3(
+        scene(p + e.xyy, preset, time, bass, mid) - scene(p - e.xyy, preset, time, bass, mid),
+        scene(p + e.yxy, preset, time, bass, mid) - scene(p - e.yxy, preset, time, bass, mid),
+        scene(p + e.yyx, preset, time, bass, mid) - scene(p - e.yyx, preset, time, bass, mid)
+    ));
+}
+
+// ─── Fragment shader ────────────────────────────────────────────
+
+fragment float4 rayMarchFragment(VisVertexOut in [[stage_in]],
+                                  constant RayMarchUniforms& u [[buffer(0)]]) {
+    float2 uv = in.uv * 2.0 - 1.0; // remap to [-1, 1]
+    uv.x *= 1.777; // approximate 16:9 aspect ratio
+
+    // Camera setup
+    float3 camPos = float3(u.camPosX, u.camPosY, u.camPosZ);
+    float rotX = u.camRotX;
+    float rotY = u.camRotY;
+
+    // Camera rotation matrices
+    float cosX = cos(rotX), sinX = sin(rotX);
+    float cosY = cos(rotY), sinY = sin(rotY);
+
+    float3 forward = float3(sinY * cosX, sinX, cosY * cosX);
+    float3 right   = normalize(cross(forward, float3(0, 1, 0)));
+    float3 up      = cross(right, forward);
+
+    // Ray direction
+    float3 rd = normalize(uv.x * right + uv.y * up + 1.5 * forward);
+    float3 ro = camPos;
+
+    // Ray march loop — 64 steps
+    float totalDist = 0.0;
+    float minDist = 999.0;
+    bool hit = false;
+
+    for (int i = 0; i < 64; ++i) {
+        float3 p = ro + rd * totalDist;
+        float d = scene(p, u.preset, u.time, u.bass, u.mid);
+        minDist = min(minDist, d);
+        if (d < 0.001) {
+            hit = true;
+            break;
+        }
+        if (totalDist > 50.0) break;
+        totalDist += d;
+    }
+
+    // Background gradient for missed rays
+    float3 bgTop = float3(0.05, 0.05, 0.15);
+    float3 bgBot = float3(0.0, 0.0, 0.05);
+    float3 bgColor = mix(bgBot, bgTop, in.uv.y);
+
+    // Soft glow for near-misses
+    float glow = clamp(0.02 / (minDist + 0.01), 0.0, 1.0) * 0.4;
+
+    if (!hit) {
+        float3 col = bgColor + float3(glow * 0.3, glow * 0.2, glow * 0.5);
+        // Beat flash
+        col += float3(u.beatIntensity * 0.05);
+        return float4(clamp(col, 0.0, 1.0), 1.0);
+    }
+
+    // Hit point and normal
+    float3 hitPos = ro + rd * totalDist;
+    float3 norm = calcNormal(hitPos, u.preset, u.time, u.bass, u.mid);
+
+    // Light direction
+    float3 lightDir = normalize(float3(0.6, 0.8, -0.5));
+
+    // Phong lighting
+    float ambient = 0.15;
+    float diffuse = max(dot(norm, lightDir), 0.0);
+    float3 halfVec = normalize(lightDir - rd);
+    float specular = pow(max(dot(norm, halfVec), 0.0), 32.0);
+
+    float lighting = ambient + diffuse * 0.7 + specular * 0.5;
+
+    // Audio-reactive hue based on energy
+    float hue = u.energy * 0.8 + u.time * 0.1;
+    float3 baseColor;
+    baseColor.r = clamp(0.5 + 0.5 * cos(6.2832 * (hue + 0.0)), 0.0, 1.0);
+    baseColor.g = clamp(0.5 + 0.5 * cos(6.2832 * (hue + 0.333)), 0.0, 1.0);
+    baseColor.b = clamp(0.5 + 0.5 * cos(6.2832 * (hue + 0.667)), 0.0, 1.0);
+
+    // Brighten with audio bands
+    baseColor = mix(baseColor, float3(1.0), u.high * 0.2);
+
+    float3 col = baseColor * lighting;
+
+    // Distance fog
+    float fog = exp(-totalDist * 0.06);
+    col = mix(bgColor, col, fog);
+
+    // Beat intensity flash — add white
+    col += float3(u.beatIntensity * 0.15);
+
+    return float4(clamp(col, 0.0, 1.0), 1.0);
+}

@@ -63,6 +63,8 @@ public:
         lissajousPipeline   = makePipeline(@"lissajousFragment");
         analyzerPipeline    = makePipeline(@"analyzerFragment");
         palettePipeline     = makePipeline(@"paletteLookupFragment");
+        fluidSimPipeline    = makePipeline(@"fluidSimFragment");
+        rayMarchPipeline    = makePipeline(@"rayMarchFragment");
 
         // Compute pipelines
         auto makeCompute = [&](NSString* name) -> id<MTLComputePipelineState> {
@@ -167,6 +169,12 @@ public:
     }
     void renderLissajous(const LissajousGPUUniforms& u) {
         renderWithPipeline(lissajousPipeline, &u, sizeof(u));
+    }
+    void renderFluidSim(const FluidSimGPUUniforms& u) {
+        renderWithPipeline(fluidSimPipeline, &u, sizeof(u));
+    }
+    void renderRayMarch(const RayMarchGPUUniforms& u) {
+        renderWithPipeline(rayMarchPipeline, &u, sizeof(u));
     }
     void renderAnalyzer(const AnalyzerGPUUniforms& u) {
         renderWithPipeline(analyzerPipeline, &u, sizeof(u));
@@ -332,6 +340,8 @@ public:
     id<MTLRenderPipelineState> lissajousPipeline = nil;
     id<MTLRenderPipelineState> analyzerPipeline = nil;
     id<MTLRenderPipelineState> palettePipeline = nil;
+    id<MTLRenderPipelineState> fluidSimPipeline = nil;
+    id<MTLRenderPipelineState> rayMarchPipeline = nil;
 
     // Compute pipelines
     id<MTLComputePipelineState> warpBlurCompute = nil;
@@ -364,6 +374,8 @@ void MetalVisualizerRenderer::renderSpectrum(const SpectrumGPUUniforms& u) { pim
 void MetalVisualizerRenderer::renderWaveTerrain(const WaveTerrainGPUUniforms& u) { pimpl->renderWaveTerrain(u); }
 void MetalVisualizerRenderer::renderLissajous(const LissajousGPUUniforms& u) { pimpl->renderLissajous(u); }
 void MetalVisualizerRenderer::renderAnalyzer(const AnalyzerGPUUniforms& u) { pimpl->renderAnalyzer(u); }
+void MetalVisualizerRenderer::renderFluidSim(const FluidSimGPUUniforms& u) { pimpl->renderFluidSim(u); }
+void MetalVisualizerRenderer::renderRayMarch(const RayMarchGPUUniforms& u) { pimpl->renderRayMarch(u); }
 
 void MetalVisualizerRenderer::initWarpBuffers(int w, int h) { pimpl->initWarpBuffers(w, h); }
 void MetalVisualizerRenderer::uploadWarpMap(const int* dx, const int* dy, int w, int h) { pimpl->uploadWarpMap(dx, dy, w, h); }
@@ -387,6 +399,8 @@ void MetalVisualizerRenderer::renderSpectrum(const SpectrumGPUUniforms&) {}
 void MetalVisualizerRenderer::renderWaveTerrain(const WaveTerrainGPUUniforms&) {}
 void MetalVisualizerRenderer::renderLissajous(const LissajousGPUUniforms&) {}
 void MetalVisualizerRenderer::renderAnalyzer(const AnalyzerGPUUniforms&) {}
+void MetalVisualizerRenderer::renderFluidSim(const FluidSimGPUUniforms&) {}
+void MetalVisualizerRenderer::renderRayMarch(const RayMarchGPUUniforms&) {}
 void MetalVisualizerRenderer::initWarpBuffers(int, int) {}
 void MetalVisualizerRenderer::uploadWarpMap(const int*, const int*, int, int) {}
 void MetalVisualizerRenderer::executeWarpBlur() {}

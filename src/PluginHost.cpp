@@ -8,6 +8,8 @@
 #include "GeissComponent.h"
 #include "ProjectMComponent.h"
 #include "HeartbeatComponent.h"
+#include "FluidSimComponent.h"
+#include "RayMarchComponent.h"
 #include "BioResonanceComponent.h"
 
 
@@ -658,6 +660,10 @@ void PluginHost::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer
             hb->pushSamples(mono, count);
         if (auto* br = bioResonanceDisplay.load())
             br->pushSamples(mono, count);
+        if (auto* fs = fluidSimDisplay.load())
+            fs->pushSamples(mono, count);
+        if (auto* rm = rayMarchDisplay.load())
+            rm->pushSamples(mono, count);
     }
 
 }

@@ -68,6 +68,31 @@ struct AnalyzerGPUUniforms {
     float dbMin, dbMax;
 };
 
+// ── Fluid Sim Uniforms ──
+struct FluidSimGPUUniforms {
+    float density[128 * 128];
+    float vx[128 * 128];
+    float vy[128 * 128];
+    int   gridW;
+    int   gridH;
+    int   colorMode;
+    float energy;
+    float time;
+};
+
+// ── Ray March Uniforms ──
+struct RayMarchGPUUniforms {
+    float time;
+    float bass;
+    float mid;
+    float high;
+    float energy;
+    float beatIntensity;
+    int   preset;
+    float camPosX, camPosY, camPosZ;
+    float camRotX, camRotY;
+};
+
 // ── Palette Uniforms ──
 struct PaletteGPUUniforms {
     int   paletteRotation;
@@ -114,6 +139,12 @@ public:
 
     /** Analyzer: smooth spectrum curve */
     void renderAnalyzer(const AnalyzerGPUUniforms& uniforms);
+
+    /** Fluid Simulation: density field visualization */
+    void renderFluidSim(const FluidSimGPUUniforms& uniforms);
+
+    /** Ray March: 3D SDF rendering */
+    void renderRayMarch(const RayMarchGPUUniforms& uniforms);
 
     /**
      * Geiss/ProjectM warp pipeline:

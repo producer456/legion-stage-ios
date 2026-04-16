@@ -61,6 +61,14 @@ MainComponent::MainComponent()
     bioResonanceDisplay->setVisible(false);
     pluginHost.bioResonanceDisplay = bioResonanceDisplay.get();
 
+    addAndMakeVisible(fluidSimDisplay);
+    fluidSimDisplay.setVisible(false);
+    pluginHost.fluidSimDisplay = &fluidSimDisplay;
+
+    addAndMakeVisible(rayMarchDisplay);
+    rayMarchDisplay.setVisible(false);
+    pluginHost.rayMarchDisplay = &rayMarchDisplay;
+
     // HealthKit authorization is triggered by the "Connect Watch" button
     // in the BioSync visualizer — no auto-prompt on startup
 
@@ -74,6 +82,8 @@ MainComponent::MainComponent()
     projectMDisplay.addMouseListener(this, false);
     heartbeatDisplay->addMouseListener(this, false);
     bioResonanceDisplay->addMouseListener(this, false);
+    fluidSimDisplay.addMouseListener(this, false);
+    rayMarchDisplay.addMouseListener(this, false);
 
     if (auto* device = deviceManager.getCurrentAudioDevice())
     {
@@ -500,6 +510,8 @@ MainComponent::MainComponent()
     visSelector.addItem("Analyzer", 6);
     visSelector.addItem("Heartbeat", 7);
     visSelector.addItem("BioSync", 8);
+    visSelector.addItem("Fluid", 9);
+    visSelector.addItem("RayMarch", 10);
     visSelector.setSelectedId(2, juce::dontSendNotification);  // Lissajous
     currentVisMode = 1;
     visSelector.onChange = [this] {
@@ -4309,6 +4321,8 @@ void MainComponent::showPhoneMenu()
     visMenu.addItem(105, "Analyzer", true, currentVisMode == 5);
     visMenu.addItem(106, "Heartbeat", true, currentVisMode == 6);
     visMenu.addItem(107, "BioSync", true, currentVisMode == 7);
+    visMenu.addItem(108, "Fluid", true, currentVisMode == 8);
+    visMenu.addItem(109, "RayMarch", true, currentVisMode == 9);
     menu.addSubMenu("Visualizer", visMenu);
     menu.addItem(10, "Fullscreen Vis");
     menu.addSeparator();
@@ -4360,7 +4374,7 @@ void MainComponent::showPhoneMenu()
                 resized();
                 repaint();
             }
-            else if (result >= 100 && result <= 107) {
+            else if (result >= 100 && result <= 109) {
                 currentVisMode = result - 100;
                 visSelector.setSelectedId(currentVisMode + 1, juce::dontSendNotification);
                 resized();
@@ -5416,6 +5430,8 @@ void MainComponent::resized()
             analyzerDisplay.setVisible(false);
             heartbeatDisplay->setVisible(false);
             bioResonanceDisplay->setVisible(false);
+            fluidSimDisplay.setVisible(false);
+            rayMarchDisplay.setVisible(false);
 
             if (currentVisMode == 0) { spectrumDisplay.setBounds(visArea); spectrumDisplay.setAlpha(1.0f); spectrumDisplay.setVisible(true); }
             else if (currentVisMode == 1) { lissajousDisplay.setBounds(visArea); lissajousDisplay.setVisible(true); }
@@ -5425,6 +5441,8 @@ void MainComponent::resized()
             else if (currentVisMode == 5) { analyzerDisplay.setBounds(visArea); analyzerDisplay.setVisible(true); }
             else if (currentVisMode == 6) { heartbeatDisplay->setBounds(visArea); heartbeatDisplay->setVisible(true); }
             else if (currentVisMode == 7) { bioResonanceDisplay->setBounds(visArea); bioResonanceDisplay->setVisible(true); }
+            else if (currentVisMode == 8) { fluidSimDisplay.setBounds(visArea); fluidSimDisplay.setVisible(true); }
+            else if (currentVisMode == 9) { rayMarchDisplay.setBounds(visArea); rayMarchDisplay.setVisible(true); }
 
             // Bring control bar widgets to front so they're not hidden behind the visualizer
             visExitButton.toFront(false);
@@ -5554,6 +5572,8 @@ void MainComponent::resized()
     analyzerDisplay.setVisible(currentVisMode == 5);
     heartbeatDisplay->setVisible(currentVisMode == 6);
     bioResonanceDisplay->setVisible(currentVisMode == 7);
+    fluidSimDisplay.setVisible(currentVisMode == 8);
+    rayMarchDisplay.setVisible(currentVisMode == 9);
     visExitButton.setVisible(false);
     projectorButton.setVisible(false);
     fullscreenButton.setVisible(false);
@@ -5632,6 +5652,8 @@ void MainComponent::resized()
             analyzerDisplay.setVisible(false);
             heartbeatDisplay->setVisible(false);
             bioResonanceDisplay->setVisible(false);
+            fluidSimDisplay.setVisible(false);
+            rayMarchDisplay.setVisible(false);
         chordLabel.setVisible(false);
 
         // ── Right panel: volume knob on top (full width), then two columns ──
@@ -5984,6 +6006,16 @@ void MainComponent::resized()
     {
         bioResonanceDisplay->setBounds(visPanelArea);
         bioResonanceDisplay->setVisible(true);
+    }
+    else if (currentVisMode == 8)  // Fluid
+    {
+        fluidSimDisplay.setBounds(visPanelArea);
+        fluidSimDisplay.setVisible(true);
+    }
+    else if (currentVisMode == 9)  // RayMarch
+    {
+        rayMarchDisplay.setBounds(visPanelArea);
+        rayMarchDisplay.setVisible(true);
     }
     rightPanel.removeFromTop(4);
     // Vis selector overlaid on bottom of visualizer preview

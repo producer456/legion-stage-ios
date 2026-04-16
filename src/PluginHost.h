@@ -16,6 +16,8 @@ class GeissComponent;
 class ProjectMComponent;
 class HeartbeatComponent;
 class BioResonanceComponent;
+class FluidSimComponent;
+class RayMarchComponent;
 
 struct FxSlot {
     juce::AudioProcessorGraph::Node::Ptr node;
@@ -166,6 +168,8 @@ public:
     std::atomic<ProjectMComponent*> projectMDisplay { nullptr };
     std::atomic<HeartbeatComponent*> heartbeatDisplay { nullptr };
     std::atomic<BioResonanceComponent*> bioResonanceDisplay { nullptr };
+    std::atomic<FluidSimComponent*> fluidSimDisplay { nullptr };
+    std::atomic<RayMarchComponent*> rayMarchDisplay { nullptr };
 
 private:
     juce::AudioPluginFormatManager formatManager;
