@@ -165,6 +165,10 @@ private:
     juce::TextButton countInButton { "Count-In" };
     juce::TextButton loopButton { "LOOP" };
     juce::TextButton panicButton { "PANIC" };
+    juce::TextButton arpButton { "ARP" };
+    juce::TextButton arpModeButton { "Up" };
+    juce::TextButton arpRateButton { "1/8" };
+    juce::TextButton arpOctButton { "Oct 1" };
     juce::TextButton glassAnimButton { "FX" };
     bool glassAnimEnabled = true;
     double panicAnimEndTime = 0.0;

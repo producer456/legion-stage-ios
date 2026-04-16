@@ -173,6 +173,9 @@ MainComponent::MainComponent()
                 }
             }
         }
+        for (int t = 0; t < PluginHost::NUM_TRACKS; ++t)
+            if (auto* cp = pluginHost.getTrack(t).clipPlayer)
+                cp->getArpeggiator().reset();
         if (timelineComponent) timelineComponent->repaint();
     };
 
@@ -313,6 +316,46 @@ MainComponent::MainComponent()
     // ── Capture Button ──
     addAndMakeVisible(captureButton);
     captureButton.onClick = [this] { performCapture(); };
+
+    // ── Arpeggiator Controls ──
+    addAndMakeVisible(arpButton);
+    arpButton.setClickingTogglesState(true);
+    arpButton.onClick = [this] {
+        auto* cp = pluginHost.getTrack(selectedTrackIndex).clipPlayer;
+        if (cp) cp->getArpeggiator().toggleEnabled();
+    };
+
+    addAndMakeVisible(arpModeButton);
+    arpModeButton.onClick = [this] {
+        auto* cp = pluginHost.getTrack(selectedTrackIndex).clipPlayer;
+        if (cp)
+        {
+            cp->getArpeggiator().cycleMode();
+            arpModeButton.setButtonText(cp->getArpeggiator().getModeName());
+        }
+    };
+
+    addAndMakeVisible(arpRateButton);
+    arpRateButton.onClick = [this] {
+        auto* cp = pluginHost.getTrack(selectedTrackIndex).clipPlayer;
+        if (cp)
+        {
+            cp->getArpeggiator().cycleRate();
+            arpRateButton.setButtonText(cp->getArpeggiator().getRateName());
+        }
+    };
+
+    addAndMakeVisible(arpOctButton);
+    arpOctButton.onClick = [this] {
+        auto* cp = pluginHost.getTrack(selectedTrackIndex).clipPlayer;
+        if (cp)
+        {
+            auto& arp = cp->getArpeggiator();
+            int oct = arp.getOctaveRange() % 4 + 1;
+            arp.setOctaveRange(oct);
+            arpOctButton.setButtonText("Oct " + juce::String(oct));
+        }
+    };
 
     addAndMakeVisible(zoomInButton);
     zoomInButton.onClick = [this] { if (timelineComponent) timelineComponent->zoomIn(); };
@@ -1607,6 +1650,16 @@ void MainComponent::timerCallback()
     loopButton.setToggleState(eng.isLoopEnabled(), juce::dontSendNotification);
     countInButton.setToggleState(eng.isCountInEnabled(), juce::dontSendNotification);
 
+    // Arpeggiator button state
+    if (auto* cp = pluginHost.getTrack(selectedTrackIndex).clipPlayer)
+    {
+        auto& arp = cp->getArpeggiator();
+        arpButton.setToggleState(arp.isEnabled(), juce::dontSendNotification);
+        arpModeButton.setButtonText(arp.getModeName());
+        arpRateButton.setButtonText(arp.getRateName());
+        arpOctButton.setButtonText("Oct " + juce::String(arp.getOctaveRange()));
+    }
+
     // Pulse animation for active toggle buttons
     {
         float pulse = 0.7f + 0.3f * std::sin(static_cast<float>(juce::Time::currentTimeMillis()) * 0.004f);
@@ -1703,6 +1756,16 @@ void MainComponent::selectTrack(int index)
     closePluginEditor();
     updateTrackDisplay();
     updateStatusLabel();
+
+    // Update arpeggiator button labels for the new track
+    if (auto* cp = pluginHost.getTrack(selectedTrackIndex).clipPlayer)
+    {
+        auto& arp = cp->getArpeggiator();
+        arpButton.setToggleState(arp.isEnabled(), juce::dontSendNotification);
+        arpModeButton.setButtonText(arp.getModeName());
+        arpRateButton.setButtonText(arp.getRateName());
+        arpOctButton.setButtonText("Oct " + juce::String(arp.getOctaveRange()));
+    }
 
     // Update track input selector
     updateTrackInputSelector();
@@ -5241,6 +5304,20 @@ void MainComponent::resized()
         mixerButton.setBounds(row2.removeFromRight(36));
         row2.removeFromRight(gap);
 
+        // Arp buttons at right side of row 2
+        arpOctButton.setBounds(row2.removeFromRight(42));
+        arpOctButton.setVisible(true);
+        row2.removeFromRight(gap);
+        arpRateButton.setBounds(row2.removeFromRight(38));
+        arpRateButton.setVisible(true);
+        row2.removeFromRight(gap);
+        arpModeButton.setBounds(row2.removeFromRight(38));
+        arpModeButton.setVisible(true);
+        row2.removeFromRight(gap);
+        arpButton.setBounds(row2.removeFromRight(38));
+        arpButton.setVisible(true);
+        row2.removeFromRight(gap);
+
         // Fill remaining with evenly-spaced buttons
         int r2w = row2.getWidth();
         int numR2Btns = 10;  // Save, Load, Undo, Redo, New, Delete, Dupe, Split, Edit, Quant
@@ -5461,6 +5538,10 @@ void MainComponent::resized()
         pianoOctUpButton.setVisible(false);
         pianoOctDownButton.setVisible(false);
         touchPiano.setVisible(false);
+        arpButton.setVisible(false);
+        arpModeButton.setVisible(false);
+        arpRateButton.setVisible(false);
+        arpOctButton.setVisible(false);
         if (mixerComponent) mixerComponent->setVisible(false);
 
         {
@@ -6006,6 +6087,18 @@ void MainComponent::resized()
     testNoteButton.setVisible(false);
     captureButton.setBounds(toolbar.removeFromLeft(55));
     captureButton.setVisible(true);
+    toolbar.removeFromLeft(4);
+    arpButton.setBounds(toolbar.removeFromLeft(45));
+    arpButton.setVisible(true);
+    toolbar.removeFromLeft(2);
+    arpModeButton.setBounds(toolbar.removeFromLeft(50));
+    arpModeButton.setVisible(true);
+    toolbar.removeFromLeft(2);
+    arpRateButton.setBounds(toolbar.removeFromLeft(45));
+    arpRateButton.setVisible(true);
+    toolbar.removeFromLeft(2);
+    arpOctButton.setBounds(toolbar.removeFromLeft(50));
+    arpOctButton.setVisible(true);
     toolbar.removeFromLeft(4);
     loopSetButton.setVisible(false);
     // CPU label — takes remaining toolbar space (expands when panel hidden)
@@ -6906,6 +6999,18 @@ void MainComponent::applyThemeToControls()
     mixerButton.setColour(juce::TextButton::buttonOnColourId, juce::Colour(c.lcdText));
     mixerButton.setColour(juce::TextButton::textColourOffId, juce::Colour(c.lcdText));
     mixerButton.setColour(juce::TextButton::textColourOnId, juce::Colour(c.lcdBg));
+
+    // Arpeggiator buttons
+    arpButton.setColour(juce::TextButton::buttonColourId, juce::Colour(c.lcdBg).brighter(0.15f));
+    arpButton.setColour(juce::TextButton::buttonOnColourId, juce::Colour(c.amber));
+    arpButton.setColour(juce::TextButton::textColourOffId, juce::Colour(c.lcdText));
+    arpButton.setColour(juce::TextButton::textColourOnId, juce::Colour(c.lcdBg));
+    arpModeButton.setColour(juce::TextButton::buttonColourId, juce::Colour(c.btnNav));
+    arpModeButton.setColour(juce::TextButton::textColourOffId, juce::Colour(c.lcdText));
+    arpRateButton.setColour(juce::TextButton::buttonColourId, juce::Colour(c.btnNav));
+    arpRateButton.setColour(juce::TextButton::textColourOffId, juce::Colour(c.lcdText));
+    arpOctButton.setColour(juce::TextButton::buttonColourId, juce::Colour(c.btnNav));
+    arpOctButton.setColour(juce::TextButton::textColourOffId, juce::Colour(c.lcdText));
 
     // Edit toolbar
     newClipButton.setColour(juce::TextButton::buttonColourId, juce::Colour(c.btnNewClip));

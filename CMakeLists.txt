@@ -120,6 +120,7 @@ target_sources(Sequencer PRIVATE
     src/VisualizerShaders.metal
     src/FluidSimComponent.h
     src/RayMarchComponent.h
+    src/Arpeggiator.h
 )
 
 # Force ARC for Obj-C++ files that use Apple frameworks

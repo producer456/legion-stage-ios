@@ -25,6 +25,7 @@ void ClipPlayerNode::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBu
     if (sendAllNotesOff.exchange(false))
     {
         killActiveNotes(midi, 0, true);
+        arpeggiator.reset();
         lastPositionInBeats = -1.0;
         std::fill(wasInsideClip.begin(), wasInsideClip.end(), false);
     }
@@ -140,6 +141,13 @@ void ClipPlayerNode::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBu
         }
 
         lastPositionInBeats = currentPos;
+
+        // Arpeggiator: transform held/played notes into rhythmic patterns
+        if (arpeggiator.isEnabled() && engine.isPlaying())
+        {
+            arpeggiator.process(midi, numSamples, engine.getBpm(),
+                                engine.getPositionInBeats(), currentSampleRate);
+        }
     }
 
     // Audio passes through unchanged (this node only handles MIDI)

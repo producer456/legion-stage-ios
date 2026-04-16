@@ -3,6 +3,7 @@
 #include <JuceHeader.h>
 #include "MidiClip.h"
 #include "SequencerEngine.h"
+#include "Arpeggiator.h"
 #include <vector>
 #include <cstring>
 
@@ -72,6 +73,10 @@ public:
     // Arm for recording
     std::atomic<bool> armed { false };
     std::atomic<bool> armLocked { false };  // stays armed when switching tracks
+
+    // Arpeggiator
+    Arpeggiator arpeggiator;
+    Arpeggiator& getArpeggiator() { return arpeggiator; }
 
     // Flag to send all-notes-off on next processBlock
     std::atomic<bool> sendAllNotesOff { false };
