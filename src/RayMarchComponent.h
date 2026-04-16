@@ -53,6 +53,8 @@ public:
     void timerCallback() override
     {
         time += 1.0f / 60.0f;
+        // Wrap time to prevent float precision loss after long sessions
+        if (time > 10000.0f) time -= 10000.0f;
 
         if (fftReady.exchange(false))
         {
@@ -89,12 +91,15 @@ public:
             beatIntensity = 1.0f;
         beatIntensity *= 0.92f;
 
-        // Auto-animate camera
+        // Auto-animate camera — bounded for all presets
         camX = std::sin(time * 0.3f) * 2.0f;
         camY = 1.0f + std::sin(time * 0.2f) * 0.5f;
-        camZ = time * 0.8f; // tunnel: fly forward; others: orbit
+        if (preset == 1) // tunnel: fly forward using fmod to wrap
+            camZ = std::fmod(time * 0.8f, 100.0f);
+        else // other presets: orbit around the scene
+            camZ = 3.0f + std::sin(time * 0.15f) * 1.5f;
         camRotX = std::sin(time * 0.15f) * 0.3f;
-        camRotY = time * 0.4f;
+        camRotY = std::fmod(time * 0.4f, 6.2832f);
 
         repaint();
     }

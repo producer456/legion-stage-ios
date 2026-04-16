@@ -5618,6 +5618,8 @@ void MainComponent::resized()
     analyzerDisplay.toBack();
     heartbeatDisplay->toBack();
     bioResonanceDisplay->toBack();
+    fluidSimDisplay.toBack();
+    rayMarchDisplay.toBack();
 
     } // end restore visibility block
 
