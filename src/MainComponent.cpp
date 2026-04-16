@@ -176,6 +176,12 @@ MainComponent::MainComponent()
         for (int t = 0; t < PluginHost::NUM_TRACKS; ++t)
             if (auto* cp = pluginHost.getTrack(t).clipPlayer)
                 cp->getArpeggiator().reset();
+        // Disable recording when stop is pressed
+        if (eng.isRecording())
+        {
+            eng.toggleRecord();
+            recordButton.setToggleState(false, juce::dontSendNotification);
+        }
         if (timelineComponent) timelineComponent->repaint();
     };
 

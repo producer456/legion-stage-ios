@@ -143,10 +143,18 @@ void ClipPlayerNode::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBu
         double currentPos = engine.getPositionInBeats();
 
         // Detect loop wrap-around or play start (position jumped) — kill all sounding notes
+        // But NOT when recording — user may be holding notes that shouldn't be killed
         bool positionJumped = (currentPos < lastPositionInBeats - 0.001);
-        if (positionJumped)
+        bool isRecording = (atomicRecordingSlot >= 0);
+        if (positionJumped && !isRecording)
         {
             killActiveNotes(midi, 0);
+            std::fill(wasInsideClip.begin(), wasInsideClip.end(), false);
+        }
+        else if (positionJumped)
+        {
+            // Just reset tracking, don't send note-offs that would kill live input
+            std::memset(activePlaybackNotes, 0, sizeof(activePlaybackNotes));
             std::fill(wasInsideClip.begin(), wasInsideClip.end(), false);
         }
 
@@ -187,9 +195,9 @@ void ClipPlayerNode::processClipPlayback(int slotIndex, juce::MidiBuffer& midi, 
     double clipEnd = clipStart + clip.lengthInBeats;
     if (clip.lengthInBeats <= 0.0) return;
 
-    // Detect clip exit → kill active notes
+    // Detect clip exit → kill active playback notes (but not during recording)
     bool isInside = (blockEnd > clipStart && blockStart < clipEnd);
-    if (wasInsideClip[static_cast<size_t>(slotIndex)] && !isInside)
+    if (wasInsideClip[static_cast<size_t>(slotIndex)] && !isInside && atomicRecordingSlot < 0)
         killActiveNotes(midi, 0);
     wasInsideClip[static_cast<size_t>(slotIndex)] = isInside;
     if (!isInside) return;
