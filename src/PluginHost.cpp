@@ -11,6 +11,7 @@
 #include "FluidSimComponent.h"
 #include "RayMarchComponent.h"
 #include "BioResonanceComponent.h"
+#include "BuiltinSamplerProcessor.h"
 
 
 PluginHost::PluginHost()
@@ -192,6 +193,18 @@ bool PluginHost::loadPlugin(int trackIndex, const juce::PluginDescription& desc,
     if (trackIndex < 0 || trackIndex >= NUM_TRACKS) return false;
 
     unloadPlugin(trackIndex);
+
+    // Handle built-in sampler
+    if (desc.fileOrIdentifier == "legion-stage-builtin-sampler")
+    {
+        auto& track = tracks[static_cast<size_t>(trackIndex)];
+        auto sampler = std::make_unique<BuiltinSamplerProcessor>();
+        sampler->prepareToPlay(storedSampleRate, storedBlockSize);
+        track.plugin = sampler.get();
+        track.pluginNode = addNode(std::move(sampler));
+        rewireTrack(trackIndex);
+        return true;
+    }
 
 #if JUCE_IOS
     // AUv3 plugins on iOS REQUIRE async instantiation

@@ -27,6 +27,7 @@
 #include "FluidSimComponent.h"
 #include "RayMarchComponent.h"
 #include "AudioExporter.h"
+#include "BuiltinSamplerProcessor.h"
 
 class PluginEditorWindow : public juce::DocumentWindow, public juce::ComponentListener
 {

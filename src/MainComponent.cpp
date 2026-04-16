@@ -1969,6 +1969,21 @@ void MainComponent::scanPlugins()
     fxDescriptions.clear();
     pluginSelector.addItem("-- Plugin --", 1);
 
+    // Built-in sampler always available as first option
+    {
+        juce::PluginDescription samplerDesc;
+        samplerDesc.name = "Built-in Sampler";
+        samplerDesc.pluginFormatName = "Internal";
+        samplerDesc.category = "Instrument";
+        samplerDesc.manufacturerName = "Legion Stage";
+        samplerDesc.isInstrument = true;
+        samplerDesc.numInputChannels = 0;
+        samplerDesc.numOutputChannels = 2;
+        samplerDesc.fileOrIdentifier = "legion-stage-builtin-sampler";
+        pluginDescriptions.add(samplerDesc);
+        pluginSelector.addItem("Built-in Sampler", 2);
+    }
+
 #if JUCE_IOS
     // Get native AU instrument identifiers for definitive categorization
     auto nativeAUs = AUScanner::scanAllAudioUnits();
@@ -1978,7 +1993,7 @@ void MainComponent::scanPlugins()
             instrumentIdentifiers.add(info.identifier);
 #endif
 
-    int id = 2;
+    int id = 3; // 1 = "-- Plugin --", 2 = "Built-in Sampler"
     for (const auto& desc : pluginHost.getPluginList().getTypes())
     {
         bool instrument = desc.isInstrument;
@@ -2071,6 +2086,29 @@ void MainComponent::loadSelectedPlugin()
 
     if (ok)
     {
+        // If built-in sampler was just loaded, offer to load a sample
+        if (pluginDescriptions[idx].fileOrIdentifier == "legion-stage-builtin-sampler")
+        {
+            auto chooser = std::make_shared<juce::FileChooser>(
+                "Load Sample",
+                juce::File::getSpecialLocation(juce::File::userDocumentsDirectory),
+                "*.wav;*.aiff;*.ogg;*.mp3");
+
+            chooser->launchAsync(juce::FileBrowserComponent::openMode,
+                [this, chooser](const juce::FileChooser& fc) {
+                    auto file = fc.getResult();
+                    if (file == juce::File()) return;
+
+                    auto& track = pluginHost.getTrack(selectedTrackIndex);
+                    if (auto* sampler = dynamic_cast<BuiltinSamplerProcessor*>(track.plugin))
+                    {
+                        sampler->loadSample(file);
+                        statusLabel.setText("Sample: " + file.getFileNameWithoutExtension(),
+                                            juce::dontSendNotification);
+                    }
+                });
+        }
+
         updateTrackDisplay();
 #if JUCE_IOS
         // Show plugin info in the beat OLED briefly
