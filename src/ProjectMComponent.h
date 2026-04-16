@@ -16,7 +16,7 @@ class ProjectMComponent : public juce::Component, public juce::Timer
 {
 public:
     static constexpr int WAVE_SIZE = 576;
-    static constexpr int NUM_SCENES = 16;
+    static constexpr int NUM_SCENES = 48;
     static constexpr int MAP_RECOMPUTE_FRAMES = 45;
 
     ProjectMComponent()
@@ -655,7 +655,6 @@ private:
                     {
                         float zoom = 0.96f;
                         float totalRot = 0.0f;
-                        // Three rotation centers that orbit around
                         for (int rc = 0; rc < 3; ++rc)
                         {
                             float rcx = cx + cx * 0.4f * std::sin(t * (0.3f + rc * 0.2f) + rc * 2.09f);
@@ -672,6 +671,347 @@ private:
                         float rx = nx * c - ny * s;
                         ny = nx * s + ny * c;
                         nx = rx;
+                        break;
+                    }
+                    case 16: // Whirlpool — strong center rotation with inward pull
+                    {
+                        float rot = 0.06f + energy * 0.04f;
+                        float pull = 0.94f + 0.02f * std::sin(t * 0.5f);
+                        nx = dx * pull; ny = dy * pull;
+                        float c = std::cos(rot), s = std::sin(rot);
+                        float rx = nx * c - ny * s;
+                        ny = nx * s + ny * c; nx = rx;
+                        break;
+                    }
+                    case 17: // Heartbeat — rhythmic zoom pulse synced to energy
+                    {
+                        float pulse = 0.96f + 0.04f * std::sin(t * 4.0f) * (0.5f + energy);
+                        nx = dx * pulse; ny = dy * pulse;
+                        break;
+                    }
+                    case 18: // Tornado — fast twist that increases with distance
+                    {
+                        float normDist = dist / (juce::jmin(bufW, bufH) * 0.5f);
+                        float twist = normDist * 0.08f * (1.0f + energy);
+                        float zoom = 0.97f;
+                        nx = dx * zoom; ny = dy * zoom;
+                        float c = std::cos(twist), s = std::sin(twist);
+                        float rx = nx * c - ny * s;
+                        ny = nx * s + ny * c; nx = rx;
+                        break;
+                    }
+                    case 19: // Lava lamp — slow bulging blobs rising and falling
+                    {
+                        float bulge = 3.0f * std::sin(static_cast<float>(y) * 0.03f + t) * (1.0f + energy * 0.5f);
+                        float rise = 2.0f * std::cos(static_cast<float>(x) * 0.025f + t * 0.6f);
+                        nx = dx * 0.97f + bulge;
+                        ny = dy * 0.96f - rise;
+                        break;
+                    }
+                    case 20: // Wormhole — zoom into center with heavy rotation
+                    {
+                        float zoom = 0.92f + 0.03f * std::sin(t * 0.7f);
+                        float rot = 0.08f + 0.04f * std::sin(t * 0.3f) + energy * 0.05f;
+                        nx = dx * zoom; ny = dy * zoom;
+                        float c = std::cos(rot), s = std::sin(rot);
+                        float rx = nx * c - ny * s;
+                        ny = nx * s + ny * c; nx = rx;
+                        break;
+                    }
+                    case 21: // Starburst — radial rays emanating outward
+                    {
+                        float angle = std::atan2(dy, dx);
+                        float rayPhase = std::sin(angle * 8.0f + t * 2.0f) * 0.02f;
+                        float zoom = 0.97f + rayPhase;
+                        nx = dx * zoom; ny = dy * zoom;
+                        float rot = 0.01f * std::sin(t * 0.4f);
+                        float c = std::cos(rot), s = std::sin(rot);
+                        float rx = nx * c - ny * s;
+                        ny = nx * s + ny * c; nx = rx;
+                        break;
+                    }
+                    case 22: // Liquid mirror — horizontal reflection with wave
+                    {
+                        float wave = 4.0f * std::sin(static_cast<float>(x) * 0.015f + t * 1.5f) * (1.0f + energy);
+                        float mirror = dy > 0 ? -0.02f : 0.02f;
+                        nx = dx * 0.97f;
+                        ny = dy * 0.96f + wave + mirror * dist * 0.1f;
+                        break;
+                    }
+                    case 23: // Galaxy arms — logarithmic spiral
+                    {
+                        float angle = std::atan2(dy, dx);
+                        float logDist = std::log(dist + 1.0f);
+                        float spiralRot = 0.02f + 0.01f * std::sin(logDist * 2.0f - t);
+                        float zoom = 0.97f;
+                        nx = dx * zoom; ny = dy * zoom;
+                        float c = std::cos(spiralRot), s = std::sin(spiralRot);
+                        float rx = nx * c - ny * s;
+                        ny = nx * s + ny * c; nx = rx;
+                        break;
+                    }
+                    case 24: // Jellyfish — pulsing tentacles from top
+                    {
+                        float ty = static_cast<float>(y) / bufH;
+                        float tentacle = 5.0f * std::sin(static_cast<float>(x) * 0.04f + t * 2.0f + ty * 3.0f) * ty;
+                        float pulse = 0.97f + 0.02f * std::sin(t * 3.0f) * (1.0f - ty);
+                        nx = dx * pulse + tentacle * (1.0f + energy);
+                        ny = dy * 0.97f + 1.0f;
+                        break;
+                    }
+                    case 25: // Siphon — drain from bottom-right corner
+                    {
+                        float drainX = bufW * 0.8f, drainY = bufH * 0.8f;
+                        float ddx = static_cast<float>(x) - drainX;
+                        float ddy = static_cast<float>(y) - drainY;
+                        float dDist = std::sqrt(ddx * ddx + ddy * ddy) + 1.0f;
+                        float pull = 3.0f / dDist;
+                        float rot = 0.05f / (dDist * 0.01f + 1.0f);
+                        nx = dx * 0.97f - ddx * pull * 0.01f;
+                        ny = dy * 0.97f - ddy * pull * 0.01f;
+                        float c = std::cos(rot), s = std::sin(rot);
+                        float rx = nx * c - ny * s;
+                        ny = nx * s + ny * c; nx = rx;
+                        break;
+                    }
+                    case 26: // Northern lights — vertical shimmer
+                    {
+                        float shimmer = 3.0f * std::sin(static_cast<float>(x) * 0.02f + t + std::sin(t * 0.3f) * 2.0f);
+                        float drift = 1.5f * std::cos(static_cast<float>(y) * 0.015f + t * 0.4f);
+                        nx = dx * 0.97f + drift * (1.0f + energy * 0.5f);
+                        ny = dy * 0.96f + shimmer;
+                        break;
+                    }
+                    case 27: // Pendulum — swinging rotation that reverses
+                    {
+                        float swing = 0.05f * std::sin(t * 1.2f) * (1.0f + energy);
+                        float zoom = 0.97f;
+                        nx = dx * zoom; ny = dy * zoom;
+                        float c = std::cos(swing), s = std::sin(swing);
+                        float rx = nx * c - ny * s;
+                        ny = nx * s + ny * c; nx = rx;
+                        break;
+                    }
+                    case 28: // Earthquake — random horizontal displacement
+                    {
+                        float quake = 4.0f * std::sin(static_cast<float>(y) * 0.08f + t * 5.0f) * energy;
+                        float jitter = 2.0f * std::cos(static_cast<float>(x) * 0.06f + t * 4.0f) * energy;
+                        nx = dx * 0.97f + quake;
+                        ny = dy * 0.97f + jitter;
+                        break;
+                    }
+                    case 29: // Eye of Sauron — concentric rings with pulsing hole
+                    {
+                        float normDist = dist / (juce::jmin(bufW, bufH) * 0.5f);
+                        float ringPulse = std::sin(normDist * 15.0f - t * 3.0f) * 0.01f;
+                        float holeZoom = (normDist < 0.1f) ? 0.90f : 0.97f + ringPulse;
+                        nx = dx * holeZoom; ny = dy * holeZoom;
+                        break;
+                    }
+                    case 30: // Plasma ball — electric tendrils from center
+                    {
+                        float angle = std::atan2(dy, dx);
+                        float tendril = std::sin(angle * 6.0f + t * 3.0f) * 0.03f * (1.0f + energy * 2.0f);
+                        float zoom = 0.96f + tendril;
+                        float rot = 0.015f + tendril * 0.5f;
+                        nx = dx * zoom; ny = dy * zoom;
+                        float c = std::cos(rot), s = std::sin(rot);
+                        float rx = nx * c - ny * s;
+                        ny = nx * s + ny * c; nx = rx;
+                        break;
+                    }
+                    case 31: // DNA helix — double spiral with offset
+                    {
+                        float angle = std::atan2(dy, dx);
+                        float helix1 = std::sin(angle * 2.0f + dist * 0.02f - t * 2.0f) * 0.02f;
+                        float helix2 = std::cos(angle * 2.0f + dist * 0.02f - t * 2.0f) * 0.02f;
+                        float zoom = 0.97f;
+                        nx = dx * zoom + helix1 * dist * 0.3f;
+                        ny = dy * zoom + helix2 * dist * 0.3f;
+                        break;
+                    }
+                    case 32: // Supernova — outward explosion that reverses
+                    {
+                        float phase = std::sin(t * 0.4f);
+                        float zoom = phase > 0 ? (0.94f + phase * 0.04f) : (1.02f + phase * 0.04f);
+                        float rot = 0.02f * phase;
+                        nx = dx * zoom; ny = dy * zoom;
+                        float c = std::cos(rot), s = std::sin(rot);
+                        float rx = nx * c - ny * s;
+                        ny = nx * s + ny * c; nx = rx;
+                        break;
+                    }
+                    case 33: // Tidal wave — massive horizontal sweep
+                    {
+                        float wave = 8.0f * std::sin(static_cast<float>(y) * 0.01f + t * 0.8f) * (0.5f + energy);
+                        nx = dx * 0.97f + wave;
+                        ny = dy * 0.97f;
+                        float rot = 0.005f * std::cos(t * 0.5f);
+                        float c = std::cos(rot), s = std::sin(rot);
+                        float rx = nx * c - ny * s;
+                        ny = nx * s + ny * c; nx = rx;
+                        break;
+                    }
+                    case 34: // Flower bloom — petals opening outward
+                    {
+                        float angle = std::atan2(dy, dx);
+                        int petals = 5 + static_cast<int>(energy * 3);
+                        float petalPhase = std::sin(angle * petals + t) * 0.03f;
+                        float zoom = 0.96f + petalPhase;
+                        float rot = 0.01f * std::sin(t * 0.2f);
+                        nx = dx * zoom; ny = dy * zoom;
+                        float c = std::cos(rot), s = std::sin(rot);
+                        float rx = nx * c - ny * s;
+                        ny = nx * s + ny * c; nx = rx;
+                        break;
+                    }
+                    case 35: // Black hole — extreme center pull with frame dragging
+                    {
+                        float normDist = dist / (juce::jmin(bufW, bufH) * 0.5f);
+                        float pull = 0.90f + 0.08f * normDist;
+                        float frameDrag = 0.1f / (normDist + 0.1f);
+                        nx = dx * pull; ny = dy * pull;
+                        float c = std::cos(frameDrag), s = std::sin(frameDrag);
+                        float rx = nx * c - ny * s;
+                        ny = nx * s + ny * c; nx = rx;
+                        break;
+                    }
+                    case 36: // Crosshatch — diagonal wave grid
+                    {
+                        float d1 = 3.0f * std::sin((static_cast<float>(x) + static_cast<float>(y)) * 0.02f + t * 2.0f);
+                        float d2 = 3.0f * std::cos((static_cast<float>(x) - static_cast<float>(y)) * 0.02f + t * 1.5f);
+                        nx = dx * 0.97f + d1 * (1.0f + energy);
+                        ny = dy * 0.97f + d2 * (1.0f + energy);
+                        break;
+                    }
+                    case 37: // Radar sweep — single rotating beam
+                    {
+                        float angle = std::atan2(dy, dx);
+                        float sweepAngle = std::fmod(t * 1.5f, 6.2832f);
+                        float angleDiff = std::abs(angle - sweepAngle);
+                        if (angleDiff > 3.14159f) angleDiff = 6.2832f - angleDiff;
+                        float sweep = (angleDiff < 0.3f) ? 0.03f * (1.0f - angleDiff / 0.3f) : 0.0f;
+                        float zoom = 0.97f + sweep;
+                        nx = dx * zoom; ny = dy * zoom;
+                        float rot = 0.01f;
+                        float c = std::cos(rot), s = std::sin(rot);
+                        float rx = nx * c - ny * s;
+                        ny = nx * s + ny * c; nx = rx;
+                        break;
+                    }
+                    case 38: // Infinity loop — figure-8 flow
+                    {
+                        float fx = static_cast<float>(x) / bufW - 0.5f;
+                        float fy = static_cast<float>(y) / bufH - 0.5f;
+                        float pushX = std::sin(fy * 6.2832f + t) * 3.0f;
+                        float pushY = std::sin(fx * 12.566f + t * 0.7f) * 3.0f;
+                        nx = dx * 0.97f + pushX * (1.0f + energy * 0.5f);
+                        ny = dy * 0.97f + pushY * (1.0f + energy * 0.5f);
+                        break;
+                    }
+                    case 39: // Waterfall — downward cascade with side waves
+                    {
+                        float cascade = 3.0f + energy * 4.0f;
+                        float sideWave = 2.0f * std::sin(static_cast<float>(y) * 0.03f + t * 2.0f);
+                        nx = dx * 0.97f + sideWave;
+                        ny = dy * 0.96f + cascade;
+                        break;
+                    }
+                    case 40: // Hypnotic — slow deep zoom with gentle multi-fold rotation
+                    {
+                        float zoom = 0.95f + 0.01f * std::sin(t * 0.2f);
+                        float rot = 0.015f + 0.01f * std::sin(t * 0.15f + dist * 0.002f);
+                        nx = dx * zoom; ny = dy * zoom;
+                        float c = std::cos(rot), s = std::sin(rot);
+                        float rx = nx * c - ny * s;
+                        ny = nx * s + ny * c; nx = rx;
+                        break;
+                    }
+                    case 41: // Shatter — outward with angular fragmentation
+                    {
+                        float angle = std::atan2(dy, dx);
+                        float sector = std::floor(angle * 3.0f / 3.14159f) * 3.14159f / 3.0f;
+                        float sectorOffset = (angle - sector) * 2.0f;
+                        float zoom = 0.98f + std::sin(sector * 5.0f + t) * 0.02f;
+                        nx = dx * zoom + std::cos(sector) * sectorOffset * energy * 2.0f;
+                        ny = dy * zoom + std::sin(sector) * sectorOffset * energy * 2.0f;
+                        break;
+                    }
+                    case 42: // Smoke rings — concentric expanding rings with drift
+                    {
+                        float normDist = dist / (juce::jmin(bufW, bufH) * 0.5f);
+                        float ringPush = std::sin(normDist * 10.0f - t * 2.0f) * 0.02f * (1.0f + energy);
+                        float zoom = 0.97f + ringPush;
+                        nx = dx * zoom + 1.0f;
+                        ny = dy * zoom - 0.5f;
+                        break;
+                    }
+                    case 43: // Moth to flame — attract to a wandering point
+                    {
+                        float attractX = cx + cx * 0.3f * std::sin(t * 0.5f);
+                        float attractY = cy + cy * 0.3f * std::cos(t * 0.4f);
+                        float adx = static_cast<float>(x) - attractX;
+                        float ady = static_cast<float>(y) - attractY;
+                        float aDist = std::sqrt(adx * adx + ady * ady) + 1.0f;
+                        float pull = 5.0f / aDist * (1.0f + energy);
+                        nx = dx * 0.97f - adx * pull * 0.005f;
+                        ny = dy * 0.97f - ady * pull * 0.005f;
+                        float rot = 0.02f / (aDist * 0.005f + 1.0f);
+                        float c = std::cos(rot), s = std::sin(rot);
+                        float rx = nx * c - ny * s;
+                        ny = nx * s + ny * c; nx = rx;
+                        break;
+                    }
+                    case 44: // Moiré pattern — interfering zoom fields
+                    {
+                        float cx2 = cx + cx * 0.3f * std::sin(t * 0.3f);
+                        float cy2 = cy + cy * 0.3f * std::cos(t * 0.4f);
+                        float dx2 = static_cast<float>(x) - cx2;
+                        float dy2 = static_cast<float>(y) - cy2;
+                        float dist2 = std::sqrt(dx2 * dx2 + dy2 * dy2) + 1.0f;
+                        float zoom1 = 0.97f + std::sin(dist * 0.05f) * 0.01f;
+                        float zoom2 = 0.97f + std::sin(dist2 * 0.05f) * 0.01f;
+                        float blend = 0.5f + 0.5f * std::sin(t * 0.5f);
+                        float zoom = zoom1 * blend + zoom2 * (1.0f - blend);
+                        nx = dx * zoom; ny = dy * zoom;
+                        break;
+                    }
+                    case 45: // Solar flare — radial ejections from random angles
+                    {
+                        float angle = std::atan2(dy, dx);
+                        float flare = std::sin(angle * 3.0f + t * 4.0f) + std::sin(angle * 7.0f - t * 3.0f);
+                        float ejection = flare > 1.2f ? 0.04f * (1.0f + energy * 2.0f) : 0.0f;
+                        float zoom = 0.96f + ejection;
+                        float rot = 0.008f + energy * 0.01f;
+                        nx = dx * zoom; ny = dy * zoom;
+                        float c = std::cos(rot), s = std::sin(rot);
+                        float rx = nx * c - ny * s;
+                        ny = nx * s + ny * c; nx = rx;
+                        break;
+                    }
+                    case 46: // Zipper — alternating horizontal bands pulling opposite ways
+                    {
+                        int band = static_cast<int>(static_cast<float>(y) / bufH * 8.0f);
+                        float dir = (band % 2 == 0) ? 1.0f : -1.0f;
+                        float pull = 3.0f * dir * (1.0f + energy) * std::sin(t * 1.5f + band);
+                        nx = dx * 0.97f + pull;
+                        ny = dy * 0.97f;
+                        float rot = 0.005f * dir;
+                        float c = std::cos(rot), s = std::sin(rot);
+                        float rx = nx * c - ny * s;
+                        ny = nx * s + ny * c; nx = rx;
+                        break;
+                    }
+                    default: // Cosmic drift — gentle everything
+                    {
+                        float zoom = 0.97f + 0.01f * std::sin(t * 0.3f);
+                        float rot = 0.01f * std::sin(t * 0.2f + dist * 0.001f);
+                        float wave = 2.0f * std::sin(static_cast<float>(x) * 0.01f + t) * energy;
+                        nx = dx * zoom + wave * 0.3f;
+                        ny = dy * zoom;
+                        float c = std::cos(rot), s = std::sin(rot);
+                        float rx = nx * c - ny * s;
+                        ny = nx * s + ny * c; nx = rx;
                         break;
                     }
                 }
