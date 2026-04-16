@@ -184,7 +184,7 @@ void SequencerEngine::renderMetronome(juce::AudioBuffer<float>& buffer, int numS
     for (int s = 0; s < samplesToRender; ++s)
     {
         double envelope = static_cast<double>(clickSamplesRemaining - s) /
-                          static_cast<double>(clickSamplesRemaining + samplesToRender);
+                          static_cast<double>(clickSamplesRemaining);
         float sample = static_cast<float>(std::sin(clickPhase) * envelope * 0.4);
         clickPhase += phaseInc;
 

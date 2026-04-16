@@ -587,6 +587,10 @@ void TimelineComponent::mouseDrag(const juce::MouseEvent& e)
             }
             clip->timelinePosition = newStart;
             clip->lengthInBeats = newLength;
+            // Remove any events that ended up with negative timestamps
+            for (int i = clip->events.getNumEvents() - 1; i >= 0; --i)
+                if (clip->events.getEventPointer(i)->message.getTimeStamp() < 0.0)
+                    clip->events.deleteEvent(i, true);
             clip->events.updateMatchedPairs();
         }
         if (aClip)
@@ -805,12 +809,14 @@ bool TimelineComponent::keyPressed(const juce::KeyPress& key)
 {
     if (key == juce::KeyPress::deleteKey || key == juce::KeyPress::backspaceKey)
     {
+        if (onBeforeEdit) onBeforeEdit();
         deleteSelectedClip();
         return true;
     }
 
     if (key.getModifiers().isCtrlDown() && key.getKeyCode() == 'D')
     {
+        if (onBeforeEdit) onBeforeEdit();
         duplicateSelectedClip();
         return true;
     }
@@ -928,6 +934,53 @@ void TimelineComponent::splitClipAtBeat(const ClipRef& ref, double beat)
     }
 
     firstHalf.updateMatchedPairs();
+    secondHalf.updateMatchedPairs();
+
+    // Fix orphaned notes spanning the split point:
+    // For the first half: add note-off at split point for any note-on without a matching note-off
+    for (int i = 0; i < firstHalf.getNumEvents(); ++i)
+    {
+        auto* ev = firstHalf.getEventPointer(i);
+        if (ev->message.isNoteOn() && ev->noteOffObject == nullptr)
+        {
+            auto noteOff = juce::MidiMessage::noteOff(ev->message.getChannel(),
+                                                       ev->message.getNoteNumber());
+            noteOff.setTimeStamp(splitPoint - 0.001);
+            firstHalf.addEvent(noteOff);
+        }
+    }
+    firstHalf.updateMatchedPairs();
+
+    // For the second half: add note-on at beat 0 for any note-off without a matching note-on
+    for (int i = 0; i < secondHalf.getNumEvents(); ++i)
+    {
+        auto* ev = secondHalf.getEventPointer(i);
+        if (ev->message.isNoteOff())
+        {
+            // Check if there's a matching note-on before this note-off
+            bool hasMatchingNoteOn = false;
+            for (int j = 0; j < i; ++j)
+            {
+                auto* prev = secondHalf.getEventPointer(j);
+                if (prev->message.isNoteOn()
+                    && prev->message.getNoteNumber() == ev->message.getNoteNumber()
+                    && prev->message.getChannel() == ev->message.getChannel()
+                    && prev->noteOffObject == ev)
+                {
+                    hasMatchingNoteOn = true;
+                    break;
+                }
+            }
+            if (!hasMatchingNoteOn)
+            {
+                auto noteOn = juce::MidiMessage::noteOn(ev->message.getChannel(),
+                                                         ev->message.getNoteNumber(),
+                                                         (juce::uint8) 100);
+                noteOn.setTimeStamp(0.0);
+                secondHalf.addEvent(noteOn);
+            }
+        }
+    }
     secondHalf.updateMatchedPairs();
 
     // Update original clip (first half)
@@ -1885,22 +1938,17 @@ void TimelineComponent::showClipContextMenu(const ClipRef& ref)
                 if (clipboardClip == nullptr) return;
                 auto* cp = pluginHost.getTrack(ref.trackIndex).clipPlayer;
                 if (cp == nullptr) return;
-                // Find empty slot
-                for (int s = 0; s < cp->getNumSlots(); ++s)
+                int emptySlot = cp->findOrCreateEmptySlot();
+                if (emptySlot < 0) return;
                 {
-                    auto& slot = cp->getSlot(s);
-                    if (!slot.hasContent() && slot.clip == nullptr)
-                    {
-                        auto newClip = std::make_unique<MidiClip>();
-                        newClip->lengthInBeats = clipboardClip->lengthInBeats;
-                        newClip->timelinePosition = clipboardClip->timelinePosition;
-                        for (int i = 0; i < clipboardClip->events.getNumEvents(); ++i)
-                            newClip->events.addEvent(clipboardClip->events.getEventPointer(i)->message);
-                        newClip->events.updateMatchedPairs();
-                        slot.clip = std::move(newClip);
-                        slot.state.store(ClipSlot::Stopped);
-                        break;
-                    }
+                    auto newClip = std::make_unique<MidiClip>();
+                    newClip->lengthInBeats = clipboardClip->lengthInBeats;
+                    newClip->timelinePosition = clipboardClip->timelinePosition;
+                    for (int i = 0; i < clipboardClip->events.getNumEvents(); ++i)
+                        newClip->events.addEvent(clipboardClip->events.getEventPointer(i)->message);
+                    newClip->events.updateMatchedPairs();
+                    cp->getSlot(emptySlot).clip = std::move(newClip);
+                    cp->getSlot(emptySlot).state.store(ClipSlot::Stopped);
                 }
                 repaint();
                 break;

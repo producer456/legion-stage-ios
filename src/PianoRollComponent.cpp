@@ -287,7 +287,8 @@ void PianoRollComponent::timerCallback()
         // Auto-scroll to follow playhead
         if (followPlayhead && clip.lengthInBeats > 0.0)
         {
-            double clipPos = std::fmod(engine.getPositionInBeats(), clip.lengthInBeats);
+            double clipPos = std::fmod(engine.getPositionInBeats() - clip.timelinePosition, clip.lengthInBeats);
+            if (clipPos < 0.0) clipPos += clip.lengthInBeats;
             float playheadX = beatToX(clipPos);
             float viewRight = static_cast<float>(getWidth());
 
@@ -309,7 +310,8 @@ void PianoRollComponent::drawPlayhead(juce::Graphics& g)
 
     auto* tc = dynamic_cast<DawLookAndFeel*>(&getLookAndFeel());
 
-    double clipPos = std::fmod(engine.getPositionInBeats(), clip.lengthInBeats);
+    double clipPos = std::fmod(engine.getPositionInBeats() - clip.timelinePosition, clip.lengthInBeats);
+    if (clipPos < 0.0) clipPos += clip.lengthInBeats;
     float x = beatToX(clipPos);
 
     if (x < pianoKeyWidth || x > getWidth()) return;

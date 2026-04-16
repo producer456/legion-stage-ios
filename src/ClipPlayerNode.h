@@ -97,8 +97,8 @@ private:
     double recordStartBeat = 0.0;
 
     // Track active notes so we can send explicit note-offs on loop wrap
-    // Encoded as (channel << 8) | noteNumber
-    bool activePlaybackNotes[128] = {};
+    // First dimension is channel (0-15), second is note number (0-127)
+    bool activePlaybackNotes[16][128] = {};
     void killActiveNotes(juce::MidiBuffer& midi, int sampleOffset, bool hard = false);
 
     void processClipPlayback(int slotIndex, juce::MidiBuffer& midi, int numSamples);

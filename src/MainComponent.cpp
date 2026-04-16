@@ -133,7 +133,11 @@ MainComponent::MainComponent()
             for (int t = 0; t < PluginHost::NUM_TRACKS; ++t)
             {
                 auto* cp = pluginHost.getTrack(t).clipPlayer;
-                if (cp) cp->sendAllNotesOff.store(true);
+                if (cp)
+                {
+                    cp->stopAllSlots();
+                    cp->sendAllNotesOff.store(true);
+                }
             }
             if (timelineComponent) timelineComponent->repaint();
         }
@@ -3281,6 +3285,22 @@ void MainComponent::takeSnapshot()
         }
     }
 
+    // Capture automation lanes
+    for (int t = 0; t < PluginHost::NUM_TRACKS; ++t)
+    {
+        auto& track = pluginHost.getTrack(t);
+        juce::SpinLock::ScopedLockType lock(track.automationLock);
+        for (auto* lane : track.automationLanes)
+        {
+            ProjectSnapshot::AutomationLaneData ad;
+            ad.trackIndex = t;
+            ad.parameterIndex = lane->parameterIndex;
+            ad.parameterName = lane->parameterName;
+            ad.points = lane->points;
+            snap.automationData.add(std::move(ad));
+        }
+    }
+
     undoHistory.add(std::move(snap));
     undoIndex = undoHistory.size() - 1;
 
@@ -3389,6 +3409,24 @@ void MainComponent::restoreSnapshot(const ProjectSnapshot& snap)
         slot.state.store(ClipSlot::Playing);
     }
 
+    // Restore automation lanes
+    for (int t = 0; t < PluginHost::NUM_TRACKS; ++t)
+    {
+        auto& track = pluginHost.getTrack(t);
+        juce::SpinLock::ScopedLockType lock(track.automationLock);
+        track.automationLanes.clear();
+    }
+    for (auto& ad : snap.automationData)
+    {
+        auto& track = pluginHost.getTrack(ad.trackIndex);
+        juce::SpinLock::ScopedLockType lock(track.automationLock);
+        auto* lane = new AutomationLane();
+        lane->parameterIndex = ad.parameterIndex;
+        lane->parameterName = ad.parameterName;
+        lane->points = ad.points;
+        track.automationLanes.add(lane);
+    }
+
     updateTrackDisplay();
     if (timelineComponent) timelineComponent->repaint();
 }
@@ -3423,6 +3461,7 @@ void MainComponent::saveProject()
 
             auto* trackXml = xml->createNewChildElement("Track");
             trackXml->setAttribute("index", t);
+            trackXml->setAttribute("type", track.type == TrackType::Audio ? "audio" : "midi");
 
             if (track.gainProcessor)
             {
@@ -3699,6 +3738,11 @@ void MainComponent::loadProject()
 
             auto& track = pluginHost.getTrack(t);
 
+            if (trackXml->getStringAttribute("type") == "audio")
+                pluginHost.setTrackType(t, TrackType::Audio);
+            else
+                pluginHost.setTrackType(t, TrackType::MIDI);
+
             if (track.gainProcessor)
             {
                 track.gainProcessor->volume.store(static_cast<float>(trackXml->getDoubleAttribute("volume", 0.8)));
@@ -3862,6 +3906,18 @@ void MainComponent::loadProject()
                     track.automationLanes.add(lane);
                 }
             }
+        }
+
+        // Recalculate solo count from restored track states
+        {
+            int soloTotal = 0;
+            for (int t = 0; t < PluginHost::NUM_TRACKS; ++t)
+            {
+                auto& trk = pluginHost.getTrack(t);
+                if (trk.gainProcessor && trk.gainProcessor->soloed.load())
+                    soloTotal++;
+            }
+            pluginHost.soloCount.store(soloTotal);
         }
 
 #if JUCE_IOS

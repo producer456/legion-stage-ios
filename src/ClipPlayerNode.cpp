@@ -192,9 +192,9 @@ void ClipPlayerNode::processClipPlayback(int slotIndex, juce::MidiBuffer& midi, 
         midi.addEvent(holder->message, samplePos);
 
         if (holder->message.isNoteOn())
-            activePlaybackNotes[holder->message.getNoteNumber() & 0x7F] = true;
+            activePlaybackNotes[holder->message.getChannel() - 1][holder->message.getNoteNumber() & 0x7F] = true;
         else if (holder->message.isNoteOff())
-            activePlaybackNotes[holder->message.getNoteNumber() & 0x7F] = false;
+            activePlaybackNotes[holder->message.getChannel() - 1][holder->message.getNoteNumber() & 0x7F] = false;
     }
 }
 
@@ -404,22 +404,25 @@ void ClipPlayerNode::closeOpenNotes(MidiClip& clip)
 
 void ClipPlayerNode::killActiveNotes(juce::MidiBuffer& midi, int sampleOffset, bool hard)
 {
-    // Send explicit note-offs for every tracked note
-    for (int n = 0; n < 128; ++n)
+    // Send explicit note-offs for every tracked note on the correct channel
+    for (int ch = 0; ch < 16; ++ch)
     {
-        if (activePlaybackNotes[n])
-            midi.addEvent(juce::MidiMessage::noteOff(1, n), sampleOffset);
+        for (int n = 0; n < 128; ++n)
+        {
+            if (activePlaybackNotes[ch][n])
+                midi.addEvent(juce::MidiMessage::noteOff(ch + 1, n), sampleOffset);
+        }
     }
     std::memset(activePlaybackNotes, 0, sizeof(activePlaybackNotes));
 
-    // Hard kill: send note-off for ALL possible notes on channel 1
+    // Hard kill: send note-off for ALL possible notes on ALL channels
     // Some plugins ignore CC 120/123, so brute-force every note
     if (hard)
     {
-        for (int note = 0; note < 128; ++note)
-            midi.addEvent(juce::MidiMessage::noteOff(1, note), sampleOffset);
         for (int ch = 1; ch <= 16; ++ch)
         {
+            for (int note = 0; note < 128; ++note)
+                midi.addEvent(juce::MidiMessage::noteOff(ch, note), sampleOffset);
             midi.addEvent(juce::MidiMessage::allNotesOff(ch), sampleOffset);
             midi.addEvent(juce::MidiMessage::allSoundOff(ch), sampleOffset);
         }

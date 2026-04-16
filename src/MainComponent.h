@@ -295,7 +295,14 @@ private:
             juce::AudioBuffer<float> audioSamples;
             double audioSampleRate = 44100.0;
         };
+        struct AutomationLaneData {
+            int trackIndex = 0;
+            int parameterIndex = -1;
+            juce::String parameterName;
+            juce::Array<AutomationPoint> points;
+        };
         juce::Array<ClipData> clips;
+        juce::Array<AutomationLaneData> automationData;
         double bpm = 120.0;
         bool loopEnabled = false;
         double loopStart = 0.0;
