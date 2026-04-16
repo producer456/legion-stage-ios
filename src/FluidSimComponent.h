@@ -111,9 +111,9 @@ public:
         int h = getHeight();
         if (w < 4 || h < 4) return;
 
-        // Cap grid to 128x128 max for GPU uniform compatibility
-        int gw = juce::jmin(128, juce::jmax(4, w / 4));
-        int gh = juce::jmin(128, juce::jmax(4, h / 4));
+        // Grid at 1/3 resolution, capped to 128 for GPU uniform arrays
+        int gw = juce::jmin(128, juce::jmax(8, w / 3));
+        int gh = juce::jmin(128, juce::jmax(8, h / 3));
 
         // Reallocate grids on size change
         if (gw != gridW || gh != gridH)
@@ -138,15 +138,15 @@ public:
         energy /= numBands;
         bool beat = beatHit.exchange(false);
 
-        // ── Audio-driven forces ──
+        // ── Audio-driven forces (aggressive for visible results) ──
         int cx = gridW / 2;
         int cy = gridH / 2;
 
-        // Bass: pressure impulse at center
-        if (bass > 0.05f)
+        // Bass: big pressure explosion from center
+        if (bass > 0.02f)
         {
-            int radius = static_cast<int>(2 + bass * 4);
-            float strength = bass * 15.0f;
+            int radius = static_cast<int>(4 + bass * 10);
+            float strength = bass * 80.0f;
             for (int dy = -radius; dy <= radius; ++dy)
             {
                 for (int dx = -radius; dx <= radius; ++dx)
@@ -159,86 +159,117 @@ public:
                         if (dist < radius)
                         {
                             float falloff = 1.0f - dist / radius;
+                            falloff *= falloff;
                             float angle = std::atan2(static_cast<float>(dy), static_cast<float>(dx));
                             vxPrev[IX(px, py)] += std::cos(angle) * strength * falloff;
                             vyPrev[IX(px, py)] += std::sin(angle) * strength * falloff;
-                            densityPrev[IX(px, py)] += falloff * 2.0f;
+                            densityPrev[IX(px, py)] += falloff * 8.0f;
                         }
                     }
                 }
             }
         }
 
-        // Mids: orbiting vortex
-        if (mid > 0.03f)
+        // Mids: two orbiting vortices with large radius
+        if (mid > 0.01f)
         {
-            float angle = time * 2.0f;
-            int vortexX = cx + static_cast<int>(std::cos(angle) * gridW * 0.25f);
-            int vortexY = cy + static_cast<int>(std::sin(angle) * gridH * 0.25f);
-            vortexX = juce::jlimit(2, gridW - 3, vortexX);
-            vortexY = juce::jlimit(2, gridH - 3, vortexY);
-            float vStr = mid * 8.0f;
-            for (int dy = -3; dy <= 3; ++dy)
+            for (int v = 0; v < 2; ++v)
             {
-                for (int dx = -3; dx <= 3; ++dx)
+                float vAngle = time * 1.5f + v * 3.14159f;
+                int vortexX = cx + static_cast<int>(std::cos(vAngle) * gridW * 0.3f);
+                int vortexY = cy + static_cast<int>(std::sin(vAngle) * gridH * 0.3f);
+                vortexX = juce::jlimit(3, gridW - 4, vortexX);
+                vortexY = juce::jlimit(3, gridH - 4, vortexY);
+                float vStr = mid * 40.0f;
+                int vRad = static_cast<int>(3 + mid * 8);
+                for (int dy = -vRad; dy <= vRad; ++dy)
                 {
-                    int px = vortexX + dx;
-                    int py = vortexY + dy;
-                    if (px >= 1 && px < gridW - 1 && py >= 1 && py < gridH - 1)
+                    for (int dx = -vRad; dx <= vRad; ++dx)
                     {
-                        vxPrev[IX(px, py)] += -dy * vStr * 0.3f;
-                        vyPrev[IX(px, py)] += dx * vStr * 0.3f;
+                        int px = vortexX + dx;
+                        int py = vortexY + dy;
+                        if (px >= 1 && px < gridW - 1 && py >= 1 && py < gridH - 1)
+                        {
+                            float dist = std::sqrt(static_cast<float>(dx * dx + dy * dy));
+                            if (dist < vRad && dist > 0.5f)
+                            {
+                                float falloff = 1.0f - dist / vRad;
+                                float dir = (v == 0) ? 1.0f : -1.0f;
+                                vxPrev[IX(px, py)] += dir * (-dy / dist) * vStr * falloff;
+                                vyPrev[IX(px, py)] += dir * (dx / dist) * vStr * falloff;
+                                densityPrev[IX(px, py)] += falloff * 3.0f;
+                            }
+                        }
                     }
                 }
             }
         }
 
-        // Highs: inject dye at random positions
-        if (high > 0.05f)
+        // Highs: spray dye everywhere
+        if (high > 0.02f)
         {
             juce::Random rng(static_cast<int>(time * 1000));
-            int numDrops = static_cast<int>(high * 8);
+            int numDrops = static_cast<int>(5 + high * 30);
             for (int d = 0; d < numDrops; ++d)
             {
                 int rx = 2 + rng.nextInt(gridW - 4);
                 int ry = 2 + rng.nextInt(gridH - 4);
-                densityPrev[IX(rx, ry)] += 3.0f;
+                float dyeAmount = 5.0f + high * 10.0f;
+                for (int sy = -1; sy <= 1; ++sy)
+                    for (int sx = -1; sx <= 1; ++sx)
+                        if (rx+sx >= 1 && rx+sx < gridW-1 && ry+sy >= 1 && ry+sy < gridH-1)
+                            densityPrev[IX(rx+sx, ry+sy)] += dyeAmount * 0.5f;
+                // Also add some velocity to push the dye around
+                float pushAngle = rng.nextFloat() * 6.28f;
+                vxPrev[IX(rx, ry)] += std::cos(pushAngle) * high * 20.0f;
+                vyPrev[IX(rx, ry)] += std::sin(pushAngle) * high * 20.0f;
             }
         }
 
-        // Beat: big splash
+        // Beat: massive explosion
         if (beat)
         {
-            for (int dy = -5; dy <= 5; ++dy)
+            int splashR = static_cast<int>(8 + energy * 12);
+            for (int dy = -splashR; dy <= splashR; ++dy)
             {
-                for (int dx = -5; dx <= 5; ++dx)
+                for (int dx = -splashR; dx <= splashR; ++dx)
                 {
                     int px = cx + dx;
                     int py = cy + dy;
                     if (px >= 1 && px < gridW - 1 && py >= 1 && py < gridH - 1)
                     {
-                        float angle = std::atan2(static_cast<float>(dy), static_cast<float>(dx));
-                        vxPrev[IX(px, py)] += std::cos(angle) * 25.0f;
-                        vyPrev[IX(px, py)] += std::sin(angle) * 25.0f;
-                        densityPrev[IX(px, py)] += 5.0f;
+                        float dist = std::sqrt(static_cast<float>(dx * dx + dy * dy));
+                        if (dist < splashR)
+                        {
+                            float falloff = 1.0f - dist / splashR;
+                            float angle = std::atan2(static_cast<float>(dy), static_cast<float>(dx));
+                            vxPrev[IX(px, py)] += std::cos(angle) * 100.0f * falloff;
+                            vyPrev[IX(px, py)] += std::sin(angle) * 100.0f * falloff;
+                            densityPrev[IX(px, py)] += falloff * 15.0f;
+                        }
                     }
                 }
             }
         }
 
-        // Ambient motion — always inject some dye and gentle flow so the
-        // visualizer shows something even without audio input
+        // Ambient motion — multiple injection points with strong flow
         {
-            float ambientAngle = time * 0.5f;
-            int ax = cx + static_cast<int>(std::cos(ambientAngle) * gridW * 0.15f);
-            int ay = cy + static_cast<int>(std::sin(ambientAngle * 0.7f) * gridH * 0.15f);
-            ax = juce::jlimit(2, gridW - 3, ax);
-            ay = juce::jlimit(2, gridH - 3, ay);
-            densityPrev[IX(ax, ay)] += 0.5f;
-            densityPrev[IX(ax + 1, ay)] += 0.3f;
-            densityPrev[IX(ax, ay + 1)] += 0.3f;
-            vxPrev[IX(ax, ay)] += std::cos(ambientAngle * 1.3f) * 2.0f;
-            vyPrev[IX(ax, ay)] += std::sin(ambientAngle * 1.1f) * 2.0f;
+            for (int s = 0; s < 3; ++s)
+            {
+                float ambientAngle = time * (0.4f + s * 0.3f) + s * 2.094f;
+                int ax = cx + static_cast<int>(std::cos(ambientAngle) * gridW * 0.3f);
+                int ay = cy + static_cast<int>(std::sin(ambientAngle * 0.7f + s) * gridH * 0.3f);
+                ax = juce::jlimit(3, gridW - 4, ax);
+                ay = juce::jlimit(3, gridH - 4, ay);
+                float dyeStr = 4.0f;
+                float velStr = 12.0f;
+                for (int dy = -2; dy <= 2; ++dy)
+                    for (int dx = -2; dx <= 2; ++dx)
+                        if (ax+dx >= 1 && ax+dx < gridW-1 && ay+dy >= 1 && ay+dy < gridH-1)
+                            densityPrev[IX(ax+dx, ay+dy)] += dyeStr * 0.3f;
+                vxPrev[IX(ax, ay)] += std::cos(ambientAngle * 1.3f) * velStr;
+                vyPrev[IX(ax, ay)] += std::sin(ambientAngle * 1.1f) * velStr;
+            }
         }
 
         // ── Run Navier-Stokes solver ──
@@ -303,9 +334,9 @@ public:
         int h = bounds.getHeight();
         if (w < 4 || h < 4 || gridW < 4 || gridH < 4) return;
 
-        // ── Render density field to image ──
-        int rw = juce::jmax(1, w / 2);
-        int rh = juce::jmax(1, h / 2);
+        // ── Render density field to image (full resolution for quality) ──
+        int rw = juce::jmax(1, w);
+        int rh = juce::jmax(1, h);
 
         if (renderImage.getWidth() != rw || renderImage.getHeight() != rh)
             renderImage = juce::Image(juce::Image::ARGB, rw, rh, false);

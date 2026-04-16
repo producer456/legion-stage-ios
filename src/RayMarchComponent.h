@@ -157,9 +157,9 @@ public:
         int w = bounds.getWidth();
         int h = bounds.getHeight();
 
-        // Quarter resolution for performance
-        int rw = juce::jmax(1, w / 4);
-        int rh = juce::jmax(1, h / 4);
+        // Half resolution for performance (GPU handles full res)
+        int rw = juce::jmax(1, w / 2);
+        int rh = juce::jmax(1, h / 2);
 
         if (renderImage.getWidth() != rw || renderImage.getHeight() != rh)
             renderImage = juce::Image(juce::Image::ARGB, rw, rh, false);
