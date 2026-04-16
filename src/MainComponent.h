@@ -251,6 +251,14 @@ private:
     juce::TextButton lissZoomInBtn { "Z+" };
     juce::TextButton lissZoomOutBtn { "Z-" };
     juce::TextButton lissDotsBtn { "Dots" };
+    // FluidSim
+    juce::TextButton fluidColorBtn { "Color" };
+    juce::TextButton fluidViscUpBtn { "V+" };
+    juce::TextButton fluidViscDownBtn { "V-" };
+    juce::TextButton fluidVortBtn { "Vort" };
+    // RayMarch
+    juce::TextButton rmPrevBtn { "Prev" };
+    juce::TextButton rmNextBtn { "Next" };
 
     void setVisControlsVisible();
 

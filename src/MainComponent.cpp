@@ -686,6 +686,31 @@ MainComponent::MainComponent()
         lissajousDisplay.cycleDots();
     };
 
+    // ── FluidSim control buttons ──
+    addAndMakeVisible(fluidColorBtn);
+    fluidColorBtn.onClick = [this] { fluidSimDisplay.cycleColorMode(); };
+
+    addAndMakeVisible(fluidViscUpBtn);
+    fluidViscUpBtn.onClick = [this] {
+        fluidSimDisplay.setViscosity(fluidSimDisplay.getViscosity() * 1.5f);
+    };
+
+    addAndMakeVisible(fluidViscDownBtn);
+    fluidViscDownBtn.onClick = [this] {
+        fluidSimDisplay.setViscosity(fluidSimDisplay.getViscosity() / 1.5f);
+    };
+
+    addAndMakeVisible(fluidVortBtn);
+    fluidVortBtn.setClickingTogglesState(true);
+    fluidVortBtn.onClick = [this] { fluidSimDisplay.toggleVorticity(); };
+
+    // ── RayMarch control buttons ──
+    addAndMakeVisible(rmPrevBtn);
+    rmPrevBtn.onClick = [this] { rayMarchDisplay.prevPreset(); };
+
+    addAndMakeVisible(rmNextBtn);
+    rmNextBtn.onClick = [this] { rayMarchDisplay.nextPreset(); };
+
     setVisControlsVisible();
 
     addAndMakeVisible(midi2Button);
@@ -4490,7 +4515,7 @@ void MainComponent::paint(juce::Graphics& g)
         return;
     }
 
-    if (!glassOverlay)
+    if (!glassOverlay && !visualizerFullScreen)
     {
         if (auto* lnf = dynamic_cast<DawLookAndFeel*>(&getLookAndFeel()))
         {
@@ -4529,7 +4554,7 @@ void MainComponent::paint(juce::Graphics& g)
     int panelSlideOff = (int)((1.0f - panelSlideProgress) * (float)pw);
     int panelPaintLeft = getWidth() - (oakW > 0 ? oakW : 0) - pw + panelSlideOff;
     int panelPaintW = pw;
-    if (panelSlideProgress > 0.01f && !glassOverlay)
+    if (panelSlideProgress > 0.01f && !glassOverlay && !visualizerFullScreen)
     {
         auto panelRect = juce::Rectangle<int>(panelPaintLeft, 0, panelPaintW, getHeight());
         panelBoundsCache = panelRect;
@@ -4561,7 +4586,7 @@ void MainComponent::paint(juce::Graphics& g)
         }
     }
 
-    if (!glassOverlay)
+    if (!glassOverlay && !visualizerFullScreen)
     {
         // Draw OLED background behind status/chord in top bar (always, regardless of panel state)
         if (statusLabel.isVisible() && chordLabel.isVisible())
@@ -4645,23 +4670,26 @@ void MainComponent::paint(juce::Graphics& g)
     }
 #endif
 
-    // Draw decorative side panels if the theme provides them
-    if (auto* lnf = dynamic_cast<DawLookAndFeel*>(&getLookAndFeel()))
+    // Draw decorative side panels if the theme provides them (skip in fullscreen vis)
+    if (!visualizerFullScreen)
     {
-        if (lnf->getSidePanelWidth() > 0)
+        if (auto* lnf = dynamic_cast<DawLookAndFeel*>(&getLookAndFeel()))
         {
-            lnf->drawSidePanels(g, getWidth(), getHeight());
+            if (lnf->getSidePanelWidth() > 0)
+            {
+                lnf->drawSidePanels(g, getWidth(), getHeight());
 
 #if JUCE_IOS
-            if (!paintPhone)
+                if (!paintPhone)
 #endif
-            {
-                // Draw decorative strip to the left of the right panel
-                int sidePW = lnf->getSidePanelWidth();
-                int stripW = sidePW;
-                int rpW2 = (int)((float)getPanelWidth() * panelSlideProgress);
-                int stripX = getWidth() - sidePW - rpW2 - stripW;
-                lnf->drawInnerStrip(g, stripX, 0, stripW, getHeight());
+                {
+                    // Draw decorative strip to the left of the right panel
+                    int sidePW = lnf->getSidePanelWidth();
+                    int stripW = sidePW;
+                    int rpW2 = (int)((float)getPanelWidth() * panelSlideProgress);
+                    int stripX = getWidth() - sidePW - rpW2 - stripW;
+                    lnf->drawInnerStrip(g, stripX, 0, stripW, getHeight());
+                }
             }
         }
     }
@@ -4896,8 +4924,8 @@ void MainComponent::paintOverChildren(juce::Graphics& g)
             if (timelineComponent && timelineComponent->isVisible())
                 drawGlassPane(timelineComponent->getBounds().toFloat(), 12.0f);
 
-            // Right panel glass pane
-            if (rpW > 0)
+            // Right panel glass pane (skip in fullscreen visualizer)
+            if (rpW > 0 && !visualizerFullScreen)
             {
                 int panelSlideOff2 = (int)((1.0f - panelSlideProgress) * (float)getPanelWidth());
                 int panelX = getWidth() - getPanelWidth() + panelSlideOff2;
@@ -5418,6 +5446,22 @@ void MainComponent::resized()
                 controlBar.removeFromLeft(3);
                 pmBgBtn.setBounds(controlBar.removeFromLeft(30));
             }
+            else if (currentVisMode == 8) // FluidSim
+            {
+                fluidColorBtn.setBounds(controlBar.removeFromLeft(50));
+                controlBar.removeFromLeft(3);
+                fluidViscDownBtn.setBounds(controlBar.removeFromLeft(30));
+                controlBar.removeFromLeft(2);
+                fluidViscUpBtn.setBounds(controlBar.removeFromLeft(30));
+                controlBar.removeFromLeft(3);
+                fluidVortBtn.setBounds(controlBar.removeFromLeft(50));
+            }
+            else if (currentVisMode == 9) // RayMarch
+            {
+                rmPrevBtn.setBounds(controlBar.removeFromLeft(45));
+                controlBar.removeFromLeft(3);
+                rmNextBtn.setBounds(controlBar.removeFromLeft(45));
+            }
             setVisControlsVisible();
 
             auto visArea = fsArea.reduced(2, 2);
@@ -5454,6 +5498,8 @@ void MainComponent::resized()
             else if (currentVisMode == 2) { gfRibbonDownBtn.toFront(false); gfRibbonUpBtn.toFront(false); gfTrailBtn.toFront(false); gfSpeedSelector.toFront(false); }
             else if (currentVisMode == 3) { geissWaveBtn.toFront(false); geissPaletteBtn.toFront(false); geissSceneBtn.toFront(false); geissWaveDownBtn.toFront(false); geissWaveUpBtn.toFront(false); geissWarpLockBtn.toFront(false); geissPalLockBtn.toFront(false); geissSpeedSelector.toFront(false); geissAutoPilotBtn.toFront(false); geissBgBtn.toFront(false); }
             else if (currentVisMode == 4) { pmPrevBtn.toFront(false); pmNextBtn.toFront(false); pmRandBtn.toFront(false); pmLockBtn.toFront(false); pmBgBtn.toFront(false); }
+            else if (currentVisMode == 8) { fluidColorBtn.toFront(false); fluidViscDownBtn.toFront(false); fluidViscUpBtn.toFront(false); fluidVortBtn.toFront(false); }
+            else if (currentVisMode == 9) { rmPrevBtn.toFront(false); rmNextBtn.toFront(false); }
         }
 
         // Hide everything else
@@ -5606,6 +5652,12 @@ void MainComponent::resized()
     pmRandBtn.setVisible(false);
     pmLockBtn.setVisible(false);
     pmBgBtn.setVisible(false);
+    fluidColorBtn.setVisible(false);
+    fluidViscUpBtn.setVisible(false);
+    fluidViscDownBtn.setVisible(false);
+    fluidVortBtn.setVisible(false);
+    rmPrevBtn.setVisible(false);
+    rmNextBtn.setVisible(false);
 
     // Reset vis selector alpha (may have been 1.0 in fullscreen)
     visSelector.setAlpha(1.0f);
@@ -6482,6 +6534,16 @@ void MainComponent::setVisControlsVisible()
     lissZoomInBtn.setVisible(liss);
     lissZoomOutBtn.setVisible(liss);
     lissDotsBtn.setVisible(liss);
+
+    bool fluid = (currentVisMode == 8);
+    fluidColorBtn.setVisible(fluid);
+    fluidViscUpBtn.setVisible(fluid);
+    fluidViscDownBtn.setVisible(fluid);
+    fluidVortBtn.setVisible(fluid);
+
+    bool rm = (currentVisMode == 9);
+    rmPrevBtn.setVisible(rm);
+    rmNextBtn.setVisible(rm);
 }
 
 // ── Glass/Liquid animation methods ──

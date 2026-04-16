@@ -16,7 +16,7 @@ class ProjectMComponent : public juce::Component, public juce::Timer
 {
 public:
     static constexpr int WAVE_SIZE = 576;
-    static constexpr int NUM_SCENES = 8;
+    static constexpr int NUM_SCENES = 16;
     static constexpr int MAP_RECOMPUTE_FRAMES = 45;
 
     ProjectMComponent()
@@ -461,7 +461,7 @@ private:
         }
     }
 
-    // ── 8 warp scenes — each is a different per-pixel motion field ──
+    // ── 16 warp scenes — each is a different per-pixel motion field ──
     void computeWarpMap()
     {
         if (bufW < 4 || bufH < 4) return;
@@ -555,6 +555,120 @@ private:
                         float rot = 0.02f / (dist * 0.01f + 1.0f);
                         nx = dx * zoom; ny = dy * zoom;
                         float c = std::cos(rot), s = std::sin(rot);
+                        float rx = nx * c - ny * s;
+                        ny = nx * s + ny * c;
+                        nx = rx;
+                        break;
+                    }
+                    case 8: // Pinwheel — inner spins fast, outer slow
+                    {
+                        float maxDist = juce::jmin(bufW, bufH) * 0.5f;
+                        float normDist = juce::jmin(1.0f, dist / maxDist);
+                        float rot = (0.08f + energy * 0.04f) * (1.0f - normDist * normDist) * std::sin(t * 0.6f);
+                        float zoom = 0.97f;
+                        nx = dx * zoom; ny = dy * zoom;
+                        float c = std::cos(rot), s = std::sin(rot);
+                        float rx = nx * c - ny * s;
+                        ny = nx * s + ny * c;
+                        nx = rx;
+                        break;
+                    }
+                    case 9: // Breathing — periodic zoom in/out with slight rotation
+                    {
+                        float breath = 0.96f + 0.03f * std::sin(t * 0.8f) + energy * 0.02f * std::sin(t * 1.6f);
+                        float rot = 0.008f * std::sin(t * 0.4f);
+                        nx = dx * breath; ny = dy * breath;
+                        float c = std::cos(rot), s = std::sin(rot);
+                        float rx = nx * c - ny * s;
+                        ny = nx * s + ny * c;
+                        nx = rx;
+                        break;
+                    }
+                    case 10: // Fractal zoom — recursive zoom with angular distortion
+                    {
+                        float angle = std::atan2(dy, dx);
+                        float zoom = 0.95f + 0.02f * std::sin(t * 0.5f);
+                        float angleWarp = 0.03f * std::sin(angle * 3.0f + t) + 0.02f * std::sin(angle * 5.0f - t * 0.7f);
+                        float newAngle = angle + angleWarp + energy * 0.015f;
+                        nx = std::cos(newAngle) * dist * zoom - cx + cx;
+                        ny = std::sin(newAngle) * dist * zoom - cy + cy;
+                        nx -= cx; ny -= cy;
+                        break;
+                    }
+                    case 11: // Wave grid — horizontal + vertical wave displacement
+                    {
+                        float waveH = 3.5f * std::sin(static_cast<float>(y) * 0.025f + t * 2.0f) * (1.0f + energy);
+                        float waveV = 3.5f * std::sin(static_cast<float>(x) * 0.025f + t * 1.7f) * (1.0f + energy);
+                        nx = dx * 0.97f + waveH;
+                        ny = dy * 0.97f + waveV;
+                        break;
+                    }
+                    case 12: // Centrifuge — fast rotation at edges, still at center
+                    {
+                        float maxDist = juce::jmin(bufW, bufH) * 0.5f;
+                        float normDist = juce::jmin(1.0f, dist / maxDist);
+                        float rot = normDist * normDist * (0.06f + energy * 0.04f) * std::sin(t * 0.5f);
+                        float zoom = 0.96f + 0.02f * normDist;
+                        nx = dx * zoom; ny = dy * zoom;
+                        float c = std::cos(rot), s = std::sin(rot);
+                        float rx = nx * c - ny * s;
+                        ny = nx * s + ny * c;
+                        nx = rx;
+                        break;
+                    }
+                    case 13: // Diamond — warp toward 4 corner attractors
+                    {
+                        float zoom = 0.97f;
+                        float attractStrength = 0.015f + energy * 0.01f;
+                        // Four attractors at diamond positions
+                        float ax[4] = { cx, cx + cx * 0.6f, cx, cx - cx * 0.6f };
+                        float ay[4] = { cy - cy * 0.6f, cy, cy + cy * 0.6f, cy };
+                        float pullX = 0.0f, pullY = 0.0f;
+                        for (int a = 0; a < 4; ++a)
+                        {
+                            float adx = ax[a] - static_cast<float>(x);
+                            float ady = ay[a] - static_cast<float>(y);
+                            float aDist = std::sqrt(adx * adx + ady * ady) + 1.0f;
+                            float weight = std::sin(t * 0.5f + a * 1.57f);
+                            weight = weight * weight * attractStrength;
+                            pullX += adx / aDist * weight;
+                            pullY += ady / aDist * weight;
+                        }
+                        nx = dx * zoom + pullX;
+                        ny = dy * zoom + pullY;
+                        break;
+                    }
+                    case 14: // Elastic — rubber-band stretch and snap back
+                    {
+                        float stretchPhase = std::sin(t * 1.5f);
+                        float stretchX = 0.97f + 0.03f * stretchPhase * (1.0f + energy * 0.5f);
+                        float stretchY = 0.97f - 0.03f * stretchPhase * (1.0f + energy * 0.5f);
+                        float rot = 0.01f * std::cos(t * 0.6f);
+                        nx = dx * stretchX; ny = dy * stretchY;
+                        float c = std::cos(rot), s = std::sin(rot);
+                        float rx = nx * c - ny * s;
+                        ny = nx * s + ny * c;
+                        nx = rx;
+                        break;
+                    }
+                    case 15: // Chaos — multiple competing rotation centers
+                    {
+                        float zoom = 0.96f;
+                        float totalRot = 0.0f;
+                        // Three rotation centers that orbit around
+                        for (int rc = 0; rc < 3; ++rc)
+                        {
+                            float rcx = cx + cx * 0.4f * std::sin(t * (0.3f + rc * 0.2f) + rc * 2.09f);
+                            float rcy = cy + cy * 0.4f * std::cos(t * (0.25f + rc * 0.15f) + rc * 2.09f);
+                            float rdx = static_cast<float>(x) - rcx;
+                            float rdy = static_cast<float>(y) - rcy;
+                            float rDist = std::sqrt(rdx * rdx + rdy * rdy) + 1.0f;
+                            float influence = 1.0f / (1.0f + rDist * 0.01f);
+                            float dir = (rc % 2 == 0) ? 1.0f : -1.0f;
+                            totalRot += dir * influence * (0.03f + energy * 0.02f);
+                        }
+                        nx = dx * zoom; ny = dy * zoom;
+                        float c = std::cos(totalRot), s = std::sin(totalRot);
                         float rx = nx * c - ny * s;
                         ny = nx * s + ny * c;
                         nx = rx;
