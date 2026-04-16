@@ -226,6 +226,21 @@ public:
             }
         }
 
+        // Ambient motion — always inject some dye and gentle flow so the
+        // visualizer shows something even without audio input
+        {
+            float ambientAngle = time * 0.5f;
+            int ax = cx + static_cast<int>(std::cos(ambientAngle) * gridW * 0.15f);
+            int ay = cy + static_cast<int>(std::sin(ambientAngle * 0.7f) * gridH * 0.15f);
+            ax = juce::jlimit(2, gridW - 3, ax);
+            ay = juce::jlimit(2, gridH - 3, ay);
+            densityPrev[IX(ax, ay)] += 0.5f;
+            densityPrev[IX(ax + 1, ay)] += 0.3f;
+            densityPrev[IX(ax, ay + 1)] += 0.3f;
+            vxPrev[IX(ax, ay)] += std::cos(ambientAngle * 1.3f) * 2.0f;
+            vyPrev[IX(ax, ay)] += std::sin(ambientAngle * 1.1f) * 2.0f;
+        }
+
         // ── Run Navier-Stokes solver ──
         float dt = 1.0f / 60.0f;
         velocityStep(dt);

@@ -3965,7 +3965,8 @@ void MainComponent::mouseDown(const juce::MouseEvent& e)
         if (src == &spectrumDisplay || src == &lissajousDisplay || src == &waveTerrainDisplay
             || src == &shaderToyDisplay || src == &analyzerDisplay || src == &geissDisplay
             || src == &projectMDisplay || src == heartbeatDisplay.get()
-            || src == bioResonanceDisplay.get())
+            || src == bioResonanceDisplay.get()
+            || src == &fluidSimDisplay || src == &rayMarchDisplay)
         {
             visualizerFullScreen = true;
             projectorMode = true;
