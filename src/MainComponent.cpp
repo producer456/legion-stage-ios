@@ -5623,6 +5623,9 @@ void MainComponent::resized()
         topBar.removeFromLeft(3);
         panicButton.setBounds(topBar.removeFromLeft(55));
         topBar.removeFromLeft(3);
+        sessionViewButton.setBounds(topBar.removeFromLeft(55));
+        sessionViewButton.setVisible(true);
+        topBar.removeFromLeft(3);
         if (themeManager.isGlassOverlay())
         {
             glassAnimButton.setBounds(topBar.removeFromLeft(35));
@@ -5679,7 +5682,9 @@ void MainComponent::resized()
     topBar.removeFromLeft(4);
     statusLabel.setBounds(topBar.removeFromLeft(juce::jmin(180, topBar.getWidth() / 2)));
     topBar.removeFromLeft(4);
-
+    sessionViewButton.setBounds(topBar.removeFromLeft(60));
+    sessionViewButton.setVisible(true);
+    topBar.removeFromLeft(4);
     beatLabel.setBounds(topBar.removeFromRight(100));
 #endif
 
@@ -7222,7 +7227,10 @@ void MainComponent::applyThemeToControls()
     mixerButton.setColour(juce::TextButton::buttonOnColourId, juce::Colour(c.lcdText));
     mixerButton.setColour(juce::TextButton::textColourOffId, juce::Colour(c.lcdText));
     mixerButton.setColour(juce::TextButton::textColourOnId, juce::Colour(c.lcdBg));
-    sessionViewButton.setColour(juce::TextButton::buttonColourId, juce::Colour(c.btnNav));
+    sessionViewButton.setColour(juce::TextButton::buttonColourId, juce::Colour(c.lcdBg).brighter(0.15f));
+    sessionViewButton.setColour(juce::TextButton::buttonOnColourId, juce::Colour(c.amber));
+    sessionViewButton.setColour(juce::TextButton::textColourOffId, juce::Colour(c.lcdText));
+    sessionViewButton.setColour(juce::TextButton::textColourOnId, juce::Colour(c.lcdBg));
 
     // Arpeggiator buttons
     arpButton.setColour(juce::TextButton::buttonColourId, juce::Colour(c.lcdBg).brighter(0.15f));
