@@ -633,8 +633,10 @@ MainComponent::MainComponent()
     visSelector.addItem("RayMarch", 10);
     visSelector.setSelectedId(2, juce::dontSendNotification);  // Lissajous
     currentVisMode = 1;
+    updateVisualizerTimers();  // Stop all visualizer timers except the active one
     visSelector.onChange = [this] {
         currentVisMode = visSelector.getSelectedId() - 1;
+        updateVisualizerTimers();
         resized();
         repaint();
     };
@@ -4753,6 +4755,7 @@ void MainComponent::showPhoneMenu()
             else if (result >= 100 && result <= 109) {
                 currentVisMode = result - 100;
                 visSelector.setSelectedId(currentVisMode + 1, juce::dontSendNotification);
+                updateVisualizerTimers();
                 resized();
                 repaint();
             }
@@ -6966,6 +6969,36 @@ void MainComponent::setVisControlsVisible()
     bool rm = (currentVisMode == 9);
     rmPrevBtn.setVisible(rm);
     rmNextBtn.setVisible(rm);
+}
+
+void MainComponent::updateVisualizerTimers()
+{
+    // Stop all visualizer timers to prevent idle GPU/CPU work
+    spectrumDisplay.stopTimer();
+    lissajousDisplay.stopTimer();
+    waveTerrainDisplay.stopTimer();
+    shaderToyDisplay.stopTimer();
+    geissDisplay.stopTimer();
+    projectMDisplay.stopTimer();
+    analyzerDisplay.stopTimer();
+    heartbeatDisplay->stopTimer();
+    bioResonanceDisplay->stopTimer();
+    fluidSimDisplay.stopTimer();
+    rayMarchDisplay.stopTimer();
+
+    // Start only the active visualizer's timer
+    switch (currentVisMode) {
+        case 0: spectrumDisplay.startTimerHz(60); break;
+        case 1: lissajousDisplay.startTimerHz(60); break;
+        case 2: waveTerrainDisplay.startTimerHz(60); break;
+        case 3: geissDisplay.startTimerHz(60); break;
+        case 4: projectMDisplay.startTimerHz(60); break;
+        case 5: analyzerDisplay.startTimerHz(60); break;
+        case 6: heartbeatDisplay->startTimerHz(60); break;
+        case 7: bioResonanceDisplay->startTimerHz(60); break;
+        case 8: fluidSimDisplay.startTimerHz(60); break;
+        case 9: rayMarchDisplay.startTimerHz(60); break;
+    }
 }
 
 // ── Glass/Liquid animation methods ──

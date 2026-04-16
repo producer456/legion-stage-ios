@@ -270,6 +270,7 @@ private:
     juce::TextButton rmNextBtn { "Next" };
 
     void setVisControlsVisible();
+    void updateVisualizerTimers();
 
     // MidiInputCallback — intercept SysEx for CI before it goes to collector
     void handleIncomingMidiMessage(juce::MidiInput* source, const juce::MidiMessage& msg) override;
