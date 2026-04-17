@@ -962,6 +962,7 @@ MainComponent::MainComponent()
     sessionViewComponent = std::make_unique<SessionViewComponent>(pluginHost);
     addAndMakeVisible(*sessionViewComponent);
     sessionViewComponent->setVisible(false);
+    sessionViewComponent->stopTimer();  // don't run 30Hz timer when hidden
     sessionViewComponent->onTrackSelected = [this](int track) { selectTrack(track); };
 
     addAndMakeVisible(sessionViewButton);
@@ -970,11 +971,13 @@ MainComponent::MainComponent()
         showingSessionView = sessionViewButton.getToggleState();
         if (showingSessionView)
         {
+            sessionViewComponent->startTimerHz(30);
             sessionViewComponent->setVisible(true);
             if (timelineComponent) timelineComponent->setVisible(false);
         }
         else
         {
+            sessionViewComponent->stopTimer();
             sessionViewComponent->setVisible(false);
             if (timelineComponent) timelineComponent->setVisible(true);
         }
@@ -1323,6 +1326,11 @@ void MainComponent::timerCallback()
     // The visualizer's own 60Hz timer handles all rendering; avoid competing repaints.
     if (visualizerFullScreen)
     {
+#if JUCE_IOS
+        // Hide the caustic Metal layer so it doesn't compete with the visualizer's Metal layer
+        if (metalRendererAttached)
+            metalRenderer->setVisible(false);
+#endif
         // Still poll CPU/RAM so visualizers that use it (Heartbeat, BioSync) stay accurate
         float totalCpu = static_cast<float>(deviceManager.getCpuUsage() * 100.0);
         int ramMB = 0;
@@ -1596,12 +1604,12 @@ void MainComponent::timerCallback()
         }
     }
 
-    // Update CPU + RAM meter
+    // Update CPU + RAM meter — throttle to ~1Hz to reduce syscall overhead
+    static int cpuPollCounter = 0;
+    if (++cpuPollCounter >= 30) // ~once per second at 30Hz timer
     {
-        // Use audio device CPU usage — measures actual audio callback load
+        cpuPollCounter = 0;
         float totalCpu = static_cast<float>(deviceManager.getCpuUsage() * 100.0);
-
-        // Get RAM usage
         int ramMB = 0;
 #if JUCE_IOS || JUCE_MAC
         struct mach_task_basic_info info;
@@ -1673,7 +1681,7 @@ void MainComponent::timerCallback()
         // Repaint the CPU OLED area
         if (cpuLabel.isVisible())
             repaint(cpuLabel.getBounds().expanded(5));
-    }
+    } // end cpuPollCounter throttle
 
     // Heart rate observation is started automatically by the auth completion handler
     // No need to poll here
