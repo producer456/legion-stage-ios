@@ -20,6 +20,14 @@ public:
     ShaderToyComponent() { startTimerHz(60); }
     ~ShaderToyComponent() override { stopTimer(); }
 
+    void visibilityChanged() override
+    {
+        if (isVisible())
+            startTimerHz(60);
+        else
+            stopTimer();
+    }
+
     void pushSamples(const float* data, int numSamples)
     {
         for (int i = 0; i < numSamples; ++i)

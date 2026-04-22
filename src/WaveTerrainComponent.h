@@ -17,6 +17,14 @@ public:
     WaveTerrainComponent() { startTimerHz(60); }
     ~WaveTerrainComponent() override { stopTimer(); }
 
+    void visibilityChanged() override
+    {
+        if (isVisible())
+            startTimerHz(60);
+        else
+            stopTimer();
+    }
+
     void pushSamples(const float* data, int numSamples)
     {
         for (int i = 0; i < numSamples; ++i)

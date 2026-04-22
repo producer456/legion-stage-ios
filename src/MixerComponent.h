@@ -48,7 +48,7 @@ public:
     {
         if (!isVisible()) return;
         // Only repaint meter regions — skip full component redraw
-        int stripW = getWidth() / PluginHost::NUM_TRACKS;
+        int stripW = (PluginHost::NUM_TRACKS > 0) ? getWidth() / PluginHost::NUM_TRACKS : 1;
         int meterX = 4;
         int meterW = 30;
         for (int t = 0; t < PluginHost::NUM_TRACKS; ++t)
@@ -228,7 +228,7 @@ private:
 
     void handleMouse(const juce::MouseEvent& e)
     {
-        int stripW = getWidth() / PluginHost::NUM_TRACKS;
+        int stripW = (PluginHost::NUM_TRACKS > 0) ? getWidth() / PluginHost::NUM_TRACKS : 1;
         int t = e.x / stripW;
         if (t < 0 || t >= PluginHost::NUM_TRACKS) return;
 
@@ -248,6 +248,7 @@ private:
         int faderBot = h - 52;
         if (e.y >= faderTop && e.y <= faderBot)
         {
+            if (faderBot <= faderTop) return;
             float vol = 1.0f - (fy - static_cast<float>(faderTop)) / static_cast<float>(faderBot - faderTop);
             gp->volume.store(juce::jlimit(0.0f, 1.0f, vol));
             return;

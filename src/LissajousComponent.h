@@ -22,6 +22,14 @@ public:
 
     ~LissajousComponent() override { stopTimer(); }
 
+    void visibilityChanged() override
+    {
+        if (isVisible())
+            startTimerHz(60);
+        else
+            stopTimer();
+    }
+
     // ── Public controls ──
     void setZoom(float z) { zoom = juce::jlimit(0.5f, 10.0f, z); }
     float getZoom() const { return zoom; }

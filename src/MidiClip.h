@@ -38,7 +38,9 @@ struct AutomationLane
             else hi = mid - 1;
         }
 
-        float t = (float)(beat - points[lo].beat) / (float)(points[lo + 1].beat - points[lo].beat + 0.0001);
+        float denom = (float)(points[lo + 1].beat - points[lo].beat);
+        if (denom < 0.0001f) return points[lo].value;  // Same beat — return exact value
+        float t = (float)(beat - points[lo].beat) / denom;
         return points[lo].value + (points[lo + 1].value - points[lo].value) * t;
     }
 };

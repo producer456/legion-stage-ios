@@ -28,6 +28,14 @@ public:
 
     ~ProjectMComponent() override { stopTimer(); }
 
+    void visibilityChanged() override
+    {
+        if (isVisible())
+            startTimerHz(60);
+        else
+            stopTimer();
+    }
+
     // ── Public controls ──
     void nextScene()
     {

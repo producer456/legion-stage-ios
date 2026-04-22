@@ -202,7 +202,7 @@ bool Midi2Handler::processIncoming(const juce::MidiMessage& msg)
         juce::String inHex;
         for (int i = 0; i < size; ++i)
             inHex += juce::String::toHexString(data[i]) + " ";
-        juce::File("C:/dev/sequencer/ci-debug.log").appendText(
+        juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("legion-midi-ci.log").appendText(
             "IN  0x" + juce::String::toHexString(subId2) + " [" + juce::String(size) + "b]: " + inHex + "\n");
     }
 
@@ -474,7 +474,7 @@ void Midi2Handler::addCISysEx(uint8_t subId2, const uint8_t* destMuid,
     juce::String hexDump;
     for (auto b : sysex)
         hexDump += juce::String::toHexString(b) + " ";
-    juce::File("C:/dev/sequencer/ci-debug.log").appendText(
+    juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("legion-midi-ci.log").appendText(
         "OUT 0x" + juce::String::toHexString(subId2) + " [" + juce::String(sysex.size()) + "b]: " + hexDump + "\n");
 
     outgoingMidi.addEvent(juce::MidiMessage(sysex.getRawDataPointer(), sysex.size()), 0);

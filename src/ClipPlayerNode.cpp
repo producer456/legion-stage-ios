@@ -20,6 +20,7 @@ void ClipPlayerNode::prepareToPlay(double sampleRate, int /*samplesPerBlock*/)
 void ClipPlayerNode::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
 {
     int numSamples = buffer.getNumSamples();
+    const int numSlots = slotCount.load();
 
     // Send all-notes-off if flagged (stop/panic)
     if (sendAllNotesOff.exchange(false))
@@ -59,7 +60,7 @@ void ClipPlayerNode::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBu
     {
         // First check for explicitly armed slots
         int targetSlot = -1;
-        for (int i = 0; i < getNumSlots(); ++i)
+        for (int i = 0; i < numSlots; ++i)
         {
             if (slots[static_cast<size_t>(i)].state.load() == ClipSlot::Armed)
             {
@@ -91,16 +92,18 @@ void ClipPlayerNode::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBu
                     slot.audioClip->timelinePosition = ls;
                     slot.audioClip->lengthInBeats = engine.getLoopEnd() - ls;
                     recordStartBeat = ls;
-                    // Pre-allocate buffer for the loop length
+                    // Pre-allocate buffer for the loop length (at least 30s to avoid audio-thread realloc)
                     int loopSamples = static_cast<int>((slot.audioClip->lengthInBeats / (engine.getBpm() / 60.0)) * currentSampleRate);
-                    slot.audioClip->samples.setSize(2, loopSamples, false, true);
+                    int preAllocSamples = static_cast<int>(currentSampleRate * 30); // 30 seconds
+                    slot.audioClip->samples.setSize(2, juce::jmax(loopSamples, preAllocSamples), false, true);
                 }
                 else
                 {
                     slot.audioClip->timelinePosition = blockStartPos;
                     recordStartBeat = blockStartPos;
-                    // Start with 10 seconds buffer, will grow if needed
-                    slot.audioClip->samples.setSize(2, static_cast<int>(currentSampleRate * 10), false, true);
+                    // Pre-allocate 30 seconds upfront to avoid audio-thread reallocation
+                    int preAllocSamples = static_cast<int>(currentSampleRate * 30); // 30 seconds
+                    slot.audioClip->samples.setSize(2, preAllocSamples, false, true);
                 }
             }
             else
@@ -124,6 +127,7 @@ void ClipPlayerNode::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBu
             }
 
             slot.state.store(ClipSlot::Recording);
+            recordStartBpm = engine.getBpm();
             atomicRecordingSlot = targetSlot;
         }
     }
@@ -160,7 +164,7 @@ void ClipPlayerNode::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBu
 
         // Run clip playback for all playing and recording slots
         // Recording slots also play back so the user hears first-pass notes during loop recording
-        for (int i = 0; i < getNumSlots(); ++i)
+        for (int i = 0; i < numSlots; ++i)
         {
             auto slotState = slots[static_cast<size_t>(i)].state.load();
             if (slotState == ClipSlot::Playing || slotState == ClipSlot::Recording)
@@ -238,7 +242,9 @@ void ClipPlayerNode::processRecording(const juce::MidiBuffer& incomingMidi, int 
     auto& slot = slots[static_cast<size_t>(atomicRecordingSlot)];
     if (slot.clip == nullptr) { atomicRecordingSlot = -1; return; }
 
-    double bpm = engine.getBpm();
+    // Use the BPM captured when recording started so that timestamp calculation
+    // stays consistent even if the user changes tempo mid-recording.
+    double bpm = recordStartBpm;
     double beatsPerSample = (bpm / 60.0) / currentSampleRate;
     double beatsThisBlock = beatsPerSample * numSamples;
     // Use start-of-block position (engine already advanced past this block)
@@ -256,11 +262,21 @@ void ClipPlayerNode::processRecording(const juce::MidiBuffer& incomingMidi, int 
             if (beatTimestamp < 0.0) continue;
 
             // In loop mode the clip length is fixed to the loop region.
-            // Skip any notes that fall at or beyond the clip end — they belong
-            // to a second pass and would otherwise duplicate already-recorded content.
+            // Skip note-ons that fall at or beyond the clip end — they belong
+            // to a second pass. But wrap note-offs back so they close their note properly.
             bool loopMode = engine.isLoopEnabled() && engine.hasLoopRegion();
             if (loopMode && slot.clip->lengthInBeats > 0.0 && beatTimestamp >= slot.clip->lengthInBeats)
-                continue;
+            {
+                if (msg.isNoteOff())
+                {
+                    // Wrap note-off to just before loop end so the note gets closed
+                    beatTimestamp = slot.clip->lengthInBeats - 0.001;
+                }
+                else
+                {
+                    continue;
+                }
+            }
 
             msg.setTimeStamp(beatTimestamp);
             slot.clip->events.addEvent(msg);
@@ -337,6 +353,7 @@ void ClipPlayerNode::triggerSlot(int slotIndex)
             }
 
             slot.state.store(ClipSlot::Recording);
+            recordStartBpm = engine.getBpm();
             atomicRecordingSlot = slotIndex;
         }
         else
@@ -425,7 +442,7 @@ void ClipPlayerNode::closeOpenNotes(MidiClip& clip)
     }
     for (int key : openNotes)
     {
-        int ch = (key >> 8) & 0x1F;
+        int ch = (key >> 8) & 0xFF;
         int note = key & 0x7F;
         auto noteOff = juce::MidiMessage::noteOff(ch, note);
         noteOff.setTimeStamp(clip.lengthInBeats - 0.001);
@@ -490,17 +507,18 @@ void ClipPlayerNode::processAudioRecording(const juce::AudioBuffer<float>& input
         bool loopMode = engine.isLoopEnabled() && engine.hasLoopRegion();
         if (loopMode) return; // beyond loop — skip
 
-        int newSize = juce::jmax(needed + static_cast<int>(currentSampleRate), clip.samples.getNumSamples() * 2);
+        int newSize = juce::jmax(needed, clip.samples.getNumSamples() * 2);
         clip.samples.setSize(2, newSize, true);
     }
 
-    // Copy input audio into the clip buffer
+    // Copy input audio into the clip buffer (with bounds check to prevent overrun)
+    if (sampleOffset < 0 || sampleOffset >= clip.samples.getNumSamples()) return;
     int numCh = juce::jmin(inputBuffer.getNumChannels(), clip.samples.getNumChannels());
+    int copyLen = juce::jmin(numSamples, clip.samples.getNumSamples() - sampleOffset);
+    if (copyLen <= 0) return;
     for (int ch = 0; ch < numCh; ++ch)
     {
-        int copyLen = juce::jmin(numSamples, clip.samples.getNumSamples() - sampleOffset);
-        if (copyLen > 0)
-            clip.samples.copyFrom(ch, sampleOffset, inputBuffer, ch, 0, copyLen);
+        clip.samples.copyFrom(ch, sampleOffset, inputBuffer, ch, 0, copyLen);
     }
 
     // Update clip length
@@ -540,13 +558,12 @@ void ClipPlayerNode::processAudioClipPlayback(int slotIndex, juce::AudioBuffer<f
     int clipTotalSamples = clip.samples.getNumSamples();
 
     int numCh = juce::jmin(buffer.getNumChannels(), clip.samples.getNumChannels());
-    for (int s = 0; s < numSamples; ++s)
+    int startInClip = juce::jmax(0, clipSampleStart);
+    int startInBuffer = startInClip - clipSampleStart; // offset if clipSampleStart was negative
+    int copyLen = juce::jmin(numSamples - startInBuffer, clipTotalSamples - startInClip);
+    if (copyLen > 0)
     {
-        int clipSample = clipSampleStart + s;
-        if (clipSample >= 0 && clipSample < clipTotalSamples)
-        {
-            for (int ch = 0; ch < numCh; ++ch)
-                buffer.addSample(ch, s, clip.samples.getSample(ch, clipSample));
-        }
+        for (int ch = 0; ch < numCh; ++ch)
+            buffer.addFrom(ch, startInBuffer, clip.samples, ch, startInClip, copyLen);
     }
 }

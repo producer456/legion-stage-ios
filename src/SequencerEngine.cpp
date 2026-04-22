@@ -1,4 +1,5 @@
 #include "SequencerEngine.h"
+#include <cmath>
 
 SequencerEngine::SequencerEngine() {}
 
@@ -8,12 +9,12 @@ void SequencerEngine::play()
     if (countInEnabled.load() && recording.load() && !playing.load())
     {
         countingIn.store(true);
-        countInBeatsRemaining = 4.0; // 1 bar (4 beats)
+        countInBeatsRemaining.store(4.0); // 1 bar (4 beats)
         savedPosition = positionInBeats.load();
-        countInFirstClick = true;
+        countInFirstClick.store(true);
     }
 
-    playFirstClick = true;
+    playFirstClick.store(true);
     playing.store(true);
 }
 
@@ -22,7 +23,7 @@ void SequencerEngine::stop()
     playing.store(false);
     // Don't clear recording — let the user toggle it manually via the REC button
     countingIn.store(false);
-    countInBeatsRemaining = 0.0;
+    countInBeatsRemaining.store(0.0);
 }
 
 void SequencerEngine::toggleRecord()
@@ -47,20 +48,21 @@ void SequencerEngine::toggleLoop()
 
 void SequencerEngine::setLoopRegion(double startBeat, double endBeat)
 {
-    if (startBeat < endBeat)
+    if (!std::isfinite(startBeat) || !std::isfinite(endBeat)) return;
+    if (startBeat < 0.0) startBeat = 0.0;
+    if (endBeat <= startBeat) endBeat = startBeat + 1.0;
+
+    // Note: the two stores are not jointly atomic. We order them so the
+    // audio thread never sees a momentarily inverted (start > end) region.
+    if (endBeat > loopEnd.load())
     {
-        // Note: the two stores are not jointly atomic. We order them so the
-        // audio thread never sees a momentarily inverted (start > end) region.
-        if (endBeat > loopEnd.load())
-        {
-            loopEnd.store(endBeat);      // widen first
-            loopStart.store(startBeat);
-        }
-        else
-        {
-            loopStart.store(startBeat);  // shrink first
-            loopEnd.store(endBeat);
-        }
+        loopEnd.store(endBeat);      // widen first
+        loopStart.store(startBeat);
+    }
+    else
+    {
+        loopStart.store(startBeat);  // shrink first
+        loopEnd.store(endBeat);
     }
 }
 
@@ -86,16 +88,16 @@ double SequencerEngine::advancePosition(int numSamples, double sampleRate)
 
         // ALWAYS play metronome clicks during count-in (regardless of metronome toggle)
         // Fire first click immediately
-        if (countInFirstClick)
+        if (countInFirstClick.load())
         {
-            countInFirstClick = false;
-            clickFrequency = 1500.0; // downbeat
-            clickSamplesRemaining = static_cast<int>(sampleRate * 0.03);
-            clickPhase = 0.0;
+            countInFirstClick.store(false);
+            clickFrequency.store(1500.0); // downbeat
+            clickSamplesRemaining.store(static_cast<int>(sampleRate * 0.03));
+            clickPhase.store(0.0);
         }
         else
         {
-            double countInPos = 4.0 - countInBeatsRemaining;
+            double countInPos = 4.0 - countInBeatsRemaining.load();
             double prevPos = countInPos - beatsThisBlock;
 
             int oldBeat = static_cast<int>(std::floor(prevPos));
@@ -104,13 +106,13 @@ double SequencerEngine::advancePosition(int numSamples, double sampleRate)
             if (newBeat > oldBeat)
             {
                 bool isDownbeat = (newBeat % 4) == 0;
-                clickFrequency = isDownbeat ? 1500.0 : 1000.0;
-                clickSamplesRemaining = static_cast<int>(sampleRate * 0.03);
-                clickPhase = 0.0;
+                clickFrequency.store(isDownbeat ? 1500.0 : 1000.0);
+                clickSamplesRemaining.store(static_cast<int>(sampleRate * 0.03));
+                clickPhase.store(0.0);
             }
         }
 
-        if (countInBeatsRemaining <= 0.0)
+        if (countInBeatsRemaining.load() <= 0.0)
         {
             // Count-in finished — start actual playback/recording from saved position
             countingIn.store(false);
@@ -127,16 +129,16 @@ double SequencerEngine::advancePosition(int numSamples, double sampleRate)
     if (metronomeEnabled.load())
     {
         // Fire first click immediately when play starts on a beat
-        if (playFirstClick)
+        if (playFirstClick.load())
         {
-            playFirstClick = false;
+            playFirstClick.store(false);
             if (std::fmod(oldPos, 1.0) < 0.001)
             {
                 int beat = static_cast<int>(std::floor(oldPos));
                 bool isDownbeat = (beat % 4) == 0;
-                clickFrequency = isDownbeat ? 1500.0 : 1000.0;
-                clickSamplesRemaining = static_cast<int>(sampleRate * 0.02);
-                clickPhase = 0.0;
+                clickFrequency.store(isDownbeat ? 1500.0 : 1000.0);
+                clickSamplesRemaining.store(static_cast<int>(sampleRate * 0.02));
+                clickPhase.store(0.0);
             }
         }
 
@@ -146,14 +148,14 @@ double SequencerEngine::advancePosition(int numSamples, double sampleRate)
         if (newBeat > oldBeat)
         {
             bool isDownbeat = (newBeat % 4) == 0;
-            clickFrequency = isDownbeat ? 1500.0 : 1000.0;
-            clickSamplesRemaining = static_cast<int>(sampleRate * 0.02);
-            clickPhase = 0.0;
+            clickFrequency.store(isDownbeat ? 1500.0 : 1000.0);
+            clickSamplesRemaining.store(static_cast<int>(sampleRate * 0.02));
+            clickPhase.store(0.0);
         }
     }
     else
     {
-        playFirstClick = false;
+        playFirstClick.store(false);
     }
 
     // Loop wrap-around
@@ -176,28 +178,32 @@ void SequencerEngine::toggleMetronome()
 
 void SequencerEngine::renderMetronome(juce::AudioBuffer<float>& buffer, int numSamples, double sampleRate)
 {
-    if (clickSamplesRemaining <= 0) return;
+    int remaining = clickSamplesRemaining.load();
+    if (remaining <= 0) return;
 
-    int samplesToRender = juce::jmin(clickSamplesRemaining, numSamples);
-    double phaseInc = juce::MathConstants<double>::twoPi * clickFrequency / sampleRate;
+    int samplesToRender = juce::jmin(remaining, numSamples);
+    double freq = clickFrequency.load();
+    double phaseInc = juce::MathConstants<double>::twoPi * freq / sampleRate;
+    double phase = clickPhase.load();
 
     for (int s = 0; s < samplesToRender; ++s)
     {
-        double envelope = static_cast<double>(clickSamplesRemaining - s) /
-                          static_cast<double>(clickSamplesRemaining);
-        float sample = static_cast<float>(std::sin(clickPhase) * envelope * 0.4);
-        clickPhase += phaseInc;
+        double envelope = static_cast<double>(remaining - s) /
+                          static_cast<double>(remaining);
+        float sample = static_cast<float>(std::sin(phase) * envelope * 0.4);
+        phase += phaseInc;
 
         for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
             buffer.addSample(ch, s, sample);
     }
 
-    clickSamplesRemaining -= samplesToRender;
+    clickPhase.store(phase);
+    clickSamplesRemaining.store(remaining - samplesToRender);
 }
 
 void SequencerEngine::resetPosition()
 {
     positionInBeats.store(0.0);
-    clickSamplesRemaining = 0;
+    clickSamplesRemaining.store(0);
     countingIn.store(false);
 }

@@ -51,6 +51,17 @@ endif()
 
 juce_generate_juce_header(Sequencer)
 
+# ── Drum kit WAV resources ──
+# Collect all WAV files from each drum kit directory and add them to the bundle
+set(DRUMKIT_DIRS "CR-78" "TR-505" "LM-2")
+foreach(KIT ${DRUMKIT_DIRS})
+    file(GLOB KIT_WAVS "${CMAKE_CURRENT_SOURCE_DIR}/resources/drumkits/${KIT}/*.wav")
+    target_sources(Sequencer PRIVATE ${KIT_WAVS})
+    set_source_files_properties(${KIT_WAVS} PROPERTIES
+        MACOSX_PACKAGE_LOCATION "Resources/drumkits/${KIT}"
+    )
+endforeach()
+
 target_sources(Sequencer PRIVATE
     src/Main.cpp
     src/MainComponent.h
@@ -81,6 +92,7 @@ target_sources(Sequencer PRIVATE
     src/LiquidGlassLightLookAndFeel.h
     src/GlassOverlayLookAndFeel.h
     src/OceanGlassLookAndFeel.h
+    src/LaboratoryLookAndFeel.h
     src/DeviceMotion.h
     src/DeviceMotion.mm
     src/AUPresetHelper.h
@@ -123,6 +135,26 @@ target_sources(Sequencer PRIVATE
     src/Arpeggiator.h
     src/AudioExporter.h
     src/BuiltinSamplerProcessor.h
+    src/BuiltinJuno60Processor.h
+    src/Juno60/Oscillator.h
+    src/Juno60/Oscillator.cpp
+    src/Juno60/LadderFilter.h
+    src/Juno60/LadderFilter.cpp
+    src/Juno60/Envelope.h
+    src/Juno60/Envelope.cpp
+    src/Juno60/LFO.h
+    src/Juno60/LFO.cpp
+    src/Juno60/Chorus.h
+    src/Juno60/Chorus.cpp
+    src/Juno60/JunoVoice.h
+    src/Juno60/JunoVoice.cpp
+    src/Juno60/VoiceManager.h
+    src/Juno60/VoiceManager.cpp
+    src/Juno60/Arpeggiator.h
+    src/Juno60/Arpeggiator.cpp
+    src/Juno60/Presets.h
+    src/Juno60/Juno60Editor.h
+    src/Juno60/Juno60Editor.cpp
     src/SessionViewComponent.h
 )
 

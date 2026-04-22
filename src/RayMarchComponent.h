@@ -19,6 +19,14 @@ public:
     RayMarchComponent() { startTimerHz(60); }
     ~RayMarchComponent() override { stopTimer(); }
 
+    void visibilityChanged() override
+    {
+        if (isVisible())
+            startTimerHz(60);
+        else
+            stopTimer();
+    }
+
     void pushSamples(const float* data, int numSamples)
     {
         for (int i = 0; i < numSamples; ++i)
@@ -37,11 +45,12 @@ public:
         for (int i = 0; i < numSamples; ++i)
             sum += data[i] * data[i];
         float rms = std::sqrt(sum / static_cast<float>(juce::jmax(1, numSamples)));
-        smoothedRms = smoothedRms * 0.85f + rms * 0.15f;
+        smoothedRms.store(smoothedRms.load() * 0.85f + rms * 0.15f);
 
-        if (smoothedRms > avgRms * 1.8f && smoothedRms > 0.02f)
+        float cur = smoothedRms.load();
+        if (cur > avgRms.load() * 1.8f && cur > 0.02f)
             beatHit.store(true);
-        avgRms = avgRms * 0.95f + smoothedRms * 0.05f;
+        avgRms.store(avgRms.load() * 0.95f + cur * 0.05f);
     }
 
     // Cycle through SDF scene presets
@@ -304,8 +313,8 @@ private:
     static constexpr int numPresets = 4;
 
     // Beat detection
-    float smoothedRms = 0.0f;
-    float avgRms = 0.0f;
+    std::atomic<float> smoothedRms { 0.0f };
+    std::atomic<float> avgRms { 0.0f };
     std::atomic<bool> beatHit { false };
     float beatIntensity = 0.0f;
 

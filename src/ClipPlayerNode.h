@@ -83,6 +83,17 @@ public:
     // When true, also sends allSoundOff (CC 120) to kill tails instantly (panic only)
     std::atomic<bool> panicKill { false };
 
+    // Synchronously flush note-offs into a provided MidiBuffer (for use before MIDI disconnect).
+    // This avoids the race where the async sendAllNotesOff flag might not be processed
+    // if the graph topology changes before the next processBlock call.
+    void flushNoteOffs(juce::MidiBuffer& midi)
+    {
+        killActiveNotes(midi, 0, true);
+        arpeggiator.reset();
+        lastPositionInBeats = -1.0;
+        std::fill(wasInsideClip.begin(), wasInsideClip.end(), false);
+    }
+
     // Audio track mode — set by PluginHost when track type changes
     std::atomic<bool> audioMode { false };
 
@@ -103,6 +114,7 @@ private:
 
     // Recording state
     double recordStartBeat = 0.0;
+    double recordStartBpm = 120.0;
 
     // Track active notes so we can send explicit note-offs on loop wrap
     // First dimension is channel (0-15), second is note number (0-127)

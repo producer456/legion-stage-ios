@@ -1052,7 +1052,21 @@ MainComponent::MainComponent()
     panLabel.setFont(juce::Font(12.0f));
 
     addAndMakeVisible(saveButton);
-    saveButton.onClick = [this] { saveProject(); };
+    saveButton.onClick = [this] {
+        if (currentProjectFile == juce::File())
+        {
+            saveProject(); // No file yet — go straight to Save As
+            return;
+        }
+        juce::PopupMenu menu;
+        menu.addItem(1, "Save (" + currentProjectFile.getFileNameWithoutExtension() + ")");
+        menu.addItem(2, "Save As...");
+        menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(saveButton),
+            [this](int result) {
+                if (result == 1) saveProjectQuick();
+                else if (result == 2) saveProject();
+            });
+    };
 
     addAndMakeVisible(loadButton);
     loadButton.onClick = [this] { loadProject(); };
@@ -2012,21 +2026,6 @@ void MainComponent::scanPlugins()
     fxDescriptions.clear();
     pluginSelector.addItem("-- Plugin --", 1);
 
-    // Built-in sampler always available as first option
-    {
-        juce::PluginDescription samplerDesc;
-        samplerDesc.name = "Built-in Sampler";
-        samplerDesc.pluginFormatName = "Internal";
-        samplerDesc.category = "Instrument";
-        samplerDesc.manufacturerName = "Legion Stage";
-        samplerDesc.isInstrument = true;
-        samplerDesc.numInputChannels = 0;
-        samplerDesc.numOutputChannels = 2;
-        samplerDesc.fileOrIdentifier = "legion-stage-builtin-sampler";
-        pluginDescriptions.add(samplerDesc);
-        pluginSelector.addItem("Built-in Sampler", 2);
-    }
-
 #if JUCE_IOS
     // Get native AU instrument identifiers for definitive categorization
     auto nativeAUs = AUScanner::scanAllAudioUnits();
@@ -2036,7 +2035,23 @@ void MainComponent::scanPlugins()
             instrumentIdentifiers.add(info.identifier);
 #endif
 
-    int id = 3; // 1 = "-- Plugin --", 2 = "Built-in Sampler"
+    int id = 2; // 1 = "-- Plugin --"
+
+    // Built-in Juno-60 synth
+    {
+        juce::PluginDescription junoDesc;
+        junoDesc.name = "Juno-60";
+        junoDesc.pluginFormatName = "Internal";
+        junoDesc.category = "Instrument";
+        junoDesc.manufacturerName = "Legion Stage";
+        junoDesc.isInstrument = true;
+        junoDesc.numInputChannels = 0;
+        junoDesc.numOutputChannels = 2;
+        junoDesc.fileOrIdentifier = "legion-stage-builtin-juno60";
+        pluginDescriptions.add(junoDesc);
+        pluginSelector.addItem("Juno-60", id++);
+    }
+
     for (const auto& desc : pluginHost.getPluginList().getTypes())
     {
         bool instrument = desc.isInstrument;
@@ -2129,29 +2144,6 @@ void MainComponent::loadSelectedPlugin()
 
     if (ok)
     {
-        // If built-in sampler was just loaded, offer to load a sample
-        if (pluginDescriptions[idx].fileOrIdentifier == "legion-stage-builtin-sampler")
-        {
-            auto chooser = std::make_shared<juce::FileChooser>(
-                "Load Sample",
-                juce::File::getSpecialLocation(juce::File::userDocumentsDirectory),
-                "*.wav;*.aiff;*.ogg;*.mp3");
-
-            chooser->launchAsync(juce::FileBrowserComponent::openMode,
-                [this, chooser](const juce::FileChooser& fc) {
-                    auto file = fc.getResult();
-                    if (file == juce::File()) return;
-
-                    auto& track = pluginHost.getTrack(selectedTrackIndex);
-                    if (auto* sampler = dynamic_cast<BuiltinSamplerProcessor*>(track.plugin))
-                    {
-                        sampler->loadSample(file);
-                        statusLabel.setText("Sample: " + file.getFileNameWithoutExtension(),
-                                            juce::dontSendNotification);
-                    }
-                });
-        }
-
         updateTrackDisplay();
 #if JUCE_IOS
         // Show plugin info in the beat OLED briefly
@@ -3237,6 +3229,10 @@ void MainComponent::performCapture()
     // reading slots the MIDI thread might be actively writing to.
     int wp = captureWritePos.load(std::memory_order_acquire);
     int safeCount = juce::jmin(count, CAPTURE_RING_SIZE - 1);  // leave 1 slot margin
+    if (safeCount <= 0) {
+        statusLabel.setText("Nothing to capture", juce::dontSendNotification);
+        return;
+    }
     auto allEvents = extractRingBuffer(captureRing, wp, safeCount);
 
     // ── 2. Phrase Segmentation — find the musical idea ──
@@ -3358,10 +3354,15 @@ void MainComponent::performCapture()
         {
             double shift = lengthInBeats;
             evt->message.setTimeStamp(evt->message.getTimeStamp() + shift);
-            // Also wrap the paired note-off to keep the pair together
+            // Also wrap the paired note-off, but only if it's also negative.
+            // If note-off is already positive (e.g. note-on at -0.5, note-off at 0.5),
+            // shifting it would push it beyond the clip end.
             if (evt->message.isNoteOn() && evt->noteOffObject != nullptr)
-                evt->noteOffObject->message.setTimeStamp(
-                    evt->noteOffObject->message.getTimeStamp() + shift);
+            {
+                if (evt->noteOffObject->message.getTimeStamp() < 0.0)
+                    evt->noteOffObject->message.setTimeStamp(
+                        evt->noteOffObject->message.getTimeStamp() + shift);
+            }
         }
     }
     beatEvents.updateMatchedPairs();
@@ -3692,6 +3693,18 @@ void MainComponent::restoreSnapshot(const ProjectSnapshot& snap)
     if (timelineComponent) timelineComponent->repaint();
 }
 
+void MainComponent::saveProjectQuick()
+{
+    if (currentProjectFile != juce::File())
+    {
+        saveProjectToFile(currentProjectFile);
+    }
+    else
+    {
+        saveProject(); // No previous save — fall through to Save As
+    }
+}
+
 void MainComponent::saveProject()
 {
     auto chooser = std::make_shared<juce::FileChooser>("Save Project",
@@ -3703,16 +3716,30 @@ void MainComponent::saveProject()
         auto file = fc.getResult();
         if (file == juce::File()) return;
 
+        auto fileName = file.getFileNameWithoutExtension() + ".seqproj";
+        auto saveFile = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory)
+            .getChildFile(fileName);
+
+        saveProjectToFile(saveFile);
+    });
+}
+
+void MainComponent::saveProjectToFile(const juce::File& saveFile)
+{
         // Stop recording to prevent data race on clip events
         auto& eng = pluginHost.getEngine();
         if (eng.isRecording()) eng.toggleRecord();
 
         auto xml = std::make_unique<juce::XmlElement>("SequencerProject");
+        xml->setAttribute("version", 2);
         xml->setAttribute("bpm", eng.getBpm());
         xml->setAttribute("loopEnabled", eng.isLoopEnabled());
         xml->setAttribute("loopStart", eng.getLoopStart());
         xml->setAttribute("loopEnd", eng.getLoopEnd());
         xml->setAttribute("metronome", eng.isMetronomeOn());
+        xml->setAttribute("countIn", countInButton.getToggleState());
+        xml->setAttribute("gridSelector", gridSelector.getSelectedId());
+        xml->setAttribute("position", eng.getPositionInBeats());
         xml->setAttribute("selectedTrack", selectedTrackIndex);
         xml->setAttribute("theme", static_cast<int>(themeManager.getCurrentTheme()));
 
@@ -3871,19 +3898,17 @@ void MainComponent::saveProject()
             }
         }
 
-        // Always save to app documents directory (reliable on iOS sandbox)
-        auto fileName = file.getFileNameWithoutExtension() + ".seqproj";
-        auto saveFile = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory)
-            .getChildFile(fileName);
         saveFile.getParentDirectory().createDirectory();
 
         auto xmlString = xml->toString();
 
         if (saveFile.replaceWithText(xmlString))
-            statusLabel.setText("Saved: " + fileName, juce::dontSendNotification);
+        {
+            currentProjectFile = saveFile;
+            statusLabel.setText("Saved: " + saveFile.getFileNameWithoutExtension(), juce::dontSendNotification);
+        }
         else
             statusLabel.setText("SAVE FAILED", juce::dontSendNotification);
-    });
 }
 
 void MainComponent::loadProject()
@@ -3896,6 +3921,8 @@ void MainComponent::loadProject()
     {
         auto file = fc.getResult();
         if (file == juce::File()) return;
+
+        currentProjectFile = file;
 
         // Stop transport and disconnect audio BEFORE unloading plugins
         auto& eng = pluginHost.getEngine();
@@ -3984,6 +4011,17 @@ void MainComponent::loadProject()
                 eng.toggleMetronome();
             metronomeButton.setToggleState(metOn, juce::dontSendNotification);
         }
+
+        // Restore count-in state
+        countInButton.setToggleState(xml->getBoolAttribute("countIn", false), juce::dontSendNotification);
+
+        // Restore grid selector
+        if (xml->hasAttribute("gridSelector"))
+            gridSelector.setSelectedId(xml->getIntAttribute("gridSelector", 1), juce::dontSendNotification);
+
+        // Restore transport position
+        if (xml->hasAttribute("position"))
+            eng.setPosition(xml->getDoubleAttribute("position", 0.0));
 
         // Restore selected track
         if (xml->hasAttribute("selectedTrack"))
@@ -4154,7 +4192,7 @@ void MainComponent::loadProject()
                 }
 
                 slot.clip->events.updateMatchedPairs();
-                slot.state.store(ClipSlot::Stopped);
+                slot.state.store(ClipSlot::Playing);
             }
 
             // Load AudioClips
@@ -4188,7 +4226,7 @@ void MainComponent::loadProject()
                             slot.audioClip->samples.setSample(ch, si, *ptr++);
                 }
 
-                slot.state.store(ClipSlot::Stopped);
+                slot.state.store(ClipSlot::Playing);
             }
 
             // Load automation lanes
@@ -6895,14 +6933,20 @@ bool MainComponent::keyPressed(const juce::KeyPress& key)
     if (keyCode >= 'a' && keyCode <= 'z') keyCode -= 32;
 
     if (keyCode == 'Z') {
+        // Send note-offs at old octave for all held keys
         for (int k : keysCurrentlyDown) { int s = keyToNote(k); if (s >= 0) { int n = (computerKeyboardOctave * 12) + s; if (n >= 0 && n <= 127) sendNoteOff(n); } }
-        keysCurrentlyDown.clear();
-        computerKeyboardOctave = juce::jmax(0, computerKeyboardOctave - 1); updateStatusLabel(); return true;
+        computerKeyboardOctave = juce::jmax(0, computerKeyboardOctave - 1);
+        // Send note-ons at new octave for all still-held keys
+        for (int k : keysCurrentlyDown) { int s = keyToNote(k); if (s >= 0) { int n = (computerKeyboardOctave * 12) + s; if (n >= 0 && n <= 127) sendNoteOn(n); } }
+        updateStatusLabel(); return true;
     }
     if (keyCode == 'X') {
+        // Send note-offs at old octave for all held keys
         for (int k : keysCurrentlyDown) { int s = keyToNote(k); if (s >= 0) { int n = (computerKeyboardOctave * 12) + s; if (n >= 0 && n <= 127) sendNoteOff(n); } }
-        keysCurrentlyDown.clear();
-        computerKeyboardOctave = juce::jmin(8, computerKeyboardOctave + 1); updateStatusLabel(); return true;
+        computerKeyboardOctave = juce::jmin(8, computerKeyboardOctave + 1);
+        // Send note-ons at new octave for all still-held keys
+        for (int k : keysCurrentlyDown) { int s = keyToNote(k); if (s >= 0) { int n = (computerKeyboardOctave * 12) + s; if (n >= 0 && n <= 127) sendNoteOn(n); } }
+        updateStatusLabel(); return true;
     }
 
     return false;

@@ -23,6 +23,14 @@ public:
 
     ~HeartbeatComponent() override { stopTimer(); }
 
+    void visibilityChanged() override
+    {
+        if (isVisible())
+            startTimerHz(60);
+        else
+            stopTimer();
+    }
+
     // Called from audio thread — push mono samples to extract level
     void pushSamples(const float* data, int numSamples)
     {

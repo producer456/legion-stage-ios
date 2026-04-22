@@ -2,6 +2,7 @@
 
 #include <JuceHeader.h>
 #include <atomic>
+#include <cmath>
 
 class SequencerEngine
 {
@@ -20,7 +21,7 @@ public:
     double getBpm() const { return bpm.load(); }
     double getPositionInBeats() const { return positionInBeats.load(); }
     bool isInCountIn() const { return countingIn.load(); }
-    double getCountInBeatsRemaining() const { return countInBeatsRemaining; }
+    double getCountInBeatsRemaining() const { return countInBeatsRemaining.load(); }
 
     // Called from audio thread each block
     double advancePosition(int numSamples, double sampleRate);
@@ -46,7 +47,10 @@ public:
 
     // Position control
     void resetPosition();
-    void setPosition(double beats) { positionInBeats.store(beats); }
+    void setPosition(double beats) {
+        if (!std::isfinite(beats) || beats < 0.0) beats = 0.0;
+        positionInBeats.store(beats);
+    }
 
 private:
     std::atomic<bool> playing { false };
@@ -56,18 +60,18 @@ private:
 
     // Metronome
     std::atomic<bool> metronomeEnabled { false };
-    double clickPhase = 0.0;
-    int clickSamplesRemaining = 0;
-    double clickFrequency = 1000.0;
+    std::atomic<double> clickPhase { 0.0 };
+    std::atomic<int> clickSamplesRemaining { 0 };
+    std::atomic<double> clickFrequency { 1000.0 };
 
     // Count-in (4 bars = 16 beats before recording starts)
     std::atomic<bool> countInEnabled { false };
     std::atomic<bool> countingIn { false };
     std::atomic<double> countInBeatsRemaining { 0.0 };
     double savedPosition = 0.0;  // where to start after count-in
-    bool countInFirstClick = false;  // fire click on first audio block of count-in
+    std::atomic<bool> countInFirstClick { false };  // fire click on first audio block of count-in
 
-    bool playFirstClick = false;  // fire metronome on first audio block of play
+    std::atomic<bool> playFirstClick { false };  // fire metronome on first audio block of play
 
     // Loop
     std::atomic<bool> loopEnabled { false };

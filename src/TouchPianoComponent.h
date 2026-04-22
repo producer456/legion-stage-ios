@@ -28,7 +28,18 @@ public:
         touchNotes.clear();
     }
 
-    void setOctave(int oct) { baseOctave = juce::jlimit(0, 7, oct); repaint(); }
+    void setOctave(int oct)
+    {
+        oct = juce::jlimit(0, 7, oct);
+        if (oct == baseOctave) return;
+        // Send note-offs for all currently active notes before changing octave
+        for (int n : activeNotes)
+            if (onNote) onNote(n, false);
+        activeNotes.clear();
+        touchNotes.clear();
+        baseOctave = oct;
+        repaint();
+    }
     int getOctave() const { return baseOctave; }
     void octaveUp()   { setOctave(baseOctave + 1); }
     void octaveDown() { setOctave(baseOctave - 1); }

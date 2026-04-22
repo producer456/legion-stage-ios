@@ -27,6 +27,14 @@ public:
 
     ~GeissComponent() override { stopTimer(); }
 
+    void visibilityChanged() override
+    {
+        if (isVisible())
+            startTimerHz(60);
+        else
+            stopTimer();
+    }
+
     // ── Public controls ──
 
     // Cycle through the 6 waveform drawing modes

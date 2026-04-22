@@ -1,5 +1,8 @@
 #include "PluginHost.h"
+#include <cmath>
+#include <atomic>
 #include "AUScanner.h"
+#include "BuiltinJuno60Processor.h"
 #include "SpectrumComponent.h"
 #include "LissajousComponent.h"
 #include "WaveTerrainComponent.h"
@@ -11,7 +14,6 @@
 #include "FluidSimComponent.h"
 #include "RayMarchComponent.h"
 #include "BioResonanceComponent.h"
-#include "BuiltinSamplerProcessor.h"
 
 
 PluginHost::PluginHost()
@@ -194,14 +196,20 @@ bool PluginHost::loadPlugin(int trackIndex, const juce::PluginDescription& desc,
 
     unloadPlugin(trackIndex);
 
-    // Handle built-in sampler
-    if (desc.fileOrIdentifier == "legion-stage-builtin-sampler")
+    // Built-in Juno-60 synth — no external plugin loading needed
+    if (desc.fileOrIdentifier == "legion-stage-builtin-juno60")
     {
         auto& track = tracks[static_cast<size_t>(trackIndex)];
-        auto sampler = std::make_unique<BuiltinSamplerProcessor>();
-        sampler->prepareToPlay(storedSampleRate, storedBlockSize);
-        track.plugin = sampler.get();
-        track.pluginNode = addNode(std::move(sampler));
+        auto juno = std::make_unique<BuiltinJuno60Processor>();
+        juno->prepareToPlay(storedSampleRate, storedBlockSize);
+        track.pluginNode = addNode(std::move(juno));
+        if (track.pluginNode != nullptr)
+            track.plugin = track.pluginNode->getProcessor();
+        else {
+            track.plugin = nullptr;
+            errorMsg = "Failed to add Juno-60 to audio graph";
+            return false;
+        }
         rewireTrack(trackIndex);
         return true;
     }
@@ -209,26 +217,29 @@ bool PluginHost::loadPlugin(int trackIndex, const juce::PluginDescription& desc,
 #if JUCE_IOS
     // AUv3 plugins on iOS REQUIRE async instantiation
     std::unique_ptr<juce::AudioPluginInstance> instance;
-    bool finished = false;
+    std::atomic<bool> finished{false};
 
     formatManager.createPluginInstanceAsync(desc, storedSampleRate, storedBlockSize,
         [&](std::unique_ptr<juce::AudioPluginInstance> result, const juce::String& err)
         {
             instance = std::move(result);
             if (err.isNotEmpty()) errorMsg = err;
-            finished = true;
+            finished.store(true);
         });
 
     // Wait for async completion — pump the run loop on iOS
     auto deadline = juce::Time::getMillisecondCounter() + 15000;
-    while (!finished && juce::Time::getMillisecondCounter() < deadline)
+    while (!finished.load() && juce::Time::getMillisecondCounter() < deadline)
     {
         AUScanner::pumpRunLoop(100);
     }
 
-    if (!finished)
+    if (!finished.load())
     {
         errorMsg = "Plugin instantiation timed out";
+        auto& track = tracks[static_cast<size_t>(trackIndex)];
+        track.plugin = nullptr;
+        track.pluginNode = nullptr;
         return false;
     }
     if (instance == nullptr)
@@ -243,13 +254,14 @@ bool PluginHost::loadPlugin(int trackIndex, const juce::PluginDescription& desc,
 #endif
 
     auto& track = tracks[static_cast<size_t>(trackIndex)];
-    track.plugin = instance.get();
     track.pluginNode = addNode(std::move(instance));
 
-    if (track.pluginNode == nullptr)
+    if (track.pluginNode != nullptr)
+        track.plugin = track.pluginNode->getProcessor();
+    else
     {
         track.plugin = nullptr;
-        errorMsg = "Failed to add plugin to graph";
+        errorMsg = "Failed to add plugin to audio graph";
         return false;
     }
 
@@ -352,7 +364,7 @@ void PluginHost::connectTrackAudio(int trackIndex)
 {
     auto& track = tracks[static_cast<size_t>(trackIndex)];
 
-    juce::AudioProcessorGraph::NodeID lastNodeID;
+    juce::AudioProcessorGraph::NodeID lastNodeID{0};
 
     if (track.type == TrackType::Audio)
     {
@@ -372,6 +384,9 @@ void PluginHost::connectTrackAudio(int trackIndex)
                         { track.pluginNode->nodeID, AudioProcessorGraph::midiChannelIndex } });
         lastNodeID = track.pluginNode->nodeID;
     }
+
+    // Safety check: lastNodeID must have been assigned a valid value
+    if (lastNodeID.uid == 0) return;
 
     for (int fx = 0; fx < Track::NUM_FX_SLOTS; ++fx)
     {
@@ -398,21 +413,28 @@ bool PluginHost::loadFx(int trackIndex, int slotIndex, const juce::PluginDescrip
 #if JUCE_IOS
     // AUv3 plugins on iOS REQUIRE async instantiation
     std::unique_ptr<juce::AudioPluginInstance> instance;
-    bool finished = false;
+    std::atomic<bool> finished{false};
 
     formatManager.createPluginInstanceAsync(desc, storedSampleRate, storedBlockSize,
         [&](std::unique_ptr<juce::AudioPluginInstance> result, const juce::String& err)
         {
             instance = std::move(result);
             if (err.isNotEmpty()) errorMsg = err;
-            finished = true;
+            finished.store(true);
         });
 
     auto deadline = juce::Time::getMillisecondCounter() + 15000;
-    while (!finished && juce::Time::getMillisecondCounter() < deadline)
+    while (!finished.load() && juce::Time::getMillisecondCounter() < deadline)
         AUScanner::pumpRunLoop(100);
 
-    if (!finished) { errorMsg = "FX instantiation timed out"; return false; }
+    if (!finished.load())
+    {
+        errorMsg = "FX instantiation timed out";
+        auto& track = tracks[static_cast<size_t>(trackIndex)];
+        track.fxSlots[slotIndex].processor = nullptr;
+        track.fxSlots[slotIndex].node = nullptr;
+        return false;
+    }
     if (instance == nullptr) { if (errorMsg.isEmpty()) errorMsg = "FX instance is null"; return false; }
 #else
     auto instance = formatManager.createPluginInstance(desc, storedSampleRate, storedBlockSize, errorMsg);
@@ -420,14 +442,15 @@ bool PluginHost::loadFx(int trackIndex, int slotIndex, const juce::PluginDescrip
 #endif
 
     auto& track = tracks[static_cast<size_t>(trackIndex)];
-    track.fxSlots[slotIndex].processor = instance.get();
     track.fxSlots[slotIndex].node = addNode(std::move(instance));
     track.fxSlots[slotIndex].bypassed = false;
 
-    if (track.fxSlots[slotIndex].node == nullptr)
+    if (track.fxSlots[slotIndex].node != nullptr)
+        track.fxSlots[slotIndex].processor = track.fxSlots[slotIndex].node->getProcessor();
+    else
     {
         track.fxSlots[slotIndex].processor = nullptr;
-        errorMsg = "Failed to add FX to graph";
+        errorMsg = "Failed to add FX to audio graph";
         return false;
     }
 
@@ -484,7 +507,12 @@ void PluginHost::setSelectedTrack(int index)
         {
             if (!oldTrack.clipPlayer->armLocked.load())
                 oldTrack.clipPlayer->armed.store(false);
-            // Kill any notes from live MIDI input before disconnecting
+            // Synchronously flush note-offs before MIDI disconnect.
+            // The async sendAllNotesOff flag can race with updateMidiRouting()
+            // which rebuilds graph topology, so we flush directly instead.
+            juce::MidiBuffer noteOffBuf;
+            oldTrack.clipPlayer->flushNoteOffs(noteOffBuf);
+            // Also set the flag as a safety net for the next processBlock
             oldTrack.clipPlayer->sendAllNotesOff.store(true);
         }
     }
@@ -632,7 +660,7 @@ void PluginHost::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer
                             continue;
 
                         float val = lane->getValueAtBeat(beat);
-                        if (val >= 0.0f)
+                        if (val >= 0.0f && val <= 1.0f && std::isfinite(val))
                             params[lane->parameterIndex]->setValue(val);
                     }
                 }
@@ -721,7 +749,8 @@ void PluginHost::processBlockOffline(juce::AudioBuffer<float>& buffer, juce::Mid
                 if (lane->parameterIndex >= 0 && lane->parameterIndex < params.size())
                 {
                     float val = lane->getValueAtBeat(static_cast<float>(beat));
-                    params[lane->parameterIndex]->setValue(val);
+                    if (val >= 0.0f && val <= 1.0f && std::isfinite(val))
+                        params[lane->parameterIndex]->setValue(val);
                 }
             }
         }

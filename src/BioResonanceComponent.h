@@ -102,6 +102,14 @@ public:
 
     ~BioResonanceComponent() override { stopTimer(); }
 
+    void visibilityChanged() override
+    {
+        if (isVisible())
+            startTimerHz(60);
+        else
+            stopTimer();
+    }
+
     void resized() override
     {
         infoButton.setBounds(getWidth() - 34, 4, 30, 30);

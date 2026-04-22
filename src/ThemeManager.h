@@ -13,6 +13,7 @@
 #include "LiquidGlassLightLookAndFeel.h"
 #include "GlassOverlayLookAndFeel.h"
 #include "OceanGlassLookAndFeel.h"
+#include "LaboratoryLookAndFeel.h"
 
 class ThemeManager
 {
@@ -29,6 +30,7 @@ public:
         LiquidGlassLight,
         GlassOverlay,
         OceanGlass,
+        Laboratory,
         NumThemes
     };
 
@@ -44,6 +46,7 @@ public:
         themes[LiquidGlassLight] = std::make_unique<LiquidGlassLightLookAndFeel>();
         themes[GlassOverlay] = std::make_unique<GlassOverlayLookAndFeel>();
         themes[OceanGlass] = std::make_unique<OceanGlassLookAndFeel>();
+        themes[Laboratory] = std::make_unique<LaboratoryLookAndFeel>();
     }
 
     // Apply the given theme to a component tree
@@ -63,7 +66,7 @@ public:
 
     Theme getCurrentTheme() const { return currentTheme; }
 
-    bool isGlassOverlay() const { return currentTheme == GlassOverlay || currentTheme == OceanGlass || currentTheme == LiquidGlassLight; }
+    bool isGlassOverlay() const { return currentTheme == GlassOverlay || currentTheme == OceanGlass || currentTheme == LiquidGlassLight || currentTheme == Laboratory; }
     DawLookAndFeel* getLookAndFeel() { return themes[currentTheme].get(); }
     const DawTheme& getColors() const { return themes[currentTheme]->getTheme(); }
 
@@ -81,6 +84,7 @@ public:
             case LiquidGlassLight: return "Glass Light";
             case GlassOverlay:     return "Glass Overlay";
             case OceanGlass:       return "Oceania";
+            case Laboratory:       return "Laboratory";
             default:               return "Unknown";
         }
     }

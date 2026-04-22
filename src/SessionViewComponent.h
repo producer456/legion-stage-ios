@@ -29,8 +29,8 @@ public:
 
         float headerH = 28.0f;
         float sceneW = 50.0f;
-        float trackW = (bounds.getWidth() - sceneW) / static_cast<float>(visibleTracks);
-        float rowH = (bounds.getHeight() - headerH) / static_cast<float>(VISIBLE_ROWS);
+        float trackW = (visibleTracks > 0) ? (bounds.getWidth() - sceneW) / static_cast<float>(visibleTracks) : 1.0f;
+        float rowH = (VISIBLE_ROWS > 0) ? (bounds.getHeight() - headerH) / static_cast<float>(VISIBLE_ROWS) : 1.0f;
 
         // ── Track Headers ──
         for (int t = 0; t < visibleTracks; ++t)

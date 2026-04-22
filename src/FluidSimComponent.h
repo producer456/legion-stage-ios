@@ -27,6 +27,14 @@ public:
     FluidSimComponent() { startTimerHz(60); }
     ~FluidSimComponent() override { stopTimer(); }
 
+    void visibilityChanged() override
+    {
+        if (isVisible())
+            startTimerHz(60);
+        else
+            stopTimer();
+    }
+
     // ── Public controls ──
 
     void cycleColorMode() { colorMode = (colorMode + 1) % NUM_COLOR_MODES; }

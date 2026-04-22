@@ -23,6 +23,14 @@ public:
 
     ~SpectrumComponent() override { stopTimer(); }
 
+    void visibilityChanged() override
+    {
+        if (isVisible())
+            startTimerHz(60);
+        else
+            stopTimer();
+    }
+
     // ── Public controls ──
     void setDecaySpeed(float d) { decaySpeed = juce::jlimit(0.5f, 0.99f, d); }
     float getDecaySpeed() const { return decaySpeed; }

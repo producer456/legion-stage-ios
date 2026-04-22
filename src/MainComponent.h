@@ -27,7 +27,6 @@
 #include "FluidSimComponent.h"
 #include "RayMarchComponent.h"
 #include "AudioExporter.h"
-#include "BuiltinSamplerProcessor.h"
 #include "SessionViewComponent.h"
 
 class PluginEditorWindow : public juce::DocumentWindow, public juce::ComponentListener
@@ -324,7 +323,10 @@ private:
     void trimUndoHistoryByMemory();
     void restoreSnapshot(const ProjectSnapshot& snap);
     void saveProject();
+    void saveProjectQuick();
+    void saveProjectToFile(const juce::File& file);
     void loadProject();
+    juce::File currentProjectFile;
 
 
     // ── Chord Detector ──

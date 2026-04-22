@@ -22,6 +22,10 @@ public:
     Mode getMode() const { return mode.load(); }
     void cycleMode()
     {
+        // Request note-kill before mode change so the currently sounding
+        // arp note gets a note-off on the audio thread before the new
+        // mode's sequence replaces it — prevents stuck notes.
+        noteKillRequested.store(true);
         int m = static_cast<int>(mode.load());
         mode.store(static_cast<Mode>((m + 1) % NUM_MODES));
     }
@@ -59,6 +63,13 @@ public:
     void process(juce::MidiBuffer& midi, int numSamples, double bpm, double beatPosition, double sampleRate)
     {
         processReset();
+
+        // Kill current note if requested (e.g. mode change from UI thread)
+        if (noteKillRequested.exchange(false))
+        {
+            if (currentNoteOn >= 0)
+                killCurrentNote(midi, 0);
+        }
 
         if (!enabled.load() || bpm <= 0 || sampleRate <= 0)
         {
@@ -244,6 +255,8 @@ private:
 
     // Thread-safe reset flag
     std::atomic<bool> resetRequested { false };
+    // Thread-safe note-kill flag (set by UI thread on mode change, processed on audio thread)
+    std::atomic<bool> noteKillRequested { false };
 
     // Atomic controls
     std::atomic<bool> enabled { false };
