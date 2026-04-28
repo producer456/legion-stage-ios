@@ -7963,3 +7963,28 @@ void MainComponent::updateMetalCaustics()
 }
 
 #endif // JUCE_IOS
+
+// ─── Per-device MIDI output ───────────────────────────────────────
+//
+// Substring-matched against installed MIDI output device names.  First
+// match wins; result is cached so subsequent calls are cheap.  Used by
+// controller integrations (Launchkey MK4, Push, etc.) to send LED /
+// SysEx feedback to a SPECIFIC endpoint without colliding with the
+// global midiOutput slot reserved for MIDI 2.0 CI replies.
+juce::MidiOutput* MainComponent::outputForDevice(const juce::String& nameContains)
+{
+    auto it = deviceOutputs.find(nameContains);
+    if (it != deviceOutputs.end()) return it->second.get();
+
+    for (auto& dev : juce::MidiOutput::getAvailableDevices())
+    {
+        if (dev.name.containsIgnoreCase(nameContains))
+        {
+            auto out = juce::MidiOutput::openDevice(dev.identifier);
+            auto* raw = out.get();
+            deviceOutputs.emplace(nameContains, std::move(out));
+            return raw;
+        }
+    }
+    return nullptr;
+}

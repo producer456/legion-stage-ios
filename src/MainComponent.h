@@ -340,6 +340,16 @@ private:
     juce::String midiOutputId;
     std::unique_ptr<juce::MidiOutput> midiOutput;  // kept open for CI responses
 
+    // Per-device MIDI output bus.  Controller integrations (Launchkey
+    // MK4 etc.) need to push back to a SPECIFIC endpoint identified by
+    // its device name (not the single global midiOutput, which is
+    // dedicated to MIDI 2.0 CI traffic for Keystage).  Lazy-opened on
+    // first request via outputForDevice().
+    std::map<juce::String, std::unique_ptr<juce::MidiOutput>> deviceOutputs;
+    /// Open and cache an output endpoint matching the given substring
+    /// in any installed device name.  Returns nullptr if no match.
+    juce::MidiOutput* outputForDevice(const juce::String& nameContains);
+
     // ── Plugin Parameters ──
 #if JUCE_IOS
     static constexpr int NUM_PARAM_SLIDERS = 12;
