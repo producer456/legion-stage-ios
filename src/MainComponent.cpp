@@ -8132,13 +8132,95 @@ void MainComponent::controllerPresetNext()
     });
 }
 
-void MainComponent::setTrackVolumeFromController(int visibleIdx, float value)
+void MainComponent::controllerParamPagePrev()
 {
-    // Volume writes go through an atomic so they're safe from any
-    // thread — no marshalling needed.
-    auto& trk = pluginHost.getTrack(visibleIdx);
-    if (trk.gainProcessor)
-        trk.gainProcessor->volume.store(juce::jlimit(0.0f, 1.0f, value));
+    juce::Component::SafePointer<MainComponent> safe(this);
+    juce::MessageManager::callAsync([safe] {
+        if (safe) safe->paramPageLeft.triggerClick();
+    });
+}
+
+void MainComponent::controllerParamPageNext()
+{
+    juce::Component::SafePointer<MainComponent> safe(this);
+    juce::MessageManager::callAsync([safe] {
+        if (safe) safe->paramPageRight.triggerClick();
+    });
+}
+
+void MainComponent::setFocusedTrackVolumeFromController(float value)
+{
+    // Marshal to the message thread so the on-screen volume slider
+    // can be re-synced — the audio-side volume atomic could be set
+    // from any thread, but JUCE Slider::setValue must be on MT.
+    juce::Component::SafePointer<MainComponent> safe(this);
+    juce::MessageManager::callAsync([safe, value] {
+        auto* self = safe.getComponent();
+        if (!self) return;
+        const float clamped = juce::jlimit(0.0f, 1.0f, value);
+        auto& trk = self->pluginHost.getTrack(self->selectedTrackIndex);
+        if (trk.gainProcessor) trk.gainProcessor->volume.store(clamped);
+        self->volumeSlider.setValue(clamped, juce::dontSendNotification);
+    });
+}
+
+void MainComponent::controllerSetParamBySliderIndex(int sliderIdx, float value)
+{
+    // Routes the encoder to the plugin param mapped to slider position
+    // sliderIdx — i.e. the visual order on the iPad, not the plugin's
+    // internal param order.  The slider's "paramIndex" property is
+    // updated by updateParamSliders() whenever the focused track or
+    // param page changes, so this stays in sync automatically.
+    juce::Component::SafePointer<MainComponent> safe(this);
+    juce::MessageManager::callAsync([safe, sliderIdx, value] {
+        auto* self = safe.getComponent();
+        if (!self) return;
+        if (sliderIdx < 0 || sliderIdx >= self->paramSliders.size()) return;
+        auto* slider = self->paramSliders[sliderIdx];
+        const int paramIdx = static_cast<int>(slider->getProperties().getWithDefault("paramIndex", -1));
+        if (paramIdx < 0) return;   // slider not bound to a plugin param right now
+
+        auto& trk = self->pluginHost.getTrack(self->selectedTrackIndex);
+        if (trk.plugin == nullptr) return;
+        auto& params = trk.plugin->getParameters();
+        if (paramIdx >= params.size()) return;
+
+        const float clamped = juce::jlimit(0.0f, 1.0f, value);
+        params[paramIdx]->setValue(clamped);
+        trk.touchedParamIndex.store(paramIdx);
+        trk.touchedParamTime.store(static_cast<int64_t>(juce::Time::getMillisecondCounter()));
+        slider->setValue(clamped, juce::dontSendNotification);
+        self->paramPageNameLabel.setText(params[paramIdx]->getName(50), juce::dontSendNotification);
+        self->highlightParamKnob(sliderIdx);
+
+        // Mirror the slider's onValueChange automation-recording
+        // path so encoder twists are captured to the lane the same
+        // way direct touches are.
+        auto& eng = self->pluginHost.getEngine();
+        if (eng.isPlaying() && eng.isRecording() && !eng.isInCountIn())
+        {
+            const juce::SpinLock::ScopedLockType lock(trk.automationLock);
+            AutomationLane* lane = nullptr;
+            for (auto* l : trk.automationLanes)
+                if (l->parameterIndex == paramIdx) { lane = l; break; }
+            if (lane == nullptr)
+            {
+                lane = new AutomationLane();
+                lane->parameterIndex = paramIdx;
+                lane->parameterName = params[paramIdx]->getName(20);
+                trk.automationLanes.add(lane);
+            }
+            AutomationPoint pt;
+            pt.beat = eng.getPositionInBeats();
+            pt.value = clamped;
+            for (int j = lane->points.size() - 1; j >= 0; --j)
+                if (std::abs(lane->points[j].beat - pt.beat) < 0.01)
+                    lane->points.remove(j);
+            lane->points.add(pt);
+            std::sort(lane->points.begin(), lane->points.end(),
+                [](const AutomationPoint& a, const AutomationPoint& b) { return a.beat < b.beat; });
+        }
+    });
 }
 
 // ─── Per-device MIDI output ───────────────────────────────────────

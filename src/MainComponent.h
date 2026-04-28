@@ -370,7 +370,10 @@ public:
     void controllerReturnToStart();
     void controllerPresetPrev();
     void controllerPresetNext();
-    void setTrackVolumeFromController(int visibleIdx, float value);
+    void controllerParamPagePrev();
+    void controllerParamPageNext();
+    void setFocusedTrackVolumeFromController(float value);
+    void controllerSetParamBySliderIndex(int sliderIdx, float value);
 
 private:
 

@@ -206,8 +206,24 @@ void LaunchkeyMK4Controller::handlePadRelease(uint8_t /*padNote*/) { /* no-op */
 void LaunchkeyMK4Controller::handleEncoder(int idx, uint8_t value)
 {
     if (host == nullptr || idx < 0 || idx > 7) return;
-    if (currentEncoderMode == 1) {
-        host->setTrackVolumeFromController(idx, value / 127.0f);
+    if (currentEncoderMode != 1) return;   // mixer mode only for now
+
+    const float v = value / 127.0f;
+    if (idx == 0)
+    {
+        // Encoder 1 (leftmost): volume of the focused track.
+        host->setFocusedTrackVolumeFromController(v);
+    }
+    else
+    {
+        // Encoders 2-8: route to on-screen slider position (idx-1) so
+        // the controller layout mirrors the iPad's visual order.
+        // Param paging via dedicated page-shift buttons is TODO —
+        // needs CC capture from the on-screen MIDI inspector for the
+        // right-of-encoder buttons; once wired, paging will scroll
+        // the slider page in MainComponent and these encoders will
+        // automatically address the new bank.
+        host->controllerSetParamBySliderIndex(idx - 1, v);
     }
 }
 
@@ -223,6 +239,12 @@ void LaunchkeyMK4Controller::handleTransportCC(uint8_t cc, uint8_t value)
     // Act on press only.
     if (cc == 0x6A) { if (press) host->controllerSelectTrack(-1); return; }
     if (cc == 0x6B) { if (press) host->controllerSelectTrack(+1); return; }
+
+    // Encoder param-page buttons (the two arrows next to the encoder
+    // row).  UP=0x33, DOWN=0x34 — empirically captured.  Page the
+    // on-screen param sliders so encoders 2-8 address the next bank.
+    if (cc == 0x33) { if (press) host->controllerParamPagePrev(); return; }
+    if (cc == 0x34) { if (press) host->controllerParamPageNext(); return; }
 
     if (!press) return;   // every other button: act on press only
 
