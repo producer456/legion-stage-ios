@@ -1300,6 +1300,11 @@ MainComponent::MainComponent()
 #endif
 
     startTimerHz(themeManager.isGlassOverlay() ? getGlassTimerHz() : getBaseTimerHz());
+
+    // Bring the Launchkey MK4 online if it's already plugged in.
+    // attach() is a no-op if no MK4 DAW endpoint is found, so it's
+    // safe to call unconditionally from the ctor.
+    launchkey.attach(this);
 }
 
 MainComponent::~MainComponent()
@@ -1336,6 +1341,11 @@ MainComponent::~MainComponent()
 
 void MainComponent::timerCallback()
 {
+    // Hot-attach: if the device wasn't plugged in at app launch but
+    // is plugged in now, attach() will succeed; otherwise no-op.
+    if (!launchkey.isActive()) launchkey.attach(this);
+    launchkey.tick();
+
     // ── Skip main UI repainting when visualizer is fullscreen ──
     // The visualizer's own 60Hz timer handles all rendering; avoid competing repaints.
     if (visualizerFullScreen)
@@ -2346,8 +2356,16 @@ void MainComponent::selectMidiDevice()
     updateStatusLabel();
 }
 
-void MainComponent::handleIncomingMidiMessage(juce::MidiInput* /*source*/, const juce::MidiMessage& msg)
+void MainComponent::handleIncomingMidiMessage(juce::MidiInput* source, const juce::MidiMessage& msg)
 {
+    // Launchkey MK4 DAW-port traffic gets routed to the controller and
+    // is consumed there — never forwarded to the plugin host or chord
+    // detector (would double-trigger transport / play notes on synth).
+    if (source != nullptr && source->getName().containsIgnoreCase("Launchkey Mini MK4 DAW"))
+    {
+        if (launchkey.processIncoming(msg)) return;
+    }
+
     // Chord detection for incoming MIDI notes
     if (msg.isNoteOn())
         chordDetector.noteOn(msg.getNoteNumber());
@@ -7963,6 +7981,49 @@ void MainComponent::updateMetalCaustics()
 }
 
 #endif // JUCE_IOS
+
+// ─── Launchkey MK4 controller bridge ──────────────────────────────
+//
+// Helper methods that the LaunchkeyMK4Controller calls into.  Kept
+// here so the controller class doesn't need to know about every
+// internal subsystem layout.
+
+void MainComponent::controllerPlayToggle()
+{
+    auto& eng = pluginHost.getEngine();
+    if (eng.isPlaying()) eng.stop(); else eng.play();
+}
+void MainComponent::controllerStop()         { pluginHost.getEngine().stop(); }
+void MainComponent::controllerRecordToggle() { pluginHost.getEngine().toggleRecord(); }
+void MainComponent::controllerLoopToggle()   { pluginHost.getEngine().toggleLoop(); }
+
+void MainComponent::controllerSelectTrack(int delta)
+{
+    int next = pluginHost.getSelectedTrack() + delta;
+    if (next < 0) next = 0;
+    if (next >= 16) next = 15;     // matches SessionViewComponent::NUM_TRACKS
+    selectTrack(next);
+}
+
+void MainComponent::controllerScrollScenes(int delta)
+{
+    if (sessionViewComponent) sessionViewComponent->scrollScenes(delta);
+}
+
+void MainComponent::controllerLaunchScene()
+{
+    if (sessionViewComponent) sessionViewComponent->launchSceneAtRow(sessionViewComponent->currentSceneRow());
+}
+
+void MainComponent::setTrackVolumeFromController(int visibleIdx, float value)
+{
+    // Mixer mode: encoder N writes volume of the Nth currently-visible
+    // track strip.  Visible-index-to-real-track mapping mirrors the
+    // SessionView's trackOffset.  For v0.1 we just write to track N.
+    auto& trk = pluginHost.getTrack(visibleIdx);
+    if (trk.gainProcessor)
+        trk.gainProcessor->volume.store(juce::jlimit(0.0f, 1.0f, value));
+}
 
 // ─── Per-device MIDI output ───────────────────────────────────────
 //

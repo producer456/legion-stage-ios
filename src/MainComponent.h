@@ -28,6 +28,7 @@
 #include "RayMarchComponent.h"
 #include "AudioExporter.h"
 #include "SessionViewComponent.h"
+#include "LaunchkeyMK4Controller.h"
 
 class PluginEditorWindow : public juce::DocumentWindow, public juce::ComponentListener
 {
@@ -346,9 +347,28 @@ private:
     // dedicated to MIDI 2.0 CI traffic for Keystage).  Lazy-opened on
     // first request via outputForDevice().
     std::map<juce::String, std::unique_ptr<juce::MidiOutput>> deviceOutputs;
+
+    // Native Launchkey Mini MK4 surface integration.  Owns the device's
+    // DAW-port output + decodes its DAW-protocol input.
+    LaunchkeyMK4Controller launchkey;
+
+public:
     /// Open and cache an output endpoint matching the given substring
     /// in any installed device name.  Returns nullptr if no match.
     juce::MidiOutput* outputForDevice(const juce::String& nameContains);
+
+    // ── Launchkey MK4 native controller bridge ──
+    SessionViewComponent* getSessionViewComponent() { return sessionViewComponent.get(); }
+    void controllerPlayToggle();
+    void controllerStop();
+    void controllerRecordToggle();
+    void controllerLoopToggle();
+    void controllerSelectTrack(int delta);
+    void controllerScrollScenes(int delta);
+    void controllerLaunchScene();
+    void setTrackVolumeFromController(int visibleIdx, float value);
+
+private:
 
     // ── Plugin Parameters ──
 #if JUCE_IOS

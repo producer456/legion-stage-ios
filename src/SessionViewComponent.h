@@ -207,6 +207,40 @@ public:
     void setSelectedTrack(int t) { selectedTrack = t; }
     void setVisibleTracks(int n) { visibleTracks = juce::jlimit(4, 16, n); }
 
+    // ── Native-controller-facing API (Launchkey MK4 etc.) ──
+    /// Trigger / stop the clip at the visible (row, col) cell.
+    /// Maps the controller's 2x8 pad grid onto the first 2 visible
+    /// scene rows and the first 8 visible track columns.
+    void launchPad(int row, int col)
+    {
+        const int track = trackOffset + col;
+        const int scene = rowOffset + row;
+        if (track < 0 || track >= NUM_TRACKS) return;
+        toggleClipSlot(track, scene);
+    }
+
+    /// Returns 0=empty 1=stopped-with-content 2=playing 3=recording 4=armed.
+    int stateForVisibleSlot(int row, int col) const
+    {
+        const int track = trackOffset + col;
+        const int scene = rowOffset + row;
+        if (track < 0 || track >= NUM_TRACKS) return 0;
+        auto& trk = pluginHost.getTrack(track);
+        auto* cp = trk.clipPlayer;
+        if (!cp || scene < 0 || scene >= cp->getNumSlots()) return 0;
+        auto& slot = cp->getSlot(scene);
+        auto st = slot.state.load();
+        if (st == ClipSlot::Playing)   return 2;
+        if (st == ClipSlot::Recording) return 3;
+        if (st == ClipSlot::Armed)     return 4;
+        if (slot.hasContent())         return 1;
+        return 0;
+    }
+
+    void scrollScenes(int delta) { rowOffset = juce::jmax(0, rowOffset + delta); repaint(); }
+    int  currentSceneRow() const { return rowOffset; }
+    void launchSceneAtRow(int rowOffsetIdx) { launchScene(rowOffsetIdx); }
+
 private:
     PluginHost& pluginHost;
     int selectedTrack = 0;
