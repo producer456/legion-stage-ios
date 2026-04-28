@@ -66,6 +66,8 @@ target_sources(Sequencer PRIVATE
     src/Main.cpp
     src/MainComponent.h
     src/MainComponent.cpp
+    src/LaunchkeyMK4Controller.h
+    src/LaunchkeyMK4Controller.cpp
     src/PluginHost.h
     src/PluginHost.cpp
     src/GainProcessor.h
@@ -93,6 +95,8 @@ target_sources(Sequencer PRIVATE
     src/GlassOverlayLookAndFeel.h
     src/OceanGlassLookAndFeel.h
     src/LaboratoryLookAndFeel.h
+    src/LaunchkeyLookAndFeel.h
+    src/LaunchkeyDarkLookAndFeel.h
     src/DeviceMotion.h
     src/DeviceMotion.mm
     src/AUPresetHelper.h

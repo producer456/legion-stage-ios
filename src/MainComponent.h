@@ -28,6 +28,7 @@
 #include "RayMarchComponent.h"
 #include "AudioExporter.h"
 #include "SessionViewComponent.h"
+#include "LaunchkeyMK4Controller.h"
 
 class PluginEditorWindow : public juce::DocumentWindow, public juce::ComponentListener
 {
@@ -339,6 +340,45 @@ private:
     bool midi2Enabled = false;
     juce::String midiOutputId;
     std::unique_ptr<juce::MidiOutput> midiOutput;  // kept open for CI responses
+
+    // Per-device MIDI output bus.  Controller integrations (Launchkey
+    // MK4 etc.) need to push back to a SPECIFIC endpoint identified by
+    // its device name (not the single global midiOutput, which is
+    // dedicated to MIDI 2.0 CI traffic for Keystage).  Lazy-opened on
+    // first request via outputForDevice().
+    std::map<juce::String, std::unique_ptr<juce::MidiOutput>> deviceOutputs;
+
+    // Native Launchkey Mini MK4 surface integration.  Owns the device's
+    // DAW-port output + decodes its DAW-protocol input.
+    LaunchkeyMK4Controller launchkey;
+    juce::Label launchkeyMidiInspector;   // on-screen MIDI byte readout
+    juce::TextButton launchkeyInspectorToggle { "LK" };   // tiny always-visible pill to show/hide the inspector
+    bool launchkeyThemeApplied = false;   // one-shot: auto-switch the theme once per detection
+
+public:
+    /// Open and cache an output endpoint matching the given substring
+    /// in any installed device name.  Returns nullptr if no match.
+    juce::MidiOutput* outputForDevice(const juce::String& nameContains);
+
+    // ── Launchkey MK4 native controller bridge ──
+    SessionViewComponent* getSessionViewComponent() { return sessionViewComponent.get(); }
+    void controllerPlayToggle();
+    void controllerStop();
+    void controllerRecordToggle();
+    void controllerLoopToggle();
+    void controllerSelectTrack(int delta);
+    void controllerScrollScenes(int delta);
+    void controllerLaunchScene();
+    void controllerReturnToStart();
+    void controllerPresetPrev();
+    void controllerPresetNext();
+    void controllerToggleMetronomeAndCountIn();
+    void controllerParamPagePrev();
+    void controllerParamPageNext();
+    void setFocusedTrackVolumeFromController(float value);
+    void controllerSetParamBySliderIndex(int sliderIdx, float value);
+
+private:
 
     // ── Plugin Parameters ──
 #if JUCE_IOS

@@ -1300,6 +1300,44 @@ MainComponent::MainComponent()
 #endif
 
     startTimerHz(themeManager.isGlassOverlay() ? getGlassTimerHz() : getBaseTimerHz());
+
+    // Bring the Launchkey MK4 online if it's already plugged in.
+    // attach() is a no-op if no MK4 DAW endpoint is found, so it's
+    // safe to call unconditionally from the ctor.
+    launchkey.attach(this);
+
+    // On-screen MIDI inspector for the Launchkey DAW port — shows
+    // the last 8 raw MIDI messages so we can decode what each
+    // button/encoder actually sends without guessing pad colours.
+    addAndMakeVisible(launchkeyMidiInspector);
+    launchkeyMidiInspector.setColour(juce::Label::textColourId, juce::Colours::limegreen);
+    launchkeyMidiInspector.setColour(juce::Label::backgroundColourId, juce::Colours::black.withAlpha(0.85f));
+    launchkeyMidiInspector.setFont(juce::Font(juce::Font::getDefaultMonospacedFontName(), 22.f, juce::Font::bold));
+    launchkeyMidiInspector.setJustificationType(juce::Justification::topLeft);
+    launchkeyMidiInspector.setText("LK MIDI:\n(plug in device + press buttons)", juce::dontSendNotification);
+    launchkeyMidiInspector.setBounds(8, 8, 460, 280);
+    launchkeyMidiInspector.setVisible(false);   // off by default — opt-in via the LK pill
+    launchkeyMidiInspector.toFront(false);
+
+    // Tiny always-visible pill — tap to toggle the MIDI inspector overlay.
+    addAndMakeVisible(launchkeyInspectorToggle);
+    launchkeyInspectorToggle.setColour(juce::TextButton::buttonColourId, juce::Colours::black.withAlpha(0.55f));
+    launchkeyInspectorToggle.setColour(juce::TextButton::buttonOnColourId, juce::Colours::limegreen.withAlpha(0.85f));
+    launchkeyInspectorToggle.setColour(juce::TextButton::textColourOffId, juce::Colours::limegreen);
+    launchkeyInspectorToggle.setColour(juce::TextButton::textColourOnId, juce::Colours::black);
+    launchkeyInspectorToggle.setClickingTogglesState(true);
+    launchkeyInspectorToggle.setToggleState(false, juce::dontSendNotification);
+    launchkeyInspectorToggle.onClick = [this] {
+        const bool show = launchkeyInspectorToggle.getToggleState();
+        launchkeyMidiInspector.setVisible(show);
+        if (show) launchkeyMidiInspector.toFront(false);
+    };
+    launchkeyInspectorToggle.setAlwaysOnTop(true);
+    launchkeyInspectorToggle.toFront(false);
+    // Initial position; resized() repositions to bottom-left so it
+    // always lives below the top bar's transport / BPM controls.
+    launchkeyInspectorToggle.setBounds(8, 8, 32, 24);
+    launchkeyMidiInspector.setAlwaysOnTop(true);
 }
 
 MainComponent::~MainComponent()
@@ -1336,6 +1374,30 @@ MainComponent::~MainComponent()
 
 void MainComponent::timerCallback()
 {
+    // Hot-attach: if the device wasn't plugged in at app launch but
+    // is plugged in now, attach() will succeed; otherwise no-op.
+    if (!launchkey.isActive()) launchkey.attach(this);
+    launchkey.tick();
+
+    // Auto-apply the Launchkey theme once per detection — fires on
+    // first successful attach (boot or hot-plug).  Don't re-apply on
+    // every tick, otherwise the user can't switch away with the
+    // theme picker.
+    if (launchkey.isActive() && !launchkeyThemeApplied)
+    {
+        launchkeyThemeApplied = true;
+        themeManager.setTheme(ThemeManager::Launchkey, this);
+        themeSelector.setSelectedId(ThemeManager::Launchkey + 1, juce::dontSendNotification);
+    }
+    if (launchkeyMidiInspector.isVisible())
+    {
+        auto txt = launchkey.getLastMessages();
+        if (txt.isEmpty()) txt = "LK MIDI: (no messages yet)";
+        else txt = "LK MIDI:\n" + txt;
+        if (launchkeyMidiInspector.getText() != txt)
+            launchkeyMidiInspector.setText(txt, juce::dontSendNotification);
+    }
+
     // ── Skip main UI repainting when visualizer is fullscreen ──
     // The visualizer's own 60Hz timer handles all rendering; avoid competing repaints.
     if (visualizerFullScreen)
@@ -2339,15 +2401,36 @@ void MainComponent::selectMidiDevice()
     int idx = selectedId - 3;
     if (idx < 0 || idx >= midiDevices.size()) { updateStatusLabel(); return; }
     auto d = midiDevices[idx];
+    // Don't try to enable a port the Launchkey controller already
+    // owns — the double-open crashes CoreMIDI on iPad.  The user
+    // doesn't need to pick the DAW port manually anyway; the
+    // controller opens it automatically.
+    if (d.name.containsIgnoreCase("launch") && d.name.containsIgnoreCase("daw"))
+    {
+        updateStatusLabel();
+        return;
+    }
     deviceManager.setMidiInputDeviceEnabled(d.identifier, true);
-    // Route through our callback so we can intercept CI SysEx
     deviceManager.addMidiInputDeviceCallback(d.identifier, this);
     currentMidiDeviceId = d.identifier;
     updateStatusLabel();
 }
 
-void MainComponent::handleIncomingMidiMessage(juce::MidiInput* /*source*/, const juce::MidiMessage& msg)
+void MainComponent::handleIncomingMidiMessage(juce::MidiInput* source, const juce::MidiMessage& msg)
 {
+    // Launchkey DAW-port traffic gets routed to the controller and
+    // is consumed there — never forwarded to the plugin host or chord
+    // detector (would double-trigger transport / play notes on synth).
+    // Match loosely: any source name containing "Launchkey" + "DAW"
+    // since iOS may rename the device between OS versions.
+    if (source != nullptr
+        && source->getName().containsIgnoreCase("launch")
+        && source->getName().containsIgnoreCase("daw"))
+    {
+        DBG("Launchkey DAW port input from: " << source->getName());
+        if (launchkey.processIncoming(msg)) return;
+    }
+
     // Chord detection for incoming MIDI notes
     if (msg.isNoteOn())
         chordDetector.noteOn(msg.getNoteNumber());
@@ -5423,6 +5506,17 @@ void MainComponent::resized()
 {
     auto area = getLocalBounds();
 
+    // Pin the LK inspector pill to the bottom-left corner so it
+    // doesn't fight the top-bar transport/BPM/tap-tempo widgets.
+    // Inspector overlay sits just above the pill when visible.
+    {
+        const int pillW = 32, pillH = 24, gap = 6;
+        launchkeyInspectorToggle.setBounds(gap, getHeight() - pillH - gap, pillW, pillH);
+        const int insW = juce::jmin(460, getWidth() - 2 * gap);
+        const int insH = 280;
+        launchkeyMidiInspector.setBounds(gap, getHeight() - pillH - gap - insH - 4, insW, insH);
+    }
+
 #if JUCE_IOS
     attachMetalRendererIfNeeded();
     if (metalRenderer && metalRendererAttached)
@@ -7438,12 +7532,31 @@ void MainComponent::updateTrackInputSelector()
     }
     else if (devices.size() > 0)
     {
-        trackInputSelector.setSelectedId(100, juce::dontSendNotification);
-        // Auto-connect the first MIDI device
+        // Prefer the device the user already had active so switching
+        // tracks via the controller doesn't reset their MIDI input
+        // back to the first listed device every time.  When no input
+        // is yet chosen, prefer the Launchkey's keys port (the one
+        // WITHOUT "DAW" in its name — the DAW port is consumed by the
+        // controller integration and can't double as a track input).
+        // Falls through to devices[0] if no Launchkey port is found.
+        int preferIdx = 0;
+        if (currentMidiDeviceId.isNotEmpty())
+        {
+            for (int i = 0; i < devices.size(); ++i)
+                if (devices[i].identifier == currentMidiDeviceId) { preferIdx = i; break; }
+        }
+        else
+        {
+            for (int i = 0; i < devices.size(); ++i)
+                if (devices[i].name.containsIgnoreCase("launch")
+                    && !devices[i].name.containsIgnoreCase("daw"))
+                { preferIdx = i; break; }
+        }
+        trackInputSelector.setSelectedId(100 + preferIdx, juce::dontSendNotification);
         disableCurrentMidiDevice();
-        deviceManager.setMidiInputDeviceEnabled(devices[0].identifier, true);
-        deviceManager.addMidiInputDeviceCallback(devices[0].identifier, this);
-        currentMidiDeviceId = devices[0].identifier;
+        deviceManager.setMidiInputDeviceEnabled(devices[preferIdx].identifier, true);
+        deviceManager.addMidiInputDeviceCallback(devices[preferIdx].identifier, this);
+        currentMidiDeviceId = devices[preferIdx].identifier;
     }
     else
     {
@@ -7963,3 +8076,266 @@ void MainComponent::updateMetalCaustics()
 }
 
 #endif // JUCE_IOS
+
+// ─── Launchkey MK4 controller bridge ──────────────────────────────
+//
+// Helper methods that the LaunchkeyMK4Controller calls into.  Kept
+// here so the controller class doesn't need to know about every
+// internal subsystem layout.
+
+// Controller MIDI callbacks fire on the CoreMIDI thread.  Anything
+// that touches the engine, transport, or UI state needs to be
+// marshalled onto the message thread or it silently no-ops (or
+// trips JUCE thread assertions).  juce::Component::SafePointer
+// guards against the user closing/destroying MainComponent before
+// the async block runs.
+template <typename Fn>
+static inline void onMain(juce::Component::SafePointer<MainComponent> safe, Fn&& fn)
+{
+    juce::MessageManager::callAsync([safe, fn = std::forward<Fn>(fn)] {
+        if (safe) fn(safe.getComponent());
+    });
+}
+
+void MainComponent::controllerPlayToggle()
+{
+    juce::Component::SafePointer<MainComponent> safe(this);
+    juce::MessageManager::callAsync([safe] {
+        if (safe) safe->playButton.triggerClick();
+    });
+}
+void MainComponent::controllerStop()
+{
+    juce::Component::SafePointer<MainComponent> safe(this);
+    juce::MessageManager::callAsync([safe] {
+        if (safe) safe->stopButton.triggerClick();
+    });
+}
+void MainComponent::controllerRecordToggle()
+{
+    juce::Component::SafePointer<MainComponent> safe(this);
+    juce::MessageManager::callAsync([safe] {
+        if (safe) safe->recordButton.triggerClick();
+    });
+}
+void MainComponent::controllerLoopToggle()
+{
+    juce::Component::SafePointer<MainComponent> safe(this);
+    juce::MessageManager::callAsync([safe] {
+        if (safe) safe->pluginHost.getEngine().toggleLoop();
+    });
+}
+
+void MainComponent::controllerSelectTrack(int delta)
+{
+    juce::Component::SafePointer<MainComponent> safe(this);
+    juce::MessageManager::callAsync([safe, delta] {
+        if (auto* self = safe.getComponent())
+        {
+            int next = juce::jlimit(0, PluginHost::NUM_TRACKS - 1,
+                                    self->selectedTrackIndex + delta);
+            self->selectTrack(next);
+            // Force the timeline to redraw — its visible track-highlight
+            // is driven by pluginHost.getSelectedTrack() during paint
+            // and won't refresh on its own.  Mirrors what Timeline's
+            // own mouseDown handler does after setSelectedTrack.
+            if (self->timelineComponent) self->timelineComponent->repaint();
+        }
+    });
+}
+
+void MainComponent::controllerScrollScenes(int delta)
+{
+    onMain(this, [delta](MainComponent* self) {
+        if (self->sessionViewComponent) self->sessionViewComponent->scrollScenes(delta);
+    });
+}
+
+void MainComponent::controllerLaunchScene()
+{
+    onMain(this, [](MainComponent* self) {
+        if (self->sessionViewComponent)
+            self->sessionViewComponent->launchSceneAtRow(self->sessionViewComponent->currentSceneRow());
+    });
+}
+
+void MainComponent::controllerReturnToStart()
+{
+    // resetPosition() writes to an atomic so it's thread-safe, but
+    // hop to the message thread anyway so the timeline gets a repaint
+    // and the visible playhead jumps to 0 immediately.
+    onMain(this, [](MainComponent* self) {
+        self->pluginHost.getEngine().resetPosition();
+        if (self->timelineComponent) self->timelineComponent->repaint();
+    });
+}
+
+void MainComponent::controllerPresetPrev()
+{
+    juce::Component::SafePointer<MainComponent> safe(this);
+    juce::MessageManager::callAsync([safe] {
+        if (safe) safe->presetDownButton.triggerClick();
+    });
+}
+
+void MainComponent::controllerPresetNext()
+{
+    juce::Component::SafePointer<MainComponent> safe(this);
+    juce::MessageManager::callAsync([safe] {
+        if (safe) safe->presetUpButton.triggerClick();
+    });
+}
+
+void MainComponent::controllerToggleMetronomeAndCountIn()
+{
+    // Shift+Record on the Mini: flip the metronome AND count-in
+    // together so they stay locked in step.  Drives the existing
+    // toolbar buttons via triggerClick so the engine state, on-
+    // screen toggle visuals, and project save state all stay in
+    // sync the same way a tap on those buttons would.
+    juce::Component::SafePointer<MainComponent> safe(this);
+    juce::MessageManager::callAsync([safe] {
+        auto* self = safe.getComponent();
+        if (!self) return;
+        const bool turningOn = !self->metronomeButton.getToggleState();
+        if (self->metronomeButton.getToggleState() != turningOn)
+            self->metronomeButton.triggerClick();
+        if (self->countInButton.getToggleState() != turningOn)
+            self->countInButton.triggerClick();
+    });
+}
+
+void MainComponent::controllerParamPagePrev()
+{
+    juce::Component::SafePointer<MainComponent> safe(this);
+    juce::MessageManager::callAsync([safe] {
+        if (safe) safe->paramPageLeft.triggerClick();
+    });
+}
+
+void MainComponent::controllerParamPageNext()
+{
+    juce::Component::SafePointer<MainComponent> safe(this);
+    juce::MessageManager::callAsync([safe] {
+        if (safe) safe->paramPageRight.triggerClick();
+    });
+}
+
+void MainComponent::setFocusedTrackVolumeFromController(float value)
+{
+    // Marshal to the message thread so the on-screen volume slider
+    // can be re-synced — the audio-side volume atomic could be set
+    // from any thread, but JUCE Slider::setValue must be on MT.
+    juce::Component::SafePointer<MainComponent> safe(this);
+    juce::MessageManager::callAsync([safe, value] {
+        auto* self = safe.getComponent();
+        if (!self) return;
+        const float clamped = juce::jlimit(0.0f, 1.0f, value);
+        auto& trk = self->pluginHost.getTrack(self->selectedTrackIndex);
+        if (trk.gainProcessor) trk.gainProcessor->volume.store(clamped);
+        self->volumeSlider.setValue(clamped, juce::dontSendNotification);
+    });
+}
+
+void MainComponent::controllerSetParamBySliderIndex(int sliderIdx, float value)
+{
+    // Routes the encoder to the plugin param mapped to slider position
+    // sliderIdx — i.e. the visual order on the iPad, not the plugin's
+    // internal param order.  The slider's "paramIndex" property is
+    // updated by updateParamSliders() whenever the focused track or
+    // param page changes, so this stays in sync automatically.
+    juce::Component::SafePointer<MainComponent> safe(this);
+    juce::MessageManager::callAsync([safe, sliderIdx, value] {
+        auto* self = safe.getComponent();
+        if (!self) return;
+        if (sliderIdx < 0 || sliderIdx >= self->paramSliders.size()) return;
+        auto* slider = self->paramSliders[sliderIdx];
+        const int paramIdx = static_cast<int>(slider->getProperties().getWithDefault("paramIndex", -1));
+        if (paramIdx < 0) return;   // slider not bound to a plugin param right now
+
+        auto& trk = self->pluginHost.getTrack(self->selectedTrackIndex);
+        if (trk.plugin == nullptr) return;
+        auto& params = trk.plugin->getParameters();
+        if (paramIdx >= params.size()) return;
+
+        const float clamped = juce::jlimit(0.0f, 1.0f, value);
+        params[paramIdx]->setValue(clamped);
+        trk.touchedParamIndex.store(paramIdx);
+        trk.touchedParamTime.store(static_cast<int64_t>(juce::Time::getMillisecondCounter()));
+        slider->setValue(clamped, juce::dontSendNotification);
+        self->paramPageNameLabel.setText(params[paramIdx]->getName(50), juce::dontSendNotification);
+        self->highlightParamKnob(sliderIdx);
+
+        // Mirror the slider's onValueChange automation-recording
+        // path so encoder twists are captured to the lane the same
+        // way direct touches are.
+        auto& eng = self->pluginHost.getEngine();
+        if (eng.isPlaying() && eng.isRecording() && !eng.isInCountIn())
+        {
+            const juce::SpinLock::ScopedLockType lock(trk.automationLock);
+            AutomationLane* lane = nullptr;
+            for (auto* l : trk.automationLanes)
+                if (l->parameterIndex == paramIdx) { lane = l; break; }
+            if (lane == nullptr)
+            {
+                lane = new AutomationLane();
+                lane->parameterIndex = paramIdx;
+                lane->parameterName = params[paramIdx]->getName(20);
+                trk.automationLanes.add(lane);
+            }
+            AutomationPoint pt;
+            pt.beat = eng.getPositionInBeats();
+            pt.value = clamped;
+            for (int j = lane->points.size() - 1; j >= 0; --j)
+                if (std::abs(lane->points[j].beat - pt.beat) < 0.01)
+                    lane->points.remove(j);
+            lane->points.add(pt);
+            std::sort(lane->points.begin(), lane->points.end(),
+                [](const AutomationPoint& a, const AutomationPoint& b) { return a.beat < b.beat; });
+        }
+    });
+}
+
+// ─── Per-device MIDI output ───────────────────────────────────────
+//
+// Substring-matched against installed MIDI output device names.  First
+// match wins; result is cached so subsequent calls are cheap.  Used by
+// controller integrations (Launchkey MK4, Push, etc.) to send LED /
+// SysEx feedback to a SPECIFIC endpoint without colliding with the
+// global midiOutput slot reserved for MIDI 2.0 CI replies.
+juce::MidiOutput* MainComponent::outputForDevice(const juce::String& nameContains)
+{
+    auto it = deviceOutputs.find(nameContains);
+    if (it != deviceOutputs.end()) return it->second.get();
+
+    auto avail = juce::MidiOutput::getAvailableDevices();
+    // Diagnostic — print the full list so we can see what iOS is
+    // exposing if our substring match misses.
+    juce::String all;
+    for (auto& dev : avail) all << "  - " << dev.name << "\n";
+    DBG("MIDI outputs (looking for \"" << nameContains << "\"):\n" << all);
+
+    // Prefer a port whose name contains BOTH the requested hint and
+    // "DAW" (Launchkey exposes a separate DAW protocol port).  Fall
+    // back to the first plain match so other device integrations work.
+    for (auto& dev : avail)
+        if (dev.name.containsIgnoreCase(nameContains) && dev.name.containsIgnoreCase("DAW"))
+        {
+            auto out = juce::MidiOutput::openDevice(dev.identifier);
+            auto* raw = out.get();
+            DBG("Opened DAW port: " << dev.name);
+            deviceOutputs.emplace(nameContains, std::move(out));
+            return raw;
+        }
+    for (auto& dev : avail)
+        if (dev.name.containsIgnoreCase(nameContains))
+        {
+            auto out = juce::MidiOutput::openDevice(dev.identifier);
+            auto* raw = out.get();
+            DBG("Opened plain port: " << dev.name);
+            deviceOutputs.emplace(nameContains, std::move(out));
+            return raw;
+        }
+    DBG("No MIDI output matched \"" << nameContains << "\"");
+    return nullptr;
+}
