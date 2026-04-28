@@ -1305,6 +1305,18 @@ MainComponent::MainComponent()
     // attach() is a no-op if no MK4 DAW endpoint is found, so it's
     // safe to call unconditionally from the ctor.
     launchkey.attach(this);
+
+    // On-screen MIDI inspector for the Launchkey DAW port — shows
+    // the last 8 raw MIDI messages so we can decode what each
+    // button/encoder actually sends without guessing pad colours.
+    addAndMakeVisible(launchkeyMidiInspector);
+    launchkeyMidiInspector.setColour(juce::Label::textColourId, juce::Colours::limegreen);
+    launchkeyMidiInspector.setColour(juce::Label::backgroundColourId, juce::Colours::black.withAlpha(0.85f));
+    launchkeyMidiInspector.setFont(juce::Font(juce::Font::getDefaultMonospacedFontName(), 22.f, juce::Font::bold));
+    launchkeyMidiInspector.setJustificationType(juce::Justification::topLeft);
+    launchkeyMidiInspector.setText("LK MIDI:\n(plug in device + press buttons)", juce::dontSendNotification);
+    launchkeyMidiInspector.setBounds(8, 8, 460, 280);
+    launchkeyMidiInspector.toFront(false);
 }
 
 MainComponent::~MainComponent()
@@ -1345,6 +1357,13 @@ void MainComponent::timerCallback()
     // is plugged in now, attach() will succeed; otherwise no-op.
     if (!launchkey.isActive()) launchkey.attach(this);
     launchkey.tick();
+    {
+        auto txt = launchkey.getLastMessages();
+        if (txt.isEmpty()) txt = "LK MIDI: (no messages yet)";
+        else txt = "LK MIDI:\n" + txt;
+        if (launchkeyMidiInspector.getText() != txt)
+            launchkeyMidiInspector.setText(txt, juce::dontSendNotification);
+    }
 
     // ── Skip main UI repainting when visualizer is fullscreen ──
     // The visualizer's own 60Hz timer handles all rendering; avoid competing repaints.
@@ -2358,11 +2377,16 @@ void MainComponent::selectMidiDevice()
 
 void MainComponent::handleIncomingMidiMessage(juce::MidiInput* source, const juce::MidiMessage& msg)
 {
-    // Launchkey MK4 DAW-port traffic gets routed to the controller and
+    // Launchkey DAW-port traffic gets routed to the controller and
     // is consumed there — never forwarded to the plugin host or chord
     // detector (would double-trigger transport / play notes on synth).
-    if (source != nullptr && source->getName().containsIgnoreCase("Launchkey Mini MK4 DAW"))
+    // Match loosely: any source name containing "Launchkey" + "DAW"
+    // since iOS may rename the device between OS versions.
+    if (source != nullptr
+        && source->getName().containsIgnoreCase("launch")
+        && source->getName().containsIgnoreCase("daw"))
     {
+        DBG("Launchkey DAW port input from: " << source->getName());
         if (launchkey.processIncoming(msg)) return;
     }
 
@@ -7988,38 +8012,78 @@ void MainComponent::updateMetalCaustics()
 // here so the controller class doesn't need to know about every
 // internal subsystem layout.
 
+// Controller MIDI callbacks fire on the CoreMIDI thread.  Anything
+// that touches the engine, transport, or UI state needs to be
+// marshalled onto the message thread or it silently no-ops (or
+// trips JUCE thread assertions).  juce::Component::SafePointer
+// guards against the user closing/destroying MainComponent before
+// the async block runs.
+template <typename Fn>
+static inline void onMain(juce::Component::SafePointer<MainComponent> safe, Fn&& fn)
+{
+    juce::MessageManager::callAsync([safe, fn = std::forward<Fn>(fn)] {
+        if (safe) fn(safe.getComponent());
+    });
+}
+
 void MainComponent::controllerPlayToggle()
 {
-    auto& eng = pluginHost.getEngine();
-    if (eng.isPlaying()) eng.stop(); else eng.play();
+    juce::Component::SafePointer<MainComponent> safe(this);
+    juce::MessageManager::callAsync([safe] {
+        if (safe) safe->playButton.triggerClick();
+    });
 }
-void MainComponent::controllerStop()         { pluginHost.getEngine().stop(); }
-void MainComponent::controllerRecordToggle() { pluginHost.getEngine().toggleRecord(); }
-void MainComponent::controllerLoopToggle()   { pluginHost.getEngine().toggleLoop(); }
+void MainComponent::controllerStop()
+{
+    juce::Component::SafePointer<MainComponent> safe(this);
+    juce::MessageManager::callAsync([safe] {
+        if (safe) safe->stopButton.triggerClick();
+    });
+}
+void MainComponent::controllerRecordToggle()
+{
+    juce::Component::SafePointer<MainComponent> safe(this);
+    juce::MessageManager::callAsync([safe] {
+        if (safe) safe->recordButton.triggerClick();
+    });
+}
+void MainComponent::controllerLoopToggle()
+{
+    juce::Component::SafePointer<MainComponent> safe(this);
+    juce::MessageManager::callAsync([safe] {
+        if (safe) safe->pluginHost.getEngine().toggleLoop();
+    });
+}
 
 void MainComponent::controllerSelectTrack(int delta)
 {
-    int next = pluginHost.getSelectedTrack() + delta;
-    if (next < 0) next = 0;
-    if (next >= 16) next = 15;     // matches SessionViewComponent::NUM_TRACKS
-    selectTrack(next);
+    onMain(this, [delta](MainComponent* self) {
+        int next = self->pluginHost.getSelectedTrack() + delta;
+        if (next < 0) next = 0;
+        if (next >= 16) next = 15;
+        self->selectTrack(next);
+    });
 }
 
 void MainComponent::controllerScrollScenes(int delta)
 {
-    if (sessionViewComponent) sessionViewComponent->scrollScenes(delta);
+    onMain(this, [delta](MainComponent* self) {
+        if (self->sessionViewComponent) self->sessionViewComponent->scrollScenes(delta);
+    });
 }
 
 void MainComponent::controllerLaunchScene()
 {
-    if (sessionViewComponent) sessionViewComponent->launchSceneAtRow(sessionViewComponent->currentSceneRow());
+    onMain(this, [](MainComponent* self) {
+        if (self->sessionViewComponent)
+            self->sessionViewComponent->launchSceneAtRow(self->sessionViewComponent->currentSceneRow());
+    });
 }
 
 void MainComponent::setTrackVolumeFromController(int visibleIdx, float value)
 {
-    // Mixer mode: encoder N writes volume of the Nth currently-visible
-    // track strip.  Visible-index-to-real-track mapping mirrors the
-    // SessionView's trackOffset.  For v0.1 we just write to track N.
+    // Volume writes go through an atomic so they're safe from any
+    // thread — no marshalling needed.
     auto& trk = pluginHost.getTrack(visibleIdx);
     if (trk.gainProcessor)
         trk.gainProcessor->volume.store(juce::jlimit(0.0f, 1.0f, value));
@@ -8037,15 +8101,34 @@ juce::MidiOutput* MainComponent::outputForDevice(const juce::String& nameContain
     auto it = deviceOutputs.find(nameContains);
     if (it != deviceOutputs.end()) return it->second.get();
 
-    for (auto& dev : juce::MidiOutput::getAvailableDevices())
-    {
+    auto avail = juce::MidiOutput::getAvailableDevices();
+    // Diagnostic — print the full list so we can see what iOS is
+    // exposing if our substring match misses.
+    juce::String all;
+    for (auto& dev : avail) all << "  - " << dev.name << "\n";
+    DBG("MIDI outputs (looking for \"" << nameContains << "\"):\n" << all);
+
+    // Prefer a port whose name contains BOTH the requested hint and
+    // "DAW" (Launchkey exposes a separate DAW protocol port).  Fall
+    // back to the first plain match so other device integrations work.
+    for (auto& dev : avail)
+        if (dev.name.containsIgnoreCase(nameContains) && dev.name.containsIgnoreCase("DAW"))
+        {
+            auto out = juce::MidiOutput::openDevice(dev.identifier);
+            auto* raw = out.get();
+            DBG("Opened DAW port: " << dev.name);
+            deviceOutputs.emplace(nameContains, std::move(out));
+            return raw;
+        }
+    for (auto& dev : avail)
         if (dev.name.containsIgnoreCase(nameContains))
         {
             auto out = juce::MidiOutput::openDevice(dev.identifier);
             auto* raw = out.get();
+            DBG("Opened plain port: " << dev.name);
             deviceOutputs.emplace(nameContains, std::move(out));
             return raw;
         }
-    }
+    DBG("No MIDI output matched \"" << nameContains << "\"");
     return nullptr;
 }

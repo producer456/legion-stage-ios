@@ -18,7 +18,7 @@
 
 class MainComponent;
 
-class LaunchkeyMK4Controller
+class LaunchkeyMK4Controller : private juce::MidiInputCallback
 {
 public:
     LaunchkeyMK4Controller() = default;
@@ -42,6 +42,11 @@ public:
     /// device's DAW endpoint is opened and the mode is engaged).
     bool isActive() const { return active; }
 
+    /// Last N messages received on the DAW input, formatted as hex.
+    /// MainComponent reads this each tick to drive an on-screen
+    /// MIDI inspector.  Thread-safe via a mutex on write/read.
+    juce::String getLastMessages() const;
+
 private:
     // Lifecycle SysEx
     void enterDawMode();
@@ -57,6 +62,7 @@ private:
     // desyncs from what the user sees.
     void onPadModeReport(int mode);
     void onEncoderModeReport(int mode);
+    void tryOpenInput();
 
     // Surface event handlers
     void handlePadPress(uint8_t padNote, uint8_t velocity);
@@ -66,7 +72,12 @@ private:
 
     juce::MidiOutput* out();   // resolves to the cached device output
 
+    /// MidiInputCallback — receives the DAW port's incoming events
+    /// directly, bypassing MainComponent's single-input dropdown.
+    void handleIncomingMidiMessage(juce::MidiInput*, const juce::MidiMessage&) override;
+
     MainComponent* host = nullptr;
+    std::unique_ptr<juce::MidiInput> dawInput;
     bool active = false;
     int currentPadMode = 2;       // 2 = DAW/session
     int currentEncoderMode = 1;   // 1 = mixer
@@ -74,4 +85,7 @@ private:
 
     // Cache of last-painted pad colours so we only push deltas.
     uint8_t lastPaint[16] = {0};
+    bool sawMessageThisTick = false;
+    mutable juce::CriticalSection logLock;
+    juce::StringArray recentLog;   // newest first, capped
 };

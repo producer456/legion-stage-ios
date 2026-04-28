@@ -351,6 +351,7 @@ private:
     // Native Launchkey Mini MK4 surface integration.  Owns the device's
     // DAW-port output + decodes its DAW-protocol input.
     LaunchkeyMK4Controller launchkey;
+    juce::Label launchkeyMidiInspector;   // on-screen MIDI byte readout
 
 public:
     /// Open and cache an output endpoint matching the given substring

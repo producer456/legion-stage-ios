@@ -8,9 +8,10 @@ namespace LkMini {
     // SysEx header for Mini SKUs (49/61 use 0x14 instead of 0x13).
     constexpr uint8_t kHdr[] = { 0xF0, 0x00, 0x20, 0x29, 0x02, 0x13 };
 
-    // DAW endpoint name substring — both ports show as "Launchkey Mini
-    // MK4" but the protocol port is suffixed " DAW".
-    constexpr const char* kDawPortHint = "Launchkey Mini MK4 DAW";
+    // DAW endpoint name substring.  iOS exposes Launchkey ports as
+    // "Launch Key" (two words with a space), so we match on just
+    // "launch" and disambiguate the DAW port via "daw" elsewhere.
+    constexpr const char* kDawPortHint = "launch";
 
     // Lifecycle
     constexpr uint8_t kEnterDaw[] = { 0x9F, 0x0C, 0x7F };
@@ -51,25 +52,88 @@ LaunchkeyMK4Controller::~LaunchkeyMK4Controller() { detach(); }
 
 void LaunchkeyMK4Controller::attach(MainComponent* h)
 {
-    if (active) return;
     host = h;
-    if (auto* o = out())
+    tryOpenInput();   // may be retried later if it failed first time
+    if (!active)
     {
-        enterDawMode();
-        disableVegasMode();
-        active = true;
+        if (auto* o = out())
+        {
+            enterDawMode();
+            disableVegasMode();
+            active = true;
+            // Test pattern: pad (0,0) bright red, pad (0,1) bright
+            // amber.  Visible confirmation the OUTPUT path works.
+            paintPad(0, 0, 0x05);   // red
+            paintPad(0, 1, 0x09);   // amber
+        }
+    }
+}
+
+void LaunchkeyMK4Controller::tryOpenInput()
+{
+    if (dawInput) return;
+    for (auto& dev : juce::MidiInput::getAvailableDevices())
+    {
+        if (dev.name.containsIgnoreCase("launch")
+            && dev.name.containsIgnoreCase("daw"))
+        {
+            dawInput = juce::MidiInput::openDevice(dev.identifier, this);
+            if (dawInput) { dawInput->start(); }
+            return;
+        }
     }
 }
 
 void LaunchkeyMK4Controller::detach()
 {
     if (!active) return;
+    if (dawInput) { dawInput->stop(); dawInput.reset(); }
     if (auto* o = out())
     {
         clearAllPads();
         exitDawMode();
     }
     active = false;
+}
+
+void LaunchkeyMK4Controller::handleIncomingMidiMessage(juce::MidiInput*, const juce::MidiMessage& msg)
+{
+    // Diagnostic: pad (0,4) flashes bright white on EVERY incoming
+    // message so we can tell if pressing a button on the device
+    // actually sends anything at all.  tick() clears it next frame.
+    paintPad(0, 4, 0x03);
+    sawMessageThisTick = true;
+
+    // Append to the rolling on-screen MIDI inspector log.
+    {
+        juce::String line;
+        for (int i = 0; i < msg.getRawDataSize(); ++i)
+            line << juce::String::toHexString(msg.getRawData()[i]).paddedLeft('0', 2).toUpperCase() << " ";
+        const juce::ScopedLock lk(logLock);
+        recentLog.insert(0, line.trim());
+        while (recentLog.size() > 8) recentLog.remove(8);
+    }
+
+    // Pad (0,2) shows the status byte of the latest message and
+    // pad (0,3) shows its first data byte (note number for notes,
+    // CC number for CCs).  Both are written as palette indices so
+    // we can decode what PLAY etc. actually send.
+    if (msg.getRawDataSize() >= 1) paintPad(0, 2, msg.getRawData()[0] & 0x7F);
+    if (msg.getRawDataSize() >= 2) paintPad(0, 3, msg.getRawData()[1] & 0x7F);
+    const auto* raw = msg.getRawData();
+    const uint8_t status = raw[0];
+    if      ((status == 0x90 || status == 0x80) && msg.getRawDataSize() >= 2 && raw[1] >= 0x60 && raw[1] <= 0x77)
+        paintPad(1, 0, 0x15);   // pad note → green
+    else if (status == 0xBF && msg.getRawDataSize() >= 3 && raw[1] >= 0x73 && raw[1] <= 0x76)
+        paintPad(1, 1, 0x05);   // transport CC → red
+    else if (status == 0xBF && msg.getRawDataSize() >= 3 && raw[1] >= 0x55 && raw[1] <= 0x5C)
+        paintPad(1, 2, 0x09);   // encoder CC → amber
+    else if (status == 0xBF)
+        paintPad(1, 3, 0x29);   // other CC → blue
+    else
+        paintPad(1, 4, 0x2D);   // anything else → dim blue
+
+    processIncoming(msg);
 }
 
 juce::MidiOutput* LaunchkeyMK4Controller::out()
@@ -123,13 +187,22 @@ bool LaunchkeyMK4Controller::processIncoming(const juce::MidiMessage& msg)
         }
     }
 
-    // Channel 16 (0xBF) covers encoders + transport/nav buttons
-    if (status == 0xBF && rawLen >= 3)
+    // CC on ANY channel covers encoders + transport/nav buttons.
+    // Mk4 firmware sends transport on ch1 (status B0), older Mk3
+    // docs say ch16 — accept either.  Encoder CC numbers also vary
+    // by mode (0x15-0x1C mixer / 0x37-0x3E plugin / 0x55-0x5C alt).
+    if ((status & 0xF0) == 0xB0 && rawLen >= 3)
     {
         const uint8_t cc = raw[1], val = raw[2];
-        if (cc >= LkMini::kEncoderCC[0] && cc <= LkMini::kEncoderCC[7])
+        auto encIdx = [&]() -> int {
+            if (cc >= 0x15 && cc <= 0x1C) return cc - 0x15;
+            if (cc >= 0x37 && cc <= 0x3E) return cc - 0x37;
+            if (cc >= 0x55 && cc <= 0x5C) return cc - 0x55;
+            return -1;
+        }();
+        if (encIdx >= 0)
         {
-            handleEncoder(int(cc - LkMini::kEncoderCC[0]), val);
+            handleEncoder(encIdx, val);
             return true;
         }
         handleTransportCC(cc, val);
@@ -157,11 +230,10 @@ void LaunchkeyMK4Controller::handlePadRelease(uint8_t /*padNote*/) { /* no-op */
 void LaunchkeyMK4Controller::handleEncoder(int idx, uint8_t value)
 {
     if (host == nullptr || idx < 0 || idx > 7) return;
+    paintPad(0, 7, 0x09);   // diagnostic: encoder dispatched to host
     if (currentEncoderMode == 1) {
-        // Mixer mode — encoder N controls volume of visible track N.
         host->setTrackVolumeFromController(idx, value / 127.0f);
     }
-    // Other encoder modes (Plugin / Sends / Transport) wired in next pass.
 }
 
 void LaunchkeyMK4Controller::handleTransportCC(uint8_t cc, uint8_t value)
@@ -171,6 +243,13 @@ void LaunchkeyMK4Controller::handleTransportCC(uint8_t cc, uint8_t value)
 
     if (cc == LkMini::kCcShift)    { shiftHeld = press; return; }
     if (!press) return;   // act on press, ignore release
+
+    // Diagnostic: light pad (0,5) any time transport-dispatch runs
+    // on a press, regardless of which CC.  Encodes the CC number
+    // (mod 128) into pad-(0,6) red brightness so we can read it back.
+    paintPad(0, 5, 0x05);
+    paintPad(0, 6, cc);   // raw CC byte as palette index — colour
+                          // varies by which transport button you hit
 
     switch (cc)
     {
@@ -190,6 +269,15 @@ void LaunchkeyMK4Controller::handleTransportCC(uint8_t cc, uint8_t value)
 void LaunchkeyMK4Controller::tick()
 {
     if (!active || host == nullptr) return;
+    // Late-arriving input port: try again every tick until it opens.
+    if (!dawInput) tryOpenInput();
+    // Clear the per-message activity flash from last tick.
+    if (!sawMessageThisTick) {
+        paintPad(0, 4, 0x00);   // activity indicator
+        paintPad(0, 2, 0x00);   // status byte
+        paintPad(0, 3, 0x00);   // data1 byte
+    }
+    sawMessageThisTick = false;
     auto* sv = host->getSessionViewComponent();
     if (sv == nullptr) return;
     // Repaint each pad based on its visible clip's state — only push
@@ -222,6 +310,12 @@ void LaunchkeyMK4Controller::paintPad(int row, int col, uint8_t colour)
         // Note On ch1 with the pad note + palette colour.
         o->sendMessageNow(juce::MidiMessage(0x90, LkMini::sessionPadNote(row, col), colour));
     }
+}
+
+juce::String LaunchkeyMK4Controller::getLastMessages() const
+{
+    const juce::ScopedLock lk(logLock);
+    return recentLog.joinIntoString("\n");
 }
 
 void LaunchkeyMK4Controller::clearAllPads()
