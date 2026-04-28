@@ -5,7 +5,13 @@
 #include "SessionViewComponent.h"
 
 namespace LkMini {
-    // SysEx header for Mini SKUs (49/61 use 0x14 instead of 0x13).
+    // SysEx header for Mini SKUs (Mini 25 + Mini 37 share 0x13;
+    // full-size LK 25/37/49/61 use 0x14).  The Mini line's firmware
+    // does NOT accept host display SysEx (Configure/Set Text are
+    // silently dropped) even on the Mini 37 which has the OLED
+    // hardware.  The OLED is firmware-locked to the device's own
+    // chord/scale/mode info.  Verified empirically 2026-04-28 across
+    // three iterations matching Live 12's remote-script bytes.
     constexpr uint8_t kHdr[] = { 0xF0, 0x00, 0x20, 0x29, 0x02, 0x13 };
 
     // DAW endpoint name substring.  iOS exposes Launchkey ports as
@@ -222,12 +228,17 @@ void LaunchkeyMK4Controller::handleTransportCC(uint8_t cc, uint8_t value)
 
     switch (cc)
     {
-        case LkMini::kCcPlay:    host->controllerPlayToggle();    break;
+        case LkMini::kCcPlay:    if (shiftHeld) host->controllerReturnToStart(); else host->controllerPlayToggle(); break;
         case LkMini::kCcStop:    host->controllerStop();          break;
         case LkMini::kCcRecord:  host->controllerRecordToggle();  break;
         case LkMini::kCcLoop:    host->controllerLoopToggle();    break;
-        case LkMini::kCcTrackL:  host->controllerSelectTrack(-1); break;
-        case LkMini::kCcTrackR:  host->controllerSelectTrack(+1); break;
+        // 0x66 / 0x67 arrive only when Shift is held with the Track
+        // ◀▶ buttons — the firmware translates "Shift+Track UP/DOWN"
+        // into these CCs at the hardware level.  UP feels like "next
+        // preset" to the user (scroll forward in the list), DOWN feels
+        // like "previous" — so map opposite to numeric direction.
+        case LkMini::kCcTrackL:  host->controllerPresetNext();    break;
+        case LkMini::kCcTrackR:  host->controllerPresetPrev();    break;
         case LkMini::kCcSceneDn: host->controllerScrollScenes(+1);break;
         case LkMini::kCcRowRight:host->controllerLaunchScene();   break;
         default: break;

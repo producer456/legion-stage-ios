@@ -8105,6 +8105,33 @@ void MainComponent::controllerLaunchScene()
     });
 }
 
+void MainComponent::controllerReturnToStart()
+{
+    // resetPosition() writes to an atomic so it's thread-safe, but
+    // hop to the message thread anyway so the timeline gets a repaint
+    // and the visible playhead jumps to 0 immediately.
+    onMain(this, [](MainComponent* self) {
+        self->pluginHost.getEngine().resetPosition();
+        if (self->timelineComponent) self->timelineComponent->repaint();
+    });
+}
+
+void MainComponent::controllerPresetPrev()
+{
+    juce::Component::SafePointer<MainComponent> safe(this);
+    juce::MessageManager::callAsync([safe] {
+        if (safe) safe->presetDownButton.triggerClick();
+    });
+}
+
+void MainComponent::controllerPresetNext()
+{
+    juce::Component::SafePointer<MainComponent> safe(this);
+    juce::MessageManager::callAsync([safe] {
+        if (safe) safe->presetUpButton.triggerClick();
+    });
+}
+
 void MainComponent::setTrackVolumeFromController(int visibleIdx, float value)
 {
     // Volume writes go through an atomic so they're safe from any

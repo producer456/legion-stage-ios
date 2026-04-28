@@ -367,6 +367,9 @@ public:
     void controllerSelectTrack(int delta);
     void controllerScrollScenes(int delta);
     void controllerLaunchScene();
+    void controllerReturnToStart();
+    void controllerPresetPrev();
+    void controllerPresetNext();
     void setTrackVolumeFromController(int visibleIdx, float value);
 
 private:
