@@ -14,6 +14,8 @@
 #include "GlassOverlayLookAndFeel.h"
 #include "OceanGlassLookAndFeel.h"
 #include "LaboratoryLookAndFeel.h"
+#include "LaunchkeyLookAndFeel.h"
+#include "LaunchkeyDarkLookAndFeel.h"
 
 class ThemeManager
 {
@@ -31,6 +33,8 @@ public:
         GlassOverlay,
         OceanGlass,
         Laboratory,
+        Launchkey,
+        LaunchkeyDark,
         NumThemes
     };
 
@@ -47,6 +51,8 @@ public:
         themes[GlassOverlay] = std::make_unique<GlassOverlayLookAndFeel>();
         themes[OceanGlass] = std::make_unique<OceanGlassLookAndFeel>();
         themes[Laboratory] = std::make_unique<LaboratoryLookAndFeel>();
+        themes[Launchkey] = std::make_unique<LaunchkeyLookAndFeel>();
+        themes[LaunchkeyDark] = std::make_unique<LaunchkeyDarkLookAndFeel>();
     }
 
     // Apply the given theme to a component tree
@@ -85,6 +91,8 @@ public:
             case GlassOverlay:     return "Glass Overlay";
             case OceanGlass:       return "Oceania";
             case Laboratory:       return "Laboratory";
+            case Launchkey:        return "Launchkey";
+            case LaunchkeyDark:    return "Launchkey Dark";
             default:               return "Unknown";
         }
     }

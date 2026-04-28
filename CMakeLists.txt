@@ -95,6 +95,8 @@ target_sources(Sequencer PRIVATE
     src/GlassOverlayLookAndFeel.h
     src/OceanGlassLookAndFeel.h
     src/LaboratoryLookAndFeel.h
+    src/LaunchkeyLookAndFeel.h
+    src/LaunchkeyDarkLookAndFeel.h
     src/DeviceMotion.h
     src/DeviceMotion.mm
     src/AUPresetHelper.h

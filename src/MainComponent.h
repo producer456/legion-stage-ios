@@ -352,6 +352,8 @@ private:
     // DAW-port output + decodes its DAW-protocol input.
     LaunchkeyMK4Controller launchkey;
     juce::Label launchkeyMidiInspector;   // on-screen MIDI byte readout
+    juce::TextButton launchkeyInspectorToggle { "LK" };   // tiny always-visible pill to show/hide the inspector
+    bool launchkeyThemeApplied = false;   // one-shot: auto-switch the theme once per detection
 
 public:
     /// Open and cache an output endpoint matching the given substring
@@ -370,6 +372,7 @@ public:
     void controllerReturnToStart();
     void controllerPresetPrev();
     void controllerPresetNext();
+    void controllerToggleMetronomeAndCountIn();
     void controllerParamPagePrev();
     void controllerParamPageNext();
     void setFocusedTrackVolumeFromController(float value);

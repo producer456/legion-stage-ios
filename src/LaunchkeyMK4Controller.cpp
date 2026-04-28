@@ -252,7 +252,7 @@ void LaunchkeyMK4Controller::handleTransportCC(uint8_t cc, uint8_t value)
     {
         case LkMini::kCcPlay:    if (shiftHeld) host->controllerReturnToStart(); else host->controllerPlayToggle(); break;
         case LkMini::kCcStop:    host->controllerStop();          break;
-        case LkMini::kCcRecord:  host->controllerRecordToggle();  break;
+        case LkMini::kCcRecord:  if (shiftHeld) host->controllerToggleMetronomeAndCountIn(); else host->controllerRecordToggle(); break;
         case LkMini::kCcLoop:    host->controllerLoopToggle();    break;
         // 0x66 / 0x67 arrive only when Shift is held with the Track
         // ◀▶ buttons — the firmware translates "Shift+Track UP/DOWN"

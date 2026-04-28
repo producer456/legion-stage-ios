@@ -1316,7 +1316,28 @@ MainComponent::MainComponent()
     launchkeyMidiInspector.setJustificationType(juce::Justification::topLeft);
     launchkeyMidiInspector.setText("LK MIDI:\n(plug in device + press buttons)", juce::dontSendNotification);
     launchkeyMidiInspector.setBounds(8, 8, 460, 280);
+    launchkeyMidiInspector.setVisible(false);   // off by default — opt-in via the LK pill
     launchkeyMidiInspector.toFront(false);
+
+    // Tiny always-visible pill — tap to toggle the MIDI inspector overlay.
+    addAndMakeVisible(launchkeyInspectorToggle);
+    launchkeyInspectorToggle.setColour(juce::TextButton::buttonColourId, juce::Colours::black.withAlpha(0.55f));
+    launchkeyInspectorToggle.setColour(juce::TextButton::buttonOnColourId, juce::Colours::limegreen.withAlpha(0.85f));
+    launchkeyInspectorToggle.setColour(juce::TextButton::textColourOffId, juce::Colours::limegreen);
+    launchkeyInspectorToggle.setColour(juce::TextButton::textColourOnId, juce::Colours::black);
+    launchkeyInspectorToggle.setClickingTogglesState(true);
+    launchkeyInspectorToggle.setToggleState(false, juce::dontSendNotification);
+    launchkeyInspectorToggle.onClick = [this] {
+        const bool show = launchkeyInspectorToggle.getToggleState();
+        launchkeyMidiInspector.setVisible(show);
+        if (show) launchkeyMidiInspector.toFront(false);
+    };
+    launchkeyInspectorToggle.setAlwaysOnTop(true);
+    launchkeyInspectorToggle.toFront(false);
+    // Initial position; resized() repositions to bottom-left so it
+    // always lives below the top bar's transport / BPM controls.
+    launchkeyInspectorToggle.setBounds(8, 8, 32, 24);
+    launchkeyMidiInspector.setAlwaysOnTop(true);
 }
 
 MainComponent::~MainComponent()
@@ -1357,6 +1378,18 @@ void MainComponent::timerCallback()
     // is plugged in now, attach() will succeed; otherwise no-op.
     if (!launchkey.isActive()) launchkey.attach(this);
     launchkey.tick();
+
+    // Auto-apply the Launchkey theme once per detection — fires on
+    // first successful attach (boot or hot-plug).  Don't re-apply on
+    // every tick, otherwise the user can't switch away with the
+    // theme picker.
+    if (launchkey.isActive() && !launchkeyThemeApplied)
+    {
+        launchkeyThemeApplied = true;
+        themeManager.setTheme(ThemeManager::Launchkey, this);
+        themeSelector.setSelectedId(ThemeManager::Launchkey + 1, juce::dontSendNotification);
+    }
+    if (launchkeyMidiInspector.isVisible())
     {
         auto txt = launchkey.getLastMessages();
         if (txt.isEmpty()) txt = "LK MIDI: (no messages yet)";
@@ -5473,6 +5506,17 @@ void MainComponent::resized()
 {
     auto area = getLocalBounds();
 
+    // Pin the LK inspector pill to the bottom-left corner so it
+    // doesn't fight the top-bar transport/BPM/tap-tempo widgets.
+    // Inspector overlay sits just above the pill when visible.
+    {
+        const int pillW = 32, pillH = 24, gap = 6;
+        launchkeyInspectorToggle.setBounds(gap, getHeight() - pillH - gap, pillW, pillH);
+        const int insW = juce::jmin(460, getWidth() - 2 * gap);
+        const int insH = 280;
+        launchkeyMidiInspector.setBounds(gap, getHeight() - pillH - gap - insH - 4, insW, insH);
+    }
+
 #if JUCE_IOS
     attachMetalRendererIfNeeded();
     if (metalRenderer && metalRendererAttached)
@@ -7490,13 +7534,23 @@ void MainComponent::updateTrackInputSelector()
     {
         // Prefer the device the user already had active so switching
         // tracks via the controller doesn't reset their MIDI input
-        // back to the first listed device every time.  Only fall back
-        // to the first device when no input is currently chosen.
+        // back to the first listed device every time.  When no input
+        // is yet chosen, prefer the Launchkey's keys port (the one
+        // WITHOUT "DAW" in its name — the DAW port is consumed by the
+        // controller integration and can't double as a track input).
+        // Falls through to devices[0] if no Launchkey port is found.
         int preferIdx = 0;
         if (currentMidiDeviceId.isNotEmpty())
         {
             for (int i = 0; i < devices.size(); ++i)
                 if (devices[i].identifier == currentMidiDeviceId) { preferIdx = i; break; }
+        }
+        else
+        {
+            for (int i = 0; i < devices.size(); ++i)
+                if (devices[i].name.containsIgnoreCase("launch")
+                    && !devices[i].name.containsIgnoreCase("daw"))
+                { preferIdx = i; break; }
         }
         trackInputSelector.setSelectedId(100 + preferIdx, juce::dontSendNotification);
         disableCurrentMidiDevice();
@@ -8129,6 +8183,25 @@ void MainComponent::controllerPresetNext()
     juce::Component::SafePointer<MainComponent> safe(this);
     juce::MessageManager::callAsync([safe] {
         if (safe) safe->presetUpButton.triggerClick();
+    });
+}
+
+void MainComponent::controllerToggleMetronomeAndCountIn()
+{
+    // Shift+Record on the Mini: flip the metronome AND count-in
+    // together so they stay locked in step.  Drives the existing
+    // toolbar buttons via triggerClick so the engine state, on-
+    // screen toggle visuals, and project save state all stay in
+    // sync the same way a tap on those buttons would.
+    juce::Component::SafePointer<MainComponent> safe(this);
+    juce::MessageManager::callAsync([safe] {
+        auto* self = safe.getComponent();
+        if (!self) return;
+        const bool turningOn = !self->metronomeButton.getToggleState();
+        if (self->metronomeButton.getToggleState() != turningOn)
+            self->metronomeButton.triggerClick();
+        if (self->countInButton.getToggleState() != turningOn)
+            self->countInButton.triggerClick();
     });
 }
 
