@@ -2368,8 +2368,16 @@ void MainComponent::selectMidiDevice()
     int idx = selectedId - 3;
     if (idx < 0 || idx >= midiDevices.size()) { updateStatusLabel(); return; }
     auto d = midiDevices[idx];
+    // Don't try to enable a port the Launchkey controller already
+    // owns — the double-open crashes CoreMIDI on iPad.  The user
+    // doesn't need to pick the DAW port manually anyway; the
+    // controller opens it automatically.
+    if (d.name.containsIgnoreCase("launch") && d.name.containsIgnoreCase("daw"))
+    {
+        updateStatusLabel();
+        return;
+    }
     deviceManager.setMidiInputDeviceEnabled(d.identifier, true);
-    // Route through our callback so we can intercept CI SysEx
     deviceManager.addMidiInputDeviceCallback(d.identifier, this);
     currentMidiDeviceId = d.identifier;
     updateStatusLabel();
@@ -7480,12 +7488,21 @@ void MainComponent::updateTrackInputSelector()
     }
     else if (devices.size() > 0)
     {
-        trackInputSelector.setSelectedId(100, juce::dontSendNotification);
-        // Auto-connect the first MIDI device
+        // Prefer the device the user already had active so switching
+        // tracks via the controller doesn't reset their MIDI input
+        // back to the first listed device every time.  Only fall back
+        // to the first device when no input is currently chosen.
+        int preferIdx = 0;
+        if (currentMidiDeviceId.isNotEmpty())
+        {
+            for (int i = 0; i < devices.size(); ++i)
+                if (devices[i].identifier == currentMidiDeviceId) { preferIdx = i; break; }
+        }
+        trackInputSelector.setSelectedId(100 + preferIdx, juce::dontSendNotification);
         disableCurrentMidiDevice();
-        deviceManager.setMidiInputDeviceEnabled(devices[0].identifier, true);
-        deviceManager.addMidiInputDeviceCallback(devices[0].identifier, this);
-        currentMidiDeviceId = devices[0].identifier;
+        deviceManager.setMidiInputDeviceEnabled(devices[preferIdx].identifier, true);
+        deviceManager.addMidiInputDeviceCallback(devices[preferIdx].identifier, this);
+        currentMidiDeviceId = devices[preferIdx].identifier;
     }
     else
     {
@@ -8057,11 +8074,19 @@ void MainComponent::controllerLoopToggle()
 
 void MainComponent::controllerSelectTrack(int delta)
 {
-    onMain(this, [delta](MainComponent* self) {
-        int next = self->pluginHost.getSelectedTrack() + delta;
-        if (next < 0) next = 0;
-        if (next >= 16) next = 15;
-        self->selectTrack(next);
+    juce::Component::SafePointer<MainComponent> safe(this);
+    juce::MessageManager::callAsync([safe, delta] {
+        if (auto* self = safe.getComponent())
+        {
+            int next = juce::jlimit(0, PluginHost::NUM_TRACKS - 1,
+                                    self->selectedTrackIndex + delta);
+            self->selectTrack(next);
+            // Force the timeline to redraw — its visible track-highlight
+            // is driven by pluginHost.getSelectedTrack() during paint
+            // and won't refresh on its own.  Mirrors what Timeline's
+            // own mouseDown handler does after setSelectedTrack.
+            if (self->timelineComponent) self->timelineComponent->repaint();
+        }
     });
 }
 

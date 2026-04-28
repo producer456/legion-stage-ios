@@ -61,10 +61,6 @@ void LaunchkeyMK4Controller::attach(MainComponent* h)
             enterDawMode();
             disableVegasMode();
             active = true;
-            // Test pattern: pad (0,0) bright red, pad (0,1) bright
-            // amber.  Visible confirmation the OUTPUT path works.
-            paintPad(0, 0, 0x05);   // red
-            paintPad(0, 1, 0x09);   // amber
         }
     }
 }
@@ -98,12 +94,6 @@ void LaunchkeyMK4Controller::detach()
 
 void LaunchkeyMK4Controller::handleIncomingMidiMessage(juce::MidiInput*, const juce::MidiMessage& msg)
 {
-    // Diagnostic: pad (0,4) flashes bright white on EVERY incoming
-    // message so we can tell if pressing a button on the device
-    // actually sends anything at all.  tick() clears it next frame.
-    paintPad(0, 4, 0x03);
-    sawMessageThisTick = true;
-
     // Append to the rolling on-screen MIDI inspector log.
     {
         juce::String line;
@@ -113,26 +103,6 @@ void LaunchkeyMK4Controller::handleIncomingMidiMessage(juce::MidiInput*, const j
         recentLog.insert(0, line.trim());
         while (recentLog.size() > 8) recentLog.remove(8);
     }
-
-    // Pad (0,2) shows the status byte of the latest message and
-    // pad (0,3) shows its first data byte (note number for notes,
-    // CC number for CCs).  Both are written as palette indices so
-    // we can decode what PLAY etc. actually send.
-    if (msg.getRawDataSize() >= 1) paintPad(0, 2, msg.getRawData()[0] & 0x7F);
-    if (msg.getRawDataSize() >= 2) paintPad(0, 3, msg.getRawData()[1] & 0x7F);
-    const auto* raw = msg.getRawData();
-    const uint8_t status = raw[0];
-    if      ((status == 0x90 || status == 0x80) && msg.getRawDataSize() >= 2 && raw[1] >= 0x60 && raw[1] <= 0x77)
-        paintPad(1, 0, 0x15);   // pad note → green
-    else if (status == 0xBF && msg.getRawDataSize() >= 3 && raw[1] >= 0x73 && raw[1] <= 0x76)
-        paintPad(1, 1, 0x05);   // transport CC → red
-    else if (status == 0xBF && msg.getRawDataSize() >= 3 && raw[1] >= 0x55 && raw[1] <= 0x5C)
-        paintPad(1, 2, 0x09);   // encoder CC → amber
-    else if (status == 0xBF)
-        paintPad(1, 3, 0x29);   // other CC → blue
-    else
-        paintPad(1, 4, 0x2D);   // anything else → dim blue
-
     processIncoming(msg);
 }
 
@@ -230,7 +200,6 @@ void LaunchkeyMK4Controller::handlePadRelease(uint8_t /*padNote*/) { /* no-op */
 void LaunchkeyMK4Controller::handleEncoder(int idx, uint8_t value)
 {
     if (host == nullptr || idx < 0 || idx > 7) return;
-    paintPad(0, 7, 0x09);   // diagnostic: encoder dispatched to host
     if (currentEncoderMode == 1) {
         host->setTrackVolumeFromController(idx, value / 127.0f);
     }
@@ -242,14 +211,14 @@ void LaunchkeyMK4Controller::handleTransportCC(uint8_t cc, uint8_t value)
     const bool press = (value >= 64);
 
     if (cc == LkMini::kCcShift)    { shiftHeld = press; return; }
-    if (!press) return;   // act on press, ignore release
 
-    // Diagnostic: light pad (0,5) any time transport-dispatch runs
-    // on a press, regardless of which CC.  Encodes the CC number
-    // (mod 128) into pad-(0,6) red brightness so we can read it back.
-    paintPad(0, 5, 0x05);
-    paintPad(0, 6, cc);   // raw CC byte as palette index — colour
-                          // varies by which transport button you hit
+    // Track ◀▶ on the Mk4: each direction is its own CC (UP=0x6A,
+    // DOWN=0x6B) with standard press/release values (0x7F/0x00).
+    // Act on press only.
+    if (cc == 0x6A) { if (press) host->controllerSelectTrack(-1); return; }
+    if (cc == 0x6B) { if (press) host->controllerSelectTrack(+1); return; }
+
+    if (!press) return;   // every other button: act on press only
 
     switch (cc)
     {
@@ -259,7 +228,6 @@ void LaunchkeyMK4Controller::handleTransportCC(uint8_t cc, uint8_t value)
         case LkMini::kCcLoop:    host->controllerLoopToggle();    break;
         case LkMini::kCcTrackL:  host->controllerSelectTrack(-1); break;
         case LkMini::kCcTrackR:  host->controllerSelectTrack(+1); break;
-        case LkMini::kCcSceneUp: host->controllerScrollScenes(-1);break;
         case LkMini::kCcSceneDn: host->controllerScrollScenes(+1);break;
         case LkMini::kCcRowRight:host->controllerLaunchScene();   break;
         default: break;
@@ -271,13 +239,6 @@ void LaunchkeyMK4Controller::tick()
     if (!active || host == nullptr) return;
     // Late-arriving input port: try again every tick until it opens.
     if (!dawInput) tryOpenInput();
-    // Clear the per-message activity flash from last tick.
-    if (!sawMessageThisTick) {
-        paintPad(0, 4, 0x00);   // activity indicator
-        paintPad(0, 2, 0x00);   // status byte
-        paintPad(0, 3, 0x00);   // data1 byte
-    }
-    sawMessageThisTick = false;
     auto* sv = host->getSessionViewComponent();
     if (sv == nullptr) return;
     // Repaint each pad based on its visible clip's state — only push

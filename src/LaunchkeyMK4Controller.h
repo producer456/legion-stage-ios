@@ -85,7 +85,6 @@ private:
 
     // Cache of last-painted pad colours so we only push deltas.
     uint8_t lastPaint[16] = {0};
-    bool sawMessageThisTick = false;
     mutable juce::CriticalSection logLock;
     juce::StringArray recentLog;   // newest first, capped
 };
