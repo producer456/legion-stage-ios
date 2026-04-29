@@ -397,6 +397,12 @@ public:
     // device's pad LEDs.  Called from the controller's tick().
     void controllerSetToolbarButtonAnimatedColor(int row, int col, uint32_t rgb);
 
+    // Push the device's pad-mode + encoder-mode to match the focused
+    // track context (drum kit → DRUM/MIXER, plugin → DAW/PLUGIN,
+    // bare track → DAW/MIXER).  Hooked into selectTrack() and the
+    // launchkey auto-attach path.
+    void syncLaunchkeyDeviceModes();
+
     // Engine snapshot for pad-LED animations (beat pulse, breathing,
     // record overlay).  All thread-safe atomic reads.
     bool   controllerEngineIsPlaying()    const;

@@ -47,6 +47,15 @@ public:
     /// MIDI inspector.  Thread-safe via a mutex on write/read.
     juce::String getLastMessages() const;
 
+    /// Tell the device to switch its pad / encoder mode.  The mode-CC
+    /// is bidirectional — writing it makes the firmware change layout
+    /// (and the OLED label updates for free).  Pad-mode bytes:
+    /// 2 = DAW/session (default).  Encoder-mode bytes: 1 = Mixer.
+    /// Other values discovered empirically via the on-screen MIDI
+    /// inspector + the device's Encoder/Pad Mode buttons.
+    void setDevicePadMode(uint8_t mode);
+    void setDeviceEncoderMode(uint8_t mode);
+
 private:
     // Lifecycle SysEx
     void enterDawMode();

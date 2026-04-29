@@ -2,6 +2,7 @@
 #include "AUPresetHelper.h"
 #include "FileAccessHelper.h"
 #include "DeviceMotion.h"
+#include "BuiltinSamplerProcessor.h"
 #if JUCE_IOS
 #include "AUScanner.h"
 #endif
@@ -1399,6 +1400,8 @@ void MainComponent::timerCallback()
         // (6 instead of NUM_PARAM_SLIDERS) — re-populate + re-layout.
         updateParamSliders();
         resized();
+        // Push device pad/encoder modes to match the focused track.
+        syncLaunchkeyDeviceModes();
     }
     if (launchkeyMidiInspector.isVisible())
     {
@@ -1978,6 +1981,7 @@ void MainComponent::selectTrack(int index)
     closePluginEditor();
     updateTrackDisplay();
     updateStatusLabel();
+    syncLaunchkeyDeviceModes();
 
     // Update arpeggiator button labels for the new track
     if (auto* cp = pluginHost.getTrack(selectedTrackIndex).clipPlayer)
@@ -8343,6 +8347,30 @@ uint32_t MainComponent::controllerToolbarPadColorRGB(int row, int col) const
     if (!e) return 0;
     // Strip alpha; controller side sends only 24-bit RGB.
     return e->rgb & 0x00FFFFFFu;
+}
+
+void MainComponent::syncLaunchkeyDeviceModes()
+{
+    if (!launchkey.isActive()) return;
+
+    // Pad mode: DRUM (1) when the focused track hosts a drum-kit
+    // sampler, otherwise back to DAW/session (2) so our toolbar
+    // shortcuts work.  Encoder mode: PLUGIN (0) when the focused
+    // track has a plugin loaded (so the OLED label reads "PLUGIN"
+    // when the user touches a knob), otherwise MIXER (1).
+    auto& trk = pluginHost.getTrack(selectedTrackIndex);
+
+    bool isDrumKit = false;
+    if (trk.plugin != nullptr)
+    {
+        if (auto* sampler = dynamic_cast<BuiltinSamplerProcessor*>(trk.plugin))
+            isDrumKit = sampler->isDrumKitMode();
+    }
+
+    const uint8_t padMode = isDrumKit ? 1 : 2;
+    const uint8_t encMode = (trk.plugin != nullptr) ? 0 : 1;
+    launchkey.setDevicePadMode(padMode);
+    launchkey.setDeviceEncoderMode(encMode);
 }
 
 void MainComponent::controllerSetToolbarButtonAnimatedColor(int row, int col, uint32_t rgb)

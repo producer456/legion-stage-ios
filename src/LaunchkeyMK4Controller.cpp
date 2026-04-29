@@ -191,6 +191,22 @@ bool LaunchkeyMK4Controller::processIncoming(const juce::MidiMessage& msg)
 void LaunchkeyMK4Controller::onPadModeReport(int mode)     { currentPadMode = mode; }
 void LaunchkeyMK4Controller::onEncoderModeReport(int mode) { currentEncoderMode = mode; }
 
+void LaunchkeyMK4Controller::setDevicePadMode(uint8_t mode)
+{
+    if (currentPadMode == mode) return;
+    if (auto* o = out())
+        o->sendMessageNow(juce::MidiMessage(0xB6, LkMini::kCcPadMode, mode));
+    currentPadMode = mode;
+}
+
+void LaunchkeyMK4Controller::setDeviceEncoderMode(uint8_t mode)
+{
+    if (currentEncoderMode == mode) return;
+    if (auto* o = out())
+        o->sendMessageNow(juce::MidiMessage(0xB6, LkMini::kCcEncMode, mode));
+    currentEncoderMode = mode;
+}
+
 void LaunchkeyMK4Controller::handlePadPress(uint8_t padNote, uint8_t /*vel*/)
 {
     if (host == nullptr) return;
@@ -219,7 +235,10 @@ void LaunchkeyMK4Controller::handleEncoder(int idx, uint8_t value)
 {
     if (host == nullptr || idx < 0 || idx > 7) return;
     lastInputAtMillis = juce::Time::currentTimeMillis();
-    if (currentEncoderMode != 1) return;   // mixer mode only for now
+    // Routing is the same regardless of which mode the device is in
+    // — the OLED label changes (Mixer / Plugin / Sends), but our
+    // encoder semantics stay constant: enc 1 = focused-track vol,
+    // enc 2-7 = on-screen sliders, enc 8 = playhead scrub.
 
     const float v = value / 127.0f;
     if (idx == 0)
