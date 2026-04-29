@@ -395,24 +395,17 @@ void LaunchkeyMK4Controller::tick()
                     if (col > waveCol)       c = juce::Colours::black;
                     else if (col == waveCol) c = juce::Colours::white;
                 }
-                else if (isPlaying)
-                {
-                    // Beat pulse — brightest at beat onset, decays
-                    // toward the next beat.  Quadratic ease feels
-                    // musical without being seizure-y.
-                    const float frac = static_cast<float>(posBeats - std::floor(posBeats));
-                    const float lift = 0.30f * (1.0f - frac) * (1.0f - frac);
-                    c = c.withMultipliedBrightness(1.0f + lift);
-                }
                 else
                 {
-                    // Breathing while transport is stopped — uses
-                    // tempo halved as a slow heartbeat.
-                    const double breathHz = bpm / 60.0 / 2.0;
-                    const float breath = 1.0f + 0.07f * static_cast<float>(
-                        std::sin(now / 1000.0 * breathHz * 2.0 * juce::MathConstants<double>::pi));
-                    c = c.withMultipliedBrightness(breath);
-
+                    // On-beat lift during playback — single source of
+                    // animation on the toolbar pads.  Pads sit at their
+                    // static gradient brightness when transport stopped.
+                    if (isPlaying)
+                    {
+                        const float frac = static_cast<float>(posBeats - std::floor(posBeats));
+                        const float lift = 0.18f * (1.0f - frac) * (1.0f - frac);
+                        c = c.withMultipliedBrightness(1.0f + lift);
+                    }
                     // Subtle hue drift while idle for >5s.
                     if (isIdle)
                     {

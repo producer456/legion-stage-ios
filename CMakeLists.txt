@@ -1,6 +1,14 @@
 cmake_minimum_required(VERSION 3.22)
 project(Sequencer VERSION 1.10.0)
 
+# CFBundleVersion (build number).  Defaults to the project VERSION
+# but the deploy script overrides it with epoch seconds so TestFlight
+# always sees a monotonically-increasing unique build.  Apple requires
+# each component <= 4294967295, so use a single integer.
+if(NOT DEFINED LEGION_BUILD_VERSION)
+    string(TIMESTAMP LEGION_BUILD_VERSION "%s")
+endif()
+
 # ASIO SDK path — JUCE needs this to compile ASIO support (Windows only)
 if(WIN32)
     set(JUCE_ASIO_SDK_DIR "${CMAKE_CURRENT_SOURCE_DIR}/libs/asio-sdk" CACHE PATH "ASIO SDK location")
@@ -13,6 +21,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
         PRODUCT_NAME "Legion Stage"
         COMPANY_NAME "Dev"
         BUNDLE_ID "com.dev.legionstage"
+        BUILD_VERSION "${LEGION_BUILD_VERSION}"
         IS_AU_PLUGIN_HOST TRUE
         BACKGROUND_AUDIO_ENABLED TRUE
         FILE_SHARING_ENABLED TRUE

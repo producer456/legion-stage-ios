@@ -22,6 +22,9 @@ public:
     bool keyPressed(const juce::KeyPress& key) override;
     void timerCallback() override;
     void setGridResolution(double res) { gridResolution = res; }
+    // Wired by the host; if set, a "CLR AUTO" button in the toolbar
+    // calls this to clear automation lanes for the focused track.
+    void setOnClearAutomation(std::function<void()> fn);
 
 private:
     MidiClip& clip;
@@ -32,6 +35,8 @@ private:
     static constexpr int toolbarHeight = 20;
     juce::ComboBox gridSelector;
     juce::TextButton snapButton { "SNAP" };
+    juce::TextButton clearAutoButton { "CLR AUTO" };
+    std::function<void()> clearAutoCallback;
     bool snapEnabled = true;
 
     // View state
@@ -124,7 +129,8 @@ class PianoRollWindow : public juce::DocumentWindow
 {
 public:
     PianoRollWindow(const juce::String& name, MidiClip& clip, SequencerEngine& engine,
-                    juce::LookAndFeel* lf = nullptr)
+                    juce::LookAndFeel* lf = nullptr,
+                    std::function<void()> onClearAutomation = {})
         : DocumentWindow(name,
                          [lf]() -> juce::Colour {
                              if (auto* tc = dynamic_cast<DawLookAndFeel*>(lf))
@@ -134,7 +140,9 @@ public:
                          DocumentWindow::closeButton)
     {
         setUsingNativeTitleBar(true);
-        setContentOwned(new PianoRollComponent(clip, engine), false);
+        auto* roll = new PianoRollComponent(clip, engine);
+        if (onClearAutomation) roll->setOnClearAutomation(std::move(onClearAutomation));
+        setContentOwned(roll, false);
         setSize(800, 500);
         setResizable(true, true);
         centreWithSize(800, 500);
@@ -145,6 +153,34 @@ public:
     {
         setVisible(false);
         juce::MessageManager::callAsync([this] { delete this; });
+    }
+
+    void paint(juce::Graphics& g) override
+    {
+        if (auto* lf = dynamic_cast<DawLookAndFeel*>(&getLookAndFeel()))
+        {
+            const auto& theme = lf->getTheme();
+            if (theme.wireframe)
+            {
+                g.fillAll(juce::Colour(theme.body));
+                return;
+            }
+        }
+        juce::DocumentWindow::paint(g);
+    }
+
+    void paintOverChildren(juce::Graphics& g) override
+    {
+        if (auto* lf = dynamic_cast<DawLookAndFeel*>(&getLookAndFeel()))
+        {
+            const auto& theme = lf->getTheme();
+            if (theme.wireframe)
+            {
+                auto bounds = getLocalBounds().toFloat().reduced(0.75f);
+                g.setColour(juce::Colour(theme.borderLight));
+                g.drawRoundedRectangle(bounds, 12.0f, 1.5f);
+            }
+        }
     }
 
 private:

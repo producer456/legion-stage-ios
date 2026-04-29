@@ -274,17 +274,11 @@ MainComponent::MainComponent()
         if (timelineComponent) timelineComponent->quantizeSelectedClip();
     };
 
-    addAndMakeVisible(clearAutoButton);
-    clearAutoButton.onClick = [this] {
-        takeSnapshot();
-        auto& track = pluginHost.getTrack(selectedTrackIndex);
-        {
-            const juce::SpinLock::ScopedLockType lock(track.automationLock);
-            track.automationLanes.clear();
-        }
-        statusLabel.setText("Automation cleared", juce::dontSendNotification);
-        if (timelineComponent) timelineComponent->repaint();
-    };
+    // Clear-Automation lives inside the note editor (PianoRollWindow)
+    // now — the toolbar button stays for backwards-compat layout but
+    // is permanently hidden.  See editClipButton.onClick below for
+    // the callback wiring.
+    clearAutoButton.setVisible(false);
 
     addAndMakeVisible(gridSelector);
     gridSelector.addItem("1/4", 1);
@@ -468,7 +462,26 @@ MainComponent::MainComponent()
         {
             auto* clip = timelineComponent->getSelectedClip();
             if (clip != nullptr)
-                new PianoRollWindow("Piano Roll", *clip, pluginHost.getEngine());
+            {
+                // Wire the in-window CLR AUTO button to clear lanes
+                // for the focused track.  Snapshot first so undo works.
+                juce::Component::SafePointer<MainComponent> safe(this);
+                auto onClearAuto = [safe]
+                {
+                    auto* self = safe.getComponent();
+                    if (!self) return;
+                    self->takeSnapshot();
+                    auto& trk = self->pluginHost.getTrack(self->selectedTrackIndex);
+                    {
+                        const juce::SpinLock::ScopedLockType lock(trk.automationLock);
+                        trk.automationLanes.clear();
+                    }
+                    self->statusLabel.setText("Automation cleared", juce::dontSendNotification);
+                    if (self->timelineComponent) self->timelineComponent->repaint();
+                };
+                new PianoRollWindow("Piano Roll", *clip, pluginHost.getEngine(),
+                                    nullptr, std::move(onClearAuto));
+            }
         }
     };
 
@@ -1406,6 +1419,11 @@ void MainComponent::timerCallback()
     if (!launchkey.isActive()) launchkey.attach(this);
     launchkey.tick();
 
+    // iPad-side toolbar boot wave (only fires when no Launchkey is
+    // connected — otherwise the controller's tick mirrors the device
+    // boot to the iPad already).
+    updateIpadToolbarBootWave();
+
     // Auto-apply the Launchkey theme once per detection — fires on
     // first successful attach (boot or hot-plug).  Don't re-apply on
     // every tick, otherwise the user can't switch away with the
@@ -1714,7 +1732,9 @@ void MainComponent::timerCallback()
         }
     }
 
-    // Update CPU + RAM meter — throttle to ~1Hz to reduce syscall overhead
+    // CPU + RAM syscalls — throttle to ~1Hz, those are the only
+    // expensive bits here.  Everything else (EKG sample, repaint)
+    // runs every frame so the sweep stays smooth.
     static int cpuPollCounter = 0;
     if (++cpuPollCounter >= 30) // ~once per second at 30Hz timer
     {
@@ -1731,67 +1751,58 @@ void MainComponent::timerCallback()
         currentRamMB = ramMB;
         cpuLabel.setText("", juce::dontSendNotification);  // drawn custom
 
-        // Store CPU history for heartbeat waveform
         cpuHistory.add(totalCpu);
         if (cpuHistory.size() > 60)
             cpuHistory.remove(0);
+    }
 
-        // Advance EKG sweep — generate PQRST samples into circular buffer
-        if (!glassHighRate)
-        {
-            float cpu = totalCpu / 100.0f;
-            // Heart rate mirrors CPU load like a real heart:
-            // ~63 BPM at rest (low CPU) → tachycardia ~100 BPM at high CPU
-            // Samples/sec = timerHz * subSamples — keep constant at ~45 regardless of timer rate
-            double beatsPerSec = (63.0 + static_cast<double>(cpu) * 37.0) / 60.0;
-            int currentHz = themeManager.isGlassOverlay() ? getGlassTimerHz() : getBaseTimerHz();
-            int subSamples = juce::jmax(1, 45 / currentHz);  // 15Hz→3, 30Hz→1
-            double samplesPerSec = static_cast<double>(currentHz * subSamples);
-            double phaseStep = beatsPerSec / samplesPerSec;
+    // EKG sweep — advance one sample per timer tick so the trace
+    // moves smoothly.  Heart rate mirrors current CPU load.
+    if (!glassHighRate)
+    {
+        float cpu = currentCpuPercent / 100.0f;
+        double beatsPerSec = (63.0 + static_cast<double>(cpu) * 37.0) / 60.0;
+        int currentHz = themeManager.isGlassOverlay() ? getGlassTimerHz() : getBaseTimerHz();
+        double phaseStep = beatsPerSec / static_cast<double>(currentHz);
 
-            for (int s = 0; s < subSamples; ++s)
-            {
-                ekgPhase += phaseStep;
-                float p = static_cast<float>(std::fmod(ekgPhase, 1.0));
+        ekgPhase += phaseStep;
+        float p = static_cast<float>(std::fmod(ekgPhase, 1.0));
 
-                float v = 0.0f;
-                if (p < 0.12f) {
-                    float t = (p - 0.06f) / 0.04f;
-                    v = 0.12f * std::exp(-t * t);
-                } else if (p < 0.18f) {
-                    v = 0.0f;
-                } else if (p < 0.22f) {
-                    float t = (p - 0.20f) / 0.015f;
-                    v = -0.1f * std::exp(-t * t);
-                } else if (p < 0.28f) {
-                    float width = 0.018f + cpu * 0.01f;
-                    float t = (p - 0.25f) / width;
-                    v = (0.7f + cpu * 0.3f) * std::exp(-t * t);
-                } else if (p < 0.34f) {
-                    float t = (p - 0.31f) / 0.02f;
-                    v = -(0.15f + cpu * 0.1f) * std::exp(-t * t);
-                } else if (p < 0.48f) {
-                    v = cpu * 0.15f;
-                } else if (p < 0.64f) {
-                    float t = (p - 0.56f) / 0.05f;
-                    float tAmp = 0.2f + cpu * 0.1f;
-                    if (cpu > 0.85f) tAmp = -tAmp * 0.5f;
-                    v = tAmp * std::exp(-t * t) + cpu * 0.15f * (1.0f - (p - 0.48f) / 0.16f);
-                }
-
-                // Arrhythmia jitter at high CPU
-                if (cpu > 0.75f)
-                    v += (cpu - 0.7f) * 0.1f * std::sin(static_cast<float>(ekgWritePos) * 3.1f);
-
-                ekgBuffer[static_cast<size_t>(ekgWritePos)] = v;
-                ekgWritePos = (ekgWritePos + 1) % EKG_BUFFER_SIZE;
-            }
+        float v = 0.0f;
+        if (p < 0.12f) {
+            float t = (p - 0.06f) / 0.04f;
+            v = 0.12f * std::exp(-t * t);
+        } else if (p < 0.18f) {
+            v = 0.0f;
+        } else if (p < 0.22f) {
+            float t = (p - 0.20f) / 0.015f;
+            v = -0.1f * std::exp(-t * t);
+        } else if (p < 0.28f) {
+            float width = 0.018f + cpu * 0.01f;
+            float t = (p - 0.25f) / width;
+            v = (0.7f + cpu * 0.3f) * std::exp(-t * t);
+        } else if (p < 0.34f) {
+            float t = (p - 0.31f) / 0.02f;
+            v = -(0.15f + cpu * 0.1f) * std::exp(-t * t);
+        } else if (p < 0.48f) {
+            v = cpu * 0.15f;
+        } else if (p < 0.64f) {
+            float t = (p - 0.56f) / 0.05f;
+            float tAmp = 0.2f + cpu * 0.1f;
+            if (cpu > 0.85f) tAmp = -tAmp * 0.5f;
+            v = tAmp * std::exp(-t * t) + cpu * 0.15f * (1.0f - (p - 0.48f) / 0.16f);
         }
 
-        // Repaint the CPU OLED area
-        if (cpuLabel.isVisible())
-            repaint(cpuLabel.getBounds().expanded(5));
-    } // end cpuPollCounter throttle
+        // Arrhythmia jitter at high CPU
+        if (cpu > 0.75f)
+            v += (cpu - 0.7f) * 0.1f * std::sin(static_cast<float>(ekgWritePos) * 3.1f);
+
+        ekgBuffer[static_cast<size_t>(ekgWritePos)] = v;
+        ekgWritePos = (ekgWritePos + 1) % EKG_BUFFER_SIZE;
+    }
+
+    if (cpuLabel.isVisible())
+        repaint(cpuLabel.getBounds().expanded(5));
 
     // Heart rate observation is started automatically by the auth completion handler
     // No need to poll here
@@ -2847,11 +2858,17 @@ void MainComponent::showAudioSettings()
 #else
     auto* sel = new juce::AudioDeviceSelectorComponent(deviceManager, 0, 0, 1, 2, false, false, false, false);
     sel->setSize(500, 400);
+    auto* wrapped = new WireframeContentWrapper(sel);
     juce::DialogWindow::LaunchOptions opt;
-    opt.content.setOwned(sel);
+    opt.content.setOwned(wrapped);
     opt.dialogTitle = "Audio Settings";
     opt.componentToCentreAround = this;
-    opt.dialogBackgroundColour = getLookAndFeel().findColour(juce::ResizableWindow::backgroundColourId);
+    {
+        auto bg = getLookAndFeel().findColour(juce::ResizableWindow::backgroundColourId);
+        if (auto* lf = dynamic_cast<DawLookAndFeel*>(&getLookAndFeel()))
+            if (lf->getTheme().wireframe) bg = juce::Colour(lf->getTheme().body);
+        opt.dialogBackgroundColour = bg;
+    }
     opt.escapeKeyTriggersCloseButton = true;
     opt.useNativeTitleBar = true;
     opt.resizable = false;
@@ -2880,11 +2897,17 @@ void MainComponent::showSettingsMenu()
             {
                 auto* dialog = new UpdateDialog();
                 dialog->setSize(550, 420);
+                auto* wrappedDlg = new WireframeContentWrapper(dialog);
                 juce::DialogWindow::LaunchOptions opts;
-                opts.content.setOwned(dialog);
+                opts.content.setOwned(wrappedDlg);
                 opts.dialogTitle = "Software Update";
                 opts.componentToCentreAround = this;
-                opts.dialogBackgroundColour = getLookAndFeel().findColour(juce::ResizableWindow::backgroundColourId);
+                {
+                    auto bg = getLookAndFeel().findColour(juce::ResizableWindow::backgroundColourId);
+                    if (auto* lf = dynamic_cast<DawLookAndFeel*>(&getLookAndFeel()))
+                        if (lf->getTheme().wireframe) bg = juce::Colour(lf->getTheme().body);
+                    opts.dialogBackgroundColour = bg;
+                }
                 opts.escapeKeyTriggersCloseButton = true;
                 opts.useNativeTitleBar = true;
                 opts.resizable = false;
@@ -5116,6 +5139,17 @@ void MainComponent::paint(juce::Graphics& g)
         {
             g.setColour(juce::Colour(c.body));
             g.fillRect(panelRect);
+            // Wireframe themes (LK Dark) get an OLED-cyan outline along
+            // the panel edges so it reads as a discrete card rather
+            // than dissolving into the black canvas.  Generous corner
+            // radius so the rounded curve reads on the visible (left)
+            // edge where the panel meets the timeline.
+            if (c.wireframe)
+            {
+                auto pr = panelRect.toFloat().reduced(0.75f);
+                g.setColour(juce::Colour(c.borderLight));
+                g.drawRoundedRectangle(pr, 12.0f, 1.5f);
+            }
         }
     }
 
@@ -5327,6 +5361,25 @@ void MainComponent::paint(juce::Graphics& g)
 
 void MainComponent::paintOverChildren(juce::Graphics& g)
 {
+    // Wireframe themes (LK Dark) get a rounded OLED-cyan border
+    // around the entire app window so the canvas reads as a single
+    // self-contained "device screen".  Inset enough that the stroke
+    // and the rounded corners stay fully on-screen — drawRounded
+    // strokes outward from the path, so we need at least
+    // ceil(strokeWidth/2)+1 pixels of breathing room.
+    if (auto* lnf = dynamic_cast<DawLookAndFeel*>(&getLookAndFeel()))
+    {
+        const auto& th = lnf->getTheme();
+        if (th.wireframe)
+        {
+            const float stroke = 2.0f;
+            const float inset  = 4.0f;
+            auto bounds = getLocalBounds().toFloat().reduced(inset);
+            g.setColour(juce::Colour(th.borderLight));
+            g.drawRoundedRectangle(bounds, 22.0f, stroke);
+        }
+    }
+
     // Get button corner radius from theme
     float radius = 0.0f;
     if (auto* lnf = dynamic_cast<DawLookAndFeel*>(&getLookAndFeel()))
@@ -6470,37 +6523,32 @@ void MainComponent::resized()
     }
 
     // ── Edit Toolbar ──
+    // All buttons positioned L→R in the brightness gradient that
+    // matches the LaunchkeyDark theme + the device pad layout:
+    //   Arp(faint) → Timing(dim) → Project(mid) → Clip(accent) → I/O(high)
     auto toolbar = area.removeFromTop(65).reduced(4, 4);
 
-    // Arp buttons on the right side
-    arpOctButton.setBounds(toolbar.removeFromRight(42));
-    arpOctButton.setVisible(true);
-    toolbar.removeFromRight(2);
-    arpRateButton.setBounds(toolbar.removeFromRight(38));
-    arpRateButton.setVisible(true);
-    toolbar.removeFromRight(2);
-    arpModeButton.setBounds(toolbar.removeFromRight(42));
-    arpModeButton.setVisible(true);
-    toolbar.removeFromRight(2);
-    arpButton.setBounds(toolbar.removeFromRight(48));
+    // Arp group (faintest)
+    arpButton.setBounds(toolbar.removeFromLeft(48));
     arpButton.setVisible(true);
-    toolbar.removeFromRight(6);
+    toolbar.removeFromLeft(2);
+    arpModeButton.setBounds(toolbar.removeFromLeft(42));
+    arpModeButton.setVisible(true);
+    toolbar.removeFromLeft(2);
+    arpRateButton.setBounds(toolbar.removeFromLeft(38));
+    arpRateButton.setVisible(true);
+    toolbar.removeFromLeft(2);
+    arpOctButton.setBounds(toolbar.removeFromLeft(42));
+    arpOctButton.setVisible(true);
+    toolbar.removeFromLeft(6);
 
-    // Grid + Quantize on the far left
+    // Timing group
     gridSelector.setBounds(toolbar.removeFromLeft(65));
     toolbar.removeFromLeft(2);
     quantizeButton.setBounds(toolbar.removeFromLeft(70));
-    toolbar.removeFromLeft(4);
-    newClipButton.setBounds(toolbar.removeFromLeft(80));
-    toolbar.removeFromLeft(2);
-    deleteClipButton.setBounds(toolbar.removeFromLeft(60));
-    toolbar.removeFromLeft(2);
-    splitClipButton.setBounds(toolbar.removeFromLeft(50));
-    toolbar.removeFromLeft(2);
-    editClipButton.setBounds(toolbar.removeFromLeft(60));
-    toolbar.removeFromLeft(2);
-    clearAutoButton.setBounds(toolbar.removeFromLeft(65));
-    toolbar.removeFromLeft(3);
+    toolbar.removeFromLeft(6);
+
+    // Project group
     saveButton.setBounds(toolbar.removeFromLeft(45));
     toolbar.removeFromLeft(2);
     loadButton.setBounds(toolbar.removeFromLeft(45));
@@ -6508,7 +6556,21 @@ void MainComponent::resized()
     undoButton.setBounds(toolbar.removeFromLeft(42));
     toolbar.removeFromLeft(2);
     redoButton.setBounds(toolbar.removeFromLeft(42));
-    toolbar.removeFromLeft(4);
+    toolbar.removeFromLeft(6);
+
+    // Clip group
+    newClipButton.setBounds(toolbar.removeFromLeft(80));
+    toolbar.removeFromLeft(2);
+    deleteClipButton.setBounds(toolbar.removeFromLeft(60));
+    toolbar.removeFromLeft(2);
+    splitClipButton.setBounds(toolbar.removeFromLeft(50));
+    toolbar.removeFromLeft(2);
+    editClipButton.setBounds(toolbar.removeFromLeft(60));
+    toolbar.removeFromLeft(6);
+    // clearAutoButton lives in the PianoRollWindow now — keep
+    // hidden + skip layout so it doesn't reserve toolbar space.
+
+    // I/O group (brightest)
     testNoteButton.setVisible(false);
     captureButton.setBounds(toolbar.removeFromLeft(50));
     captureButton.setVisible(true);
@@ -8271,33 +8333,46 @@ namespace {
     constexpr uint32_t jCoral   = 0xffbd8377;
     constexpr uint32_t jOrange  = 0xffc78b5d;
     // ── OLED-cyan brightness levels (dark theme) ──
-    constexpr uint32_t cFaint  = 0xff2a4a55;
-    constexpr uint32_t cDim    = 0xff3a5a64;
-    constexpr uint32_t cMid    = 0xff5891a3;
-    constexpr uint32_t cAccent = 0xff78b0c4;
-    constexpr uint32_t cHigh   = 0xffa0c8d4;
-    constexpr uint32_t cBright = 0xffd2e4e8;
+    // Floor pre-bumped so the dim/faint levels survive the device's
+    // 0-255 → 0-127 SysEx scaling and the LED hardware's non-linear
+    // perceived-brightness curve.  Spread is preserved end-to-end so
+    // the function-group gradient reads on both iPad + device.
+    constexpr uint32_t cFaint  = 0xff446e7c;
+    constexpr uint32_t cDim    = 0xff5891a3;
+    constexpr uint32_t cMid    = 0xff78b0c4;
+    constexpr uint32_t cAccent = 0xff9ac3d4;
+    constexpr uint32_t cHigh   = 0xffbcd6e0;
+    constexpr uint32_t cBright = 0xffe6f0f4;
 
+    // Pad order matches the iPad toolbar L→R, top→bottom — and the
+    // iPad toolbar is itself ordered by FUNCTION-GROUP brightness from
+    // faintest to brightest, so reading the panel left→right takes you
+    // through the OLED-cyan tiers in order:
+    //   Arp     (Arp, Mode, Rate, Oct)   → cFaint   [positions 1..4]
+    //   Timing  (Grid, Quant)            → cDim     [positions 5,6]
+    //   Project (Save, Load, Undo, Redo) → cMid     [positions 7..10]
+    //   Clip    (New, Del, Split, Edit)  → cAccent  [positions 11..14]
+    //   I/O     (Capture, Export)        → cHigh    [positions 15,16]
     constexpr LkPadEntry kPadMap[] = {
         //  row col  pal   light       dark
-        // Top row
-        { 0, 0, 0x09, jAmber,   cDim    },   // Grid
-        { 0, 1, 0x0D, jYellow,  cDim    },   // Quantize
-        { 0, 2, 0x15, jGreen,   cAccent },   // New
-        { 0, 3, 0x05, jRed,     cBright },   // Delete (destructive — pops)
-        { 0, 4, 0x57, jOrange,  cFaint  },   // Split
-        { 0, 5, 0x29, jBlue,    cHigh   },   // Edit
-        { 0, 6, 0x35, jPurple,  cHigh   },   // Save
-        { 0, 7, 0x37, jViolet,  cHigh   },   // Load
-        // Bottom row
-        { 1, 0, 0x21, jSky,     cMid    },   // Undo
-        { 1, 1, 0x25, jCyan,    cMid    },   // Redo
-        { 1, 2, 0x11, jLime,    cAccent },   // Capture
-        { 1, 3, 0x19, jSpring,  cAccent },   // Export
-        { 1, 4, 0x39, jMagenta, cMid    },   // Arp
-        { 1, 5, 0x3D, jPink,    cMid    },   // Arp Mode
-        { 1, 6, 0x53, jCoral,   cMid    },   // Arp Rate
-        { 1, 7, 0x57, jOrange,  cFaint  },   // Arp Oct
+        // Top row — iPad positions 1..8 (Arp → Timing → Project start)
+        { 0, 0, 0x39, jMagenta, cFaint  },   // Arp     [Arp]
+        { 0, 1, 0x3D, jPink,    cFaint  },   // Mode    [Arp]
+        { 0, 2, 0x53, jCoral,   cFaint  },   // Rate    [Arp]
+        { 0, 3, 0x57, jOrange,  cFaint  },   // Oct     [Arp]
+        { 0, 4, 0x09, jAmber,   cDim    },   // Grid    [Timing]
+        { 0, 5, 0x0D, jYellow,  cDim    },   // Quant   [Timing]
+        { 0, 6, 0x35, jPurple,  cMid    },   // Save    [Project]
+        { 0, 7, 0x37, jViolet,  cMid    },   // Load    [Project]
+        // Bottom row — iPad positions 9..16 (Project end → Clip → I/O)
+        { 1, 0, 0x21, jSky,     cMid    },   // Undo    [Project]
+        { 1, 1, 0x25, jCyan,    cMid    },   // Redo    [Project]
+        { 1, 2, 0x15, jGreen,   cAccent },   // New     [Clip]
+        { 1, 3, 0x05, jRed,     cAccent },   // Delete  [Clip]
+        { 1, 4, 0x57, jOrange,  cAccent },   // Split   [Clip]
+        { 1, 5, 0x29, jBlue,    cAccent },   // Edit    [Clip]
+        { 1, 6, 0x11, jLime,    cHigh   },   // Capture [I/O]
+        { 1, 7, 0x19, jSpring,  cHigh   },   // Export  [I/O]
     };
     constexpr int kPadMapCount = sizeof(kPadMap) / sizeof(kPadMap[0]);
 
@@ -8321,12 +8396,18 @@ void MainComponent::controllerToolbarPadAction(int row, int col)
     juce::MessageManager::callAsync([safe, row, col] {
         auto* self = safe.getComponent();
         if (!self) return;
-        // Layout matches kPadMap above.
+        // Layout matches the brightness-gradient kPadMap above:
+        //   Top : Arp Mode Rate Oct  | Grid Quant | Save Load
+        //   Bot : Undo Redo          | New Del Split Edit | Capt Expt
         if (row == 0)
         {
             switch (col)
             {
-                case 0: {   // Grid — advance the dropdown to the next item.
+                case 0: self->arpButton.triggerClick();     break;
+                case 1: self->arpModeButton.triggerClick(); break;
+                case 2: self->arpRateButton.triggerClick(); break;
+                case 3: self->arpOctButton.triggerClick();  break;
+                case 4: {   // Grid — advance dropdown to the next item.
                     auto& g = self->gridSelector;
                     const int n = g.getNumItems();
                     if (n <= 0) return;
@@ -8335,27 +8416,23 @@ void MainComponent::controllerToolbarPadAction(int row, int col)
                     g.setSelectedItemIndex(nextIdx, juce::sendNotificationSync);
                     break;
                 }
-                case 1: self->quantizeButton.triggerClick(); break;
-                case 2: self->newClipButton.triggerClick(); break;
-                case 3: self->deleteClipButton.triggerClick(); break;
-                case 4: self->splitClipButton.triggerClick(); break;
-                case 5: self->editClipButton.triggerClick(); break;
-                case 6: self->saveButton.triggerClick(); break;
-                case 7: self->loadButton.triggerClick(); break;
+                case 5: self->quantizeButton.triggerClick(); break;
+                case 6: self->saveButton.triggerClick();     break;
+                case 7: self->loadButton.triggerClick();     break;
             }
         }
         else if (row == 1)
         {
             switch (col)
             {
-                case 0: self->undoButton.triggerClick(); break;
-                case 1: self->redoButton.triggerClick(); break;
-                case 2: self->captureButton.triggerClick(); break;
-                case 3: self->exportButton.triggerClick(); break;
-                case 4: self->arpButton.triggerClick(); break;
-                case 5: self->arpModeButton.triggerClick(); break;
-                case 6: self->arpRateButton.triggerClick(); break;
-                case 7: self->arpOctButton.triggerClick(); break;
+                case 0: self->undoButton.triggerClick();       break;
+                case 1: self->redoButton.triggerClick();       break;
+                case 2: self->newClipButton.triggerClick();    break;
+                case 3: self->deleteClipButton.triggerClick(); break;
+                case 4: self->splitClipButton.triggerClick();  break;
+                case 5: self->editClipButton.triggerClick();   break;
+                case 6: self->captureButton.triggerClick();    break;
+                case 7: self->exportButton.triggerClick();     break;
             }
         }
     });
@@ -8411,12 +8488,12 @@ void MainComponent::controllerSetToolbarButtonAnimatedColor(int row, int col, ui
     if (row == 0)
     {
         switch (col) {
-            case 0: target = &gridSelector;       break;
-            case 1: target = &quantizeButton;     break;
-            case 2: target = &newClipButton;      break;
-            case 3: target = &deleteClipButton;   break;
-            case 4: target = &splitClipButton;    break;
-            case 5: target = &editClipButton;     break;
+            case 0: target = &arpButton;          break;
+            case 1: target = &arpModeButton;      break;
+            case 2: target = &arpRateButton;      break;
+            case 3: target = &arpOctButton;       break;
+            case 4: target = &gridSelector;       break;
+            case 5: target = &quantizeButton;     break;
             case 6: target = &saveButton;         break;
             case 7: target = &loadButton;         break;
         }
@@ -8426,12 +8503,12 @@ void MainComponent::controllerSetToolbarButtonAnimatedColor(int row, int col, ui
         switch (col) {
             case 0: target = &undoButton;         break;
             case 1: target = &redoButton;         break;
-            case 2: target = &captureButton;      break;
-            case 3: target = &exportButton;       break;
-            case 4: target = &arpButton;          break;
-            case 5: target = &arpModeButton;      break;
-            case 6: target = &arpRateButton;      break;
-            case 7: target = &arpOctButton;       break;
+            case 2: target = &newClipButton;      break;
+            case 3: target = &deleteClipButton;   break;
+            case 4: target = &splitClipButton;    break;
+            case 5: target = &editClipButton;     break;
+            case 6: target = &captureButton;      break;
+            case 7: target = &exportButton;       break;
         }
     }
     if (target == nullptr) return;
@@ -8453,21 +8530,24 @@ void MainComponent::applyLaunchkeyToolbarColors()
     // (button*, kPadMap row, kPadMap col)
     struct Tgt { juce::TextButton* btn; int row, col; };
     const Tgt tgts[] = {
-        { &quantizeButton,    0, 1 },
-        { &newClipButton,     0, 2 },
-        { &deleteClipButton,  0, 3 },
-        { &splitClipButton,   0, 4 },
-        { &editClipButton,    0, 5 },
+        // Top row — Arp(0..3) | Grid + Quant(4,5) | Save + Load(6,7).
+        // Grid is the ComboBox at (0,4), handled separately below.
+        { &arpButton,         0, 0 },
+        { &arpModeButton,     0, 1 },
+        { &arpRateButton,     0, 2 },
+        { &arpOctButton,      0, 3 },
+        { &quantizeButton,    0, 5 },
         { &saveButton,        0, 6 },
         { &loadButton,        0, 7 },
+        // Bottom row — Undo Redo | New Del Split Edit | Capt Expt
         { &undoButton,        1, 0 },
         { &redoButton,        1, 1 },
-        { &captureButton,     1, 2 },
-        { &exportButton,      1, 3 },
-        { &arpButton,         1, 4 },
-        { &arpModeButton,     1, 5 },
-        { &arpRateButton,     1, 6 },
-        { &arpOctButton,      1, 7 },
+        { &newClipButton,     1, 2 },
+        { &deleteClipButton,  1, 3 },
+        { &splitClipButton,   1, 4 },
+        { &editClipButton,    1, 5 },
+        { &captureButton,     1, 6 },
+        { &exportButton,      1, 7 },
     };
 
     if (!controllerToolbarPadActive())
@@ -8498,11 +8578,69 @@ void MainComponent::applyLaunchkeyToolbarColors()
             t.btn->repaint();
         }
     }
-    if (auto* e = findPadEntry(0, 0))
+    // Grid combobox sits at the gradient-ordered position (0,4).
+    if (auto* e = findPadEntry(0, 4))
     {
         const uint32_t c = dark ? e->rgbDark : e->rgbLight;
         gridSelector.getProperties().set("lkColor", static_cast<int>(c));
         gridSelector.repaint();
+    }
+
+    // Arm the iPad-side boot wave when the wireframe theme just
+    // activated AND no Launchkey is connected to do it for us.
+    const bool wfNow = dark;
+    if (wfNow && !wireframeWasActiveForBoot && !launchkey.isActive())
+        ipadToolbarBootStartMs = juce::Time::currentTimeMillis();
+    wireframeWasActiveForBoot = wfNow;
+}
+
+// Per-button boot wave on the iPad — 16 steps × 40ms each = 640ms
+// total, sweeping L→R across the top row then continuing L→R across
+// the bottom row.  Mirrors the device-side boot wave implemented in
+// the controller's tick.  Only runs while ipadToolbarBootStartMs is
+// set (cleared after the wave finishes).
+void MainComponent::updateIpadToolbarBootWave()
+{
+    if (ipadToolbarBootStartMs == 0) return;
+
+    const auto now = juce::Time::currentTimeMillis();
+    const auto since = now - ipadToolbarBootStartMs;
+    if (since >= 800)
+    {
+        // Wave done — restore static base colours and clear arm.
+        ipadToolbarBootStartMs = 0;
+        applyLaunchkeyToolbarColors();
+        return;
+    }
+
+    const int waveStrip = static_cast<int>(since / 40);   // 16 steps over ~640ms
+
+    struct Tgt { juce::Component* btn; int row, col; };
+    const Tgt tgts[] = {
+        { &arpButton,         0, 0 }, { &arpModeButton,     0, 1 },
+        { &arpRateButton,     0, 2 }, { &arpOctButton,      0, 3 },
+        { &gridSelector,      0, 4 }, { &quantizeButton,    0, 5 },
+        { &saveButton,        0, 6 }, { &loadButton,        0, 7 },
+        { &undoButton,        1, 0 }, { &redoButton,        1, 1 },
+        { &newClipButton,     1, 2 }, { &deleteClipButton,  1, 3 },
+        { &splitClipButton,   1, 4 }, { &editClipButton,    1, 5 },
+        { &captureButton,     1, 6 }, { &exportButton,      1, 7 },
+    };
+    // Use the iPad-visual order from the array (sweep follows the
+    // L→R toolbar order, not the device-row order — this stays
+    // correct even when device rows are remapped).
+    for (int i = 0; i < (int) (sizeof(tgts) / sizeof(tgts[0])); ++i)
+    {
+        const auto& t = tgts[i];
+        uint32_t color;
+        if (i > waveStrip)        color = 0xff000000u;   // dark — wave hasn't passed yet
+        else if (i == waveStrip)  color = 0xffffffffu;   // crest white
+        else if (auto* e = findPadEntry(t.row, t.col))   // already passed → base
+            color = 0xff000000u | (e->rgbDark & 0x00FFFFFFu);
+        else
+            continue;
+        t.btn->getProperties().set("lkColor", static_cast<int>(color));
+        t.btn->repaint();
     }
 }
 

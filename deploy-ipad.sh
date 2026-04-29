@@ -6,8 +6,9 @@ set -e
 export PATH="/opt/homebrew/bin:$PATH"
 
 REPO_DIR="/Users/admin/legion-stage-ios"
-IPAD_ID="4B80AD93-1089-53FE-AA74-1E4C6ABB05C5"
+IPAD_ID="00008142-0005095E0C23401C"  # Paddy
 BUILD_DIR="$REPO_DIR/build-ios"
+TEAM_ID="9TUXM4MBAV"
 
 cd "$REPO_DIR"
 
@@ -29,6 +30,8 @@ xcodebuild -project "$BUILD_DIR/Sequencer.xcodeproj" \
     -allowProvisioningUpdates \
     -allowProvisioningDeviceRegistration \
     CODE_SIGNING_ALLOWED=YES \
+    DEVELOPMENT_TEAM="$TEAM_ID" \
+    CODE_SIGN_STYLE=Automatic \
     -quiet
 
 echo ">> Installing on iPad..."

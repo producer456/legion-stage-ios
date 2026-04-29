@@ -41,6 +41,21 @@ PianoRollComponent::PianoRollComponent(MidiClip& c, SequencerEngine& eng)
         snapEnabled = snapButton.getToggleState();
         repaint();
     };
+
+    // Clear-automation button — only visible when the host wires up
+    // a callback (otherwise this clip's track has no host to clear).
+    addAndMakeVisible(clearAutoButton);
+    clearAutoButton.setVisible(false);
+    clearAutoButton.onClick = [this] {
+        if (clearAutoCallback) clearAutoCallback();
+    };
+}
+
+void PianoRollComponent::setOnClearAutomation(std::function<void()> fn)
+{
+    clearAutoCallback = std::move(fn);
+    clearAutoButton.setVisible(static_cast<bool>(clearAutoCallback));
+    resized();
 }
 
 // ── Note list management ─────────────────────────────────────────────────────
@@ -569,6 +584,11 @@ void PianoRollComponent::resized()
     gridSelector.setBounds(x, 0, 70, toolbarHeight);
     x += 74;
     snapButton.setBounds(x, 0, 44, toolbarHeight);
+    if (clearAutoButton.isVisible())
+    {
+        x += 48;
+        clearAutoButton.setBounds(x, 0, 70, toolbarHeight);
+    }
 }
 
 bool PianoRollComponent::isBlackKey(int note)

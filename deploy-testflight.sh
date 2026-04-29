@@ -29,17 +29,22 @@ cd "$REPO_DIR"
 echo ">> Pulling latest from repo..."
 git pull origin main
 
-echo ">> Configuring build..."
-if [ ! -f "$BUILD_DIR/Sequencer.xcodeproj/project.pbxproj" ]; then
-    rm -rf "$BUILD_DIR"
-    cmake -B "$BUILD_DIR" -G Xcode \
-        -DCMAKE_SYSTEM_NAME=iOS \
-        -DCMAKE_OSX_DEPLOYMENT_TARGET=16.0
-else
-    echo "  Reusing existing CMake config"
-fi
+# Epoch seconds — fits in uint32 (Apple's CFBundleVersion segment
+# limit) AND monotonically increases.  An older format (date
+# +%Y%m%d%H%M) overflowed and silently fell back to a stale value,
+# so TestFlight refused to surface the new build as an update.
+BUILD_NUMBER=$(date +%s)
 
-BUILD_NUMBER=$(date +%Y%m%d%H%M)
+echo ">> Configuring build (BUILD_NUMBER=$BUILD_NUMBER)..."
+# Always wipe the cached config so the new build number is baked
+# into the JUCE-generated Info.plist.  Reusing the cache caused
+# silent CFBundleVersion regressions that confused TestFlight.
+rm -rf "$BUILD_DIR"
+cmake -B "$BUILD_DIR" -G Xcode \
+    -DCMAKE_SYSTEM_NAME=iOS \
+    -DCMAKE_OSX_DEPLOYMENT_TARGET=16.0 \
+    -DLEGION_BUILD_VERSION="$BUILD_NUMBER"
+
 echo ">> Archiving (build $BUILD_NUMBER)..."
 xcodebuild -project "$BUILD_DIR/Sequencer.xcodeproj" \
     CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \

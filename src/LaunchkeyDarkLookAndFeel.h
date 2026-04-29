@@ -73,10 +73,10 @@ public:
         theme.timelineBg          = 0xff000000;
         theme.timelineAltRow      = 0xff000000;
         theme.timelineSelectedRow = 0xff1a3038;
-        theme.timelineGridMajor   = 0xff5891a3;
-        theme.timelineGridMinor   = 0xff3a5a64;
-        theme.timelineGridFaint   = 0xff1a3038;
-        theme.timelineGridBeat    = 0xff3a5a64;
+        theme.timelineGridMajor   = 0xff5891a3;   // bar dividers (mid)
+        theme.timelineGridMinor   = 0xff223a42;   // header beat marks
+        theme.timelineGridFaint   = 0xff0c1518;   // sub-beat (skipped in wireframe)
+        theme.timelineGridBeat    = 0xff111e22;   // beat lines BETWEEN bars — even fainter
 
         // ── Clips — OLED-cyan brightness levels for state ──
         theme.clipDefault     = 0xff3a5a64;   // dim cyan — idle
@@ -144,27 +144,40 @@ public:
         auto bounds = button.getLocalBounds().toFloat().reduced(0.5f);
         auto text = button.getButtonText();
 
-        // Launchkey toolbar-pad button — radial "lit-from-within"
-        // glow that mimics the device's LED-backed pads: bright
-        // center, soft falloff, much darker edge, dark rim for the
-        // pad housing.  Higher contrast than the light theme so it
-        // reads as a glowing surface on the dark background.
+        // Launchkey toolbar-pad button — wireframe in the OLED theme.
+        // The lkColor property is updated every tick by the controller
+        // animation pipeline (boot wave, beat pulse, breathing, press
+        // flash, record overlay).  To make those animations visible
+        // on a thin outline, we amplify them via:
+        //   - an inner low-alpha fill that scales with brightness
+        //   - a stroke width that thickens with brightness
+        //   - a subtle outer halo at peak brightness
         if (button.getProperties().contains("lkColor"))
         {
             auto base = juce::Colour((juce::uint32) (int) button.getProperties()["lkColor"]);
-            if (shouldDrawButtonAsDown)             base = base.darker(0.25f);
+            if (shouldDrawButtonAsDown)             base = base.brighter(0.25f);
             else if (shouldDrawButtonAsHighlighted) base = base.brighter(0.15f);
-            const auto core = base.brighter(0.40f);
-            const auto edge = base.darker(0.40f);
-            const float cx = bounds.getCentreX();
-            const float cy = bounds.getY() + bounds.getHeight() * 0.42f;
-            const float r  = juce::jmax(bounds.getWidth(), bounds.getHeight()) * 0.55f;
-            juce::ColourGradient grad(core, cx, cy, edge, cx + r, cy, true);
-            grad.addColour(0.55, base);
-            g.setGradientFill(grad);
-            g.fillRoundedRectangle(bounds, 4.0f);
-            g.setColour(base.darker(0.6f));
-            g.drawRoundedRectangle(bounds, 4.0f, 0.7f);
+            // Brightness 0..1 — drives the visual amplification.  Most
+            // pads sit around 0.4-0.6; the boot wave / press flash
+            // briefly push toward 1.0; idle dim drops to 0.2.
+            const float bri = base.getBrightness();
+            const float glowAlpha   = juce::jlimit(0.0f, 0.55f, (bri - 0.25f) * 0.85f);
+            const float strokeWidth = 0.9f + bri * 1.2f;
+            // Inner glow fill.
+            if (glowAlpha > 0.01f)
+            {
+                g.setColour(base.withAlpha(glowAlpha));
+                g.fillRoundedRectangle(bounds, 4.0f);
+            }
+            // Outer halo at peak brightness only — the animation crest.
+            if (bri > 0.78f)
+            {
+                g.setColour(base.withAlpha((bri - 0.78f) * 1.5f));
+                g.drawRoundedRectangle(bounds.expanded(1.0f), 5.0f, 1.0f);
+            }
+            // The wireframe outline itself.
+            g.setColour(base);
+            g.drawRoundedRectangle(bounds, 4.0f, strokeWidth);
             return;
         }
 
@@ -245,11 +258,14 @@ public:
         juce::Colour bright(0xffd2e4e8);
         juce::Colour dim(0xff4a5a64);
 
-        // Launchkey toolbar-pad buttons get white-on-color text.
+        // Launchkey toolbar-pad buttons — wireframe.  Text takes the
+        // same lkColor as the outline so the label glows in the same
+        // brightness as the border (animations come through).
         if (button.getProperties().contains("lkColor"))
         {
+            auto labelColor = juce::Colour((juce::uint32) (int) button.getProperties()["lkColor"]);
             auto dispBounds = button.getLocalBounds().toFloat().reduced(2.0f);
-            g.setColour(juce::Colours::white);
+            g.setColour(labelColor);
             g.setFont(juce::Font(getUIFontName(),
                       juce::jmin(12.0f, dispBounds.getHeight() * 0.5f), juce::Font::bold));
             g.drawText(formatButtonText(text), button.getLocalBounds().reduced(2),

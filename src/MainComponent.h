@@ -30,6 +30,42 @@
 #include "SessionViewComponent.h"
 #include "LaunchkeyMK4Controller.h"
 
+// Content wrapper that paints a wireframe outline + black fill around its
+// child when the active theme is wireframe. Used by floating dialogs so
+// they match the OLED look without subclassing DialogWindow.
+class WireframeContentWrapper : public juce::Component
+{
+public:
+    explicit WireframeContentWrapper(juce::Component* inner) : child(inner)
+    {
+        addAndMakeVisible(child.get());
+        setSize(inner->getWidth(), inner->getHeight());
+    }
+    void resized() override { if (child) child->setBounds(getLocalBounds()); }
+    void paint(juce::Graphics& g) override
+    {
+        if (auto* lf = dynamic_cast<DawLookAndFeel*>(&getLookAndFeel()))
+            if (lf->getTheme().wireframe)
+                g.fillAll(juce::Colour(lf->getTheme().body));
+    }
+    void paintOverChildren(juce::Graphics& g) override
+    {
+        if (auto* lf = dynamic_cast<DawLookAndFeel*>(&getLookAndFeel()))
+        {
+            const auto& theme = lf->getTheme();
+            if (theme.wireframe)
+            {
+                auto bounds = getLocalBounds().toFloat().reduced(0.75f);
+                g.setColour(juce::Colour(theme.borderLight));
+                g.drawRoundedRectangle(bounds, 12.0f, 1.5f);
+            }
+        }
+    }
+private:
+    std::unique_ptr<juce::Component> child;
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(WireframeContentWrapper)
+};
+
 class PluginEditorWindow : public juce::DocumentWindow, public juce::ComponentListener
 {
 public:
@@ -60,6 +96,36 @@ public:
     }
 
     void closeButtonPressed() override { if (closeCallback) closeCallback(); }
+
+    void paint(juce::Graphics& g) override
+    {
+        if (auto* lf = dynamic_cast<DawLookAndFeel*>(&getLookAndFeel()))
+        {
+            const auto& theme = lf->getTheme();
+            if (theme.wireframe)
+            {
+                g.fillAll(juce::Colour(theme.body));
+                return;
+            }
+        }
+        juce::DocumentWindow::paint(g);
+    }
+
+    // Outline is drawn AFTER the plugin editor so it stays visible —
+    // most plugin UIs fill their bounds completely, hiding paint().
+    void paintOverChildren(juce::Graphics& g) override
+    {
+        if (auto* lf = dynamic_cast<DawLookAndFeel*>(&getLookAndFeel()))
+        {
+            const auto& theme = lf->getTheme();
+            if (theme.wireframe)
+            {
+                auto bounds = getLocalBounds().toFloat().reduced(0.75f);
+                g.setColour(juce::Colour(theme.borderLight));
+                g.drawRoundedRectangle(bounds, 12.0f, 1.5f);
+            }
+        }
+    }
 
     void componentMovedOrResized(juce::Component& comp, bool, bool wasResized) override
     {
@@ -355,6 +421,15 @@ private:
     juce::TextButton launchkeyInspectorToggle { "LK" };   // tiny always-visible pill to show/hide the inspector
     bool launchkeyThemeApplied = false;   // one-shot: auto-switch the theme once per detection
 
+    // iPad-side toolbar boot wave — runs when the LK Dark wireframe
+    // theme activates without a connected Launchkey (e.g. simulator),
+    // mirroring the device's pad boot wave so the iPad gets the same
+    // intro.  When a real Launchkey is connected the controller's
+    // tick already animates + mirrors to the iPad, so we skip this.
+    juce::int64 ipadToolbarBootStartMs = 0;
+    bool wireframeWasActiveForBoot = false;
+    void updateIpadToolbarBootWave();
+
 public:
     /// Open and cache an output endpoint matching the given substring
     /// in any installed device name.  Returns nullptr if no match.
@@ -392,6 +467,10 @@ public:
     // 0xRRGGBB packed; 0 if no entry — controller scales these to
     // the device's 7-bit-per-channel SysEx pad-RGB range.
     uint32_t controllerToolbarPadColorRGB(int row, int col) const;
+    // Hz the pad should breathe/pulse at — one rate per function
+    // group so the panel reads as a layered rhythm instead of a
+    // single unified breath.  0 means "use the default tempo-based
+    // pulse" (caller falls back).
     // Per-tick animated RGB pushed up from the controller so the iPad
     // toolbar buttons pulse / breathe / flash in lock-step with the
     // device's pad LEDs.  Called from the controller's tick().
