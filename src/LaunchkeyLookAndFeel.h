@@ -26,7 +26,7 @@ public:
         // ── Accents — Launchkey LED palette ──
         theme.red       = 0xffdd3a3a;   // record LED red
         theme.redDark   = 0xfff0d4d4;   // pale rose background
-        theme.amber     = 0xff5a8a8a;   // OLED teal accent
+        theme.amber     = 0xff4d8a9c;   // OLED teal accent
         theme.amberDark = 0xff476a6a;
         theme.green     = 0xff42c64a;   // play LED green
         theme.greenDark = 0xffd8eed8;   // pale mint background
@@ -60,34 +60,34 @@ public:
         theme.btnMidi2On     = 0xffc4dadc;
         theme.btnLoop        = 0xffe2e0da;
         theme.btnLoopOn      = 0xffc4dadc;
-        theme.loopRegion     = 0x205a8a8a;
-        theme.loopBorder     = 0xff5a8a8a;
+        theme.loopRegion     = 0x204d8a9c;
+        theme.loopBorder     = 0xff4d8a9c;
 
-        // ── Timeline — bright white with very subtle warm grid ──
+        // ── Timeline — bright cream with subtle warm grid ──
         theme.timelineBg          = 0xfffbf9f5;
         theme.timelineAltRow      = 0xfff2efe9;
-        theme.timelineSelectedRow = 0xffd8e6ea;
+        theme.timelineSelectedRow = 0xffd0e4e8;   // pale OLED-cyan tint
         theme.timelineGridMajor   = 0xffb8b6b0;
         theme.timelineGridMinor   = 0xffd6d4ce;
         theme.timelineGridFaint   = 0xffeae7e2;
         theme.timelineGridBeat    = 0xffcac8c2;
 
         // ── Clips — soft pastels matching the device's pad LED palette ──
-        theme.clipDefault     = 0xffd2dee6;  // cool pad-blue
-        theme.clipRecording   = 0xfff0c4cc;  // soft pink
-        theme.clipQueued      = 0xfff0d8c0;  // peach
-        theme.clipPlaying     = 0xffc8e8c8;  // mint green
+        theme.clipDefault     = 0xffd2d8e8;  // pale indigo (idle)
+        theme.clipRecording   = 0xffd8b8b8;  // muted rose (matches kRed)
+        theme.clipQueued      = 0xffd8c8a4;  // soft amber (matches kAmber)
+        theme.clipPlaying     = 0xffb8d4be;  // sage (matches kGreen)
         theme.clipNotePreview = 0xcc1a1816;
 
         // ── Playhead — dark slate needle ──
         theme.playhead     = 0xcc2a3038;
         theme.playheadGlow = 0x182a3038;
 
-        theme.accentStripe = 0xff5a8a8a;  // OLED-teal stripe
+        theme.accentStripe = 0xff4d8a9c;  // OLED-teal stripe
 
-        theme.trackSelected = 0xffd8e6ea;
+        theme.trackSelected = 0xffd0e4e8;
         theme.trackArmed    = 0xfff0d4d4;
-        theme.trackMuteOn   = 0xff5a8a8a;
+        theme.trackMuteOn   = 0xff4d8a9c;
         theme.trackSoloOn   = 0xffe8a840;
         theme.trackSoloText = 0xfffcfbf8;
 
@@ -152,7 +152,7 @@ public:
             juce::Graphics tg(topBarCache);
             tg.setColour(juce::Colour(0xfffcfbf8));
             tg.fillAll();
-            tg.setColour(juce::Colour(0xff5a8a8a));
+            tg.setColour(juce::Colour(0xff4d8a9c));
             tg.fillRect(0, height - 1, width, 1);
             topBarCacheW = width;
             topBarCacheH = height;
@@ -172,6 +172,31 @@ public:
         auto bounds = button.getLocalBounds().toFloat().reduced(0.5f);
         auto text = button.getButtonText();
 
+        // Launchkey toolbar-pad button — radial "lit-from-within"
+        // glow that mimics the device's LED-backed pads: bright
+        // center, soft falloff, slightly darker edge, thin dark rim
+        // for the pad housing.  See applyLaunchkeyToolbarColors().
+        if (button.getProperties().contains("lkColor"))
+        {
+            auto base = juce::Colour((juce::uint32) (int) button.getProperties()["lkColor"]);
+            if (shouldDrawButtonAsDown)             base = base.darker(0.20f);
+            else if (shouldDrawButtonAsHighlighted) base = base.brighter(0.10f);
+            const auto core = base.brighter(0.28f);
+            const auto edge = base.darker(0.22f);
+            // Center the radial glow slightly above-middle for a
+            // subtle "light source from above" feel.
+            const float cx = bounds.getCentreX();
+            const float cy = bounds.getY() + bounds.getHeight() * 0.42f;
+            const float r  = juce::jmax(bounds.getWidth(), bounds.getHeight()) * 0.55f;
+            juce::ColourGradient grad(core, cx, cy, edge, cx + r, cy, true);
+            grad.addColour(0.55, base);
+            g.setGradientFill(grad);
+            g.fillRoundedRectangle(bounds, 4.0f);
+            g.setColour(base.darker(0.45f));
+            g.drawRoundedRectangle(bounds, 4.0f, 0.7f);
+            return;
+        }
+
         const bool useOled = isOledAnimatedButton(text) || text == "REC" || text == "PANIC"
                           || text == "M2" || text == "..." || text == "PHN" || text == "E";
 
@@ -187,7 +212,7 @@ public:
             g.setColour(juce::Colour(theme.lcdBg));
             g.fillRoundedRectangle(screen, 3.0f);
 
-            if (shouldDrawButtonAsDown)        g.setColour(juce::Colour(0xff5a8a8a).withAlpha(0.4f));
+            if (shouldDrawButtonAsDown)        g.setColour(juce::Colour(0xff4d8a9c).withAlpha(0.4f));
             else if (shouldDrawButtonAsHighlighted) g.setColour(juce::Colour(0xff2a363a));
             else                                g.setColour(juce::Colour(0xff1a2024));
             g.drawRoundedRectangle(screen, 3.0f, 0.5f);
@@ -235,6 +260,18 @@ public:
 
         juce::Colour bright(0xffd2e4e8);
         juce::Colour dim(0xff4a5a64);
+
+        // Launchkey toolbar-pad buttons get white-on-color text.
+        if (button.getProperties().contains("lkColor"))
+        {
+            auto dispBounds = button.getLocalBounds().toFloat().reduced(2.0f);
+            g.setColour(juce::Colours::white);
+            g.setFont(juce::Font(getUIFontName(),
+                      juce::jmin(12.0f, dispBounds.getHeight() * 0.5f), juce::Font::bold));
+            g.drawText(formatButtonText(text), button.getLocalBounds().reduced(2),
+                       juce::Justification::centred);
+            return;
+        }
 
         if (isOledAnimatedButton(text) || text == "REC" || text == "PANIC")
         {

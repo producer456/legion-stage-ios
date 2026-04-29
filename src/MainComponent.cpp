@@ -552,7 +552,7 @@ MainComponent::MainComponent()
         }
         else
         {
-            paramPageOffset = juce::jmax(0, paramPageOffset - NUM_PARAM_SLIDERS);
+            paramPageOffset = juce::jmax(0, paramPageOffset - activeParamCount());
         }
         updateParamSliders();
     };
@@ -566,8 +566,8 @@ MainComponent::MainComponent()
                 paramSmartPage = false;
                 paramPageOffset = 0;
             }
-            else if (paramPageOffset + NUM_PARAM_SLIDERS < total)
-                paramPageOffset += NUM_PARAM_SLIDERS;
+            else if (paramPageOffset + activeParamCount() < total)
+                paramPageOffset += activeParamCount();
             updateParamSliders();
         }
     };
@@ -1125,6 +1125,12 @@ MainComponent::MainComponent()
         {
             themeManager.setTheme(static_cast<ThemeManager::Theme>(idx), this);
             applyThemeToControls();
+            applyLaunchkeyToolbarColors();
+            // Active param-knob count is theme-dependent (Launchkey
+            // themes show 6) — re-populate + re-layout so the
+            // visible knobs match the new theme immediately.
+            updateParamSliders();
+            resized();
             // Glass Light defaults to animation off
             bool animDefault = (idx != ThemeManager::LiquidGlassLight);
             glassAnimEnabled = animDefault;
@@ -1386,8 +1392,13 @@ void MainComponent::timerCallback()
     if (launchkey.isActive() && !launchkeyThemeApplied)
     {
         launchkeyThemeApplied = true;
-        themeManager.setTheme(ThemeManager::Launchkey, this);
-        themeSelector.setSelectedId(ThemeManager::Launchkey + 1, juce::dontSendNotification);
+        themeManager.setTheme(ThemeManager::LaunchkeyDark, this);
+        themeSelector.setSelectedId(ThemeManager::LaunchkeyDark + 1, juce::dontSendNotification);
+        applyLaunchkeyToolbarColors();
+        // Launchkey theme uses a different active param-knob count
+        // (6 instead of NUM_PARAM_SLIDERS) — re-populate + re-layout.
+        updateParamSliders();
+        resized();
     }
     if (launchkeyMidiInspector.isVisible())
     {
@@ -2874,6 +2885,17 @@ void MainComponent::updateStatusLabel()
 
 // ── Plugin Parameters ─────────────────────────────────────────────────────────
 
+int MainComponent::activeParamCount() const
+{
+    // Launchkey themes show only 6 visible param knobs (matching the
+    // device's encoder count after volume); other themes use the
+    // platform default.  Centralized here so paging math, slider
+    // population, and layout iteration all agree.
+    const auto t = themeManager.getCurrentTheme();
+    if (t == ThemeManager::Launchkey || t == ThemeManager::LaunchkeyDark) return 6;
+    return NUM_PARAM_SLIDERS;
+}
+
 void MainComponent::highlightParamKnob(int index)
 {
     // Reset all knobs to default color
@@ -2889,6 +2911,7 @@ void MainComponent::highlightParamKnob(int index)
 
 void MainComponent::updateParamSliders()
 {
+    const int N = activeParamCount();
     auto& track = pluginHost.getTrack(selectedTrackIndex);
 
     if (track.plugin == nullptr)
@@ -2909,13 +2932,13 @@ void MainComponent::updateParamSliders()
     juce::String pluginName = track.plugin->getName().toLowerCase();
 
     // Clamp page offset
-    if (paramPageOffset >= total) paramPageOffset = juce::jmax(0, total - NUM_PARAM_SLIDERS);
+    if (paramPageOffset >= total) paramPageOffset = juce::jmax(0, total - N);
     if (paramPageOffset < 0) paramPageOffset = 0;
 
     // Update page label (page 0 = smart, then sequential pages add 1 more)
-    int seqPages = juce::jmax(1, (total + NUM_PARAM_SLIDERS - 1) / NUM_PARAM_SLIDERS);
+    int seqPages = juce::jmax(1, (total + N - 1) / N);
     int totalPages = 1 + seqPages; // smart page + sequential pages
-    int page = paramSmartPage ? 1 : (paramPageOffset / NUM_PARAM_SLIDERS) + 2;
+    int page = paramSmartPage ? 1 : (paramPageOffset / N) + 2;
     paramPageLabel.setText(juce::String(page) + "/" + juce::String(totalPages), juce::dontSendNotification);
 
     // Show plugin name in the page name label
@@ -2961,7 +2984,7 @@ void MainComponent::updateParamSliders()
                 juce::String name = param->getName(30).toLowerCase();
                 if (name.contains("macro") || name.contains("mcr") || name.contains("assign"))
                     selectedParams.add(param);
-                if (selectedParams.size() >= NUM_PARAM_SLIDERS) break;
+                if (selectedParams.size() >= N) break;
             }
         }
 
@@ -2972,7 +2995,7 @@ void MainComponent::updateParamSliders()
                 juce::String name = param->getName(30).toLowerCase();
                 if (name.contains("macro") || name.contains("mcr") || name.contains("assign"))
                     selectedParams.add(param);
-                if (selectedParams.size() >= NUM_PARAM_SLIDERS) break;
+                if (selectedParams.size() >= N) break;
             }
 
         // Generic: common synth params
@@ -2988,13 +3011,13 @@ void MainComponent::updateParamSliders()
         }
 
         // Fill remaining with first available
-        for (int i = 0; i < allParams.size() && selectedParams.size() < NUM_PARAM_SLIDERS; ++i)
+        for (int i = 0; i < allParams.size() && selectedParams.size() < N; ++i)
             if (!selectedParams.contains(allParams[i]))
                 selectedParams.add(allParams[i]);
 
         for (int i = 0; i < NUM_PARAM_SLIDERS; ++i)
         {
-            if (i < selectedParams.size())
+            if (i < selectedParams.size() && i < N)
             {
                 auto* param = selectedParams[i];
                 paramSliders[i]->setEnabled(true);
@@ -3017,7 +3040,7 @@ void MainComponent::updateParamSliders()
     for (int i = 0; i < NUM_PARAM_SLIDERS; ++i)
     {
         int paramIdx = paramPageOffset + i;
-        if (paramIdx < total)
+        if (i < N && paramIdx < total)
         {
             auto* param = allParams[paramIdx];
             paramSliders[i]->setEnabled(true);
@@ -4119,6 +4142,10 @@ void MainComponent::loadProject()
                 themeManager.setTheme(static_cast<ThemeManager::Theme>(themeIdx), this);
                 themeSelector.setSelectedId(themeIdx + 1, juce::dontSendNotification);
                 applyThemeToControls();
+                applyLaunchkeyToolbarColors();
+                // Active param-knob count is theme-dependent —
+                // re-populate so the visible knob count matches.
+                updateParamSliders();
                 // Start DeviceMotion/Metal for glass themes (same as theme selector onChange)
                 if (timelineComponent)
                     timelineComponent->setOpaque(!themeManager.isGlassOverlay());
@@ -6738,7 +6765,8 @@ void MainComponent::resized()
             rowGap = 4;
             int knobRowH = knobSize + labelH + rowGap;
             int maxRows = juce::jmax(1, availForKnobs / knobRowH);
-            int numRows = juce::jmin((NUM_PARAM_SLIDERS + jamieCols - 1) / jamieCols, maxRows);
+            const int activeCount = activeParamCount();
+            int numRows = juce::jmin((activeCount + jamieCols - 1) / jamieCols, maxRows);
             int knobAreaH = numRows * knobRowH + 4;
             auto knobArea = rightPanel.removeFromTop(knobAreaH);
             rightPanel.removeFromTop(2);
@@ -6746,7 +6774,7 @@ void MainComponent::resized()
             int gridW = jamieCols * knobSize + (jamieCols - 1) * knobGap;
             int gridOffsetX = (knobArea.getWidth() - gridW) / 2;
 
-            int visibleCount = numRows * jamieCols;
+            int visibleCount = juce::jmin(activeCount, numRows * jamieCols);
             for (int i = 0; i < NUM_PARAM_SLIDERS; ++i)
             {
                 if (i < visibleCount)
@@ -6770,7 +6798,8 @@ void MainComponent::resized()
         }
         else
         {
-        int numRows = (NUM_PARAM_SLIDERS + 2) / 3;
+        const int activeCount = activeParamCount();
+        int numRows = (activeCount + 2) / 3;
         int knobRowH = knobSize + labelH + rowGap;
         int knobAreaH = numRows * knobRowH + 4;
         auto knobArea = rightPanel.removeFromTop(knobAreaH);
@@ -6781,6 +6810,14 @@ void MainComponent::resized()
 
         for (int i = 0; i < NUM_PARAM_SLIDERS; ++i)
         {
+            if (i >= activeCount)
+            {
+                paramSliders[i]->setVisible(false);
+                paramLabels[i]->setVisible(false);
+                continue;
+            }
+            paramSliders[i]->setVisible(true);
+            paramLabels[i]->setVisible(true);
             int col = i % 3;
             int row = i / 3;
             int kx = knobArea.getX() + gridOffsetX + col * (knobSize + knobGap);
@@ -8166,6 +8203,260 @@ void MainComponent::controllerReturnToStart()
     // and the visible playhead jumps to 0 immediately.
     onMain(this, [](MainComponent* self) {
         self->pluginHost.getEngine().resetPosition();
+        if (self->timelineComponent) self->timelineComponent->repaint();
+    });
+}
+
+// ── Toolbar-pad mode (Launchkey themes) ──────────────────────────
+//
+// 16 pads → 16 toolbar buttons.  Layout, paired with palette indices
+// chosen from the Novation 128-entry palette so each function group
+// reads at a glance:
+//   Top   : Grid  Quant New   Del   Split Edit  Save  Load
+//   Bot   : Undo  Redo  Capt  Expt  Arp   AMode ARate AOct
+// Mirroring those exact pad colors onto the iPad-side toolbar
+// buttons (see launchkeyButtonColorRGB()) keeps the device + screen
+// in visual lock-step.
+
+namespace {
+    struct LkPadEntry {
+        // Identity
+        int row, col;
+        // Novation palette index for the pad LED
+        uint8_t pal;
+        // RGB for the corresponding iPad toolbar button background
+        uint32_t rgb;
+    };
+    // Refined "jewel-tone" palette — mid-saturation, slightly muted
+    // so they sit nicely against both the cream Launchkey light theme
+    // and the dark Launchkey Dark theme.  All play well with white
+    // button text.
+    constexpr uint32_t kRed     = 0xffc26161;   // muted brick
+    constexpr uint32_t kAmber   = 0xffc4894e;   // warm amber
+    constexpr uint32_t kYellow  = 0xffbd9c4a;   // mustard
+    constexpr uint32_t kLime    = 0xff8ea65a;   // sage
+    constexpr uint32_t kGreen   = 0xff5e9978;   // forest
+    constexpr uint32_t kSpring  = 0xff579a8c;   // teal-mint
+    constexpr uint32_t kCyan    = 0xff5891a3;   // steel blue
+    constexpr uint32_t kSky     = 0xff6790c4;   // periwinkle
+    constexpr uint32_t kBlue    = 0xff6e7ec0;   // soft indigo
+    constexpr uint32_t kPurple  = 0xff8a72bf;   // lavender
+    constexpr uint32_t kViolet  = 0xff9c72ba;   // mauve
+    constexpr uint32_t kMagenta = 0xffb27590;   // dusty rose
+    constexpr uint32_t kPink    = 0xffc18097;   // rose
+    constexpr uint32_t kCoral   = 0xffbd8377;   // terracotta
+    constexpr uint32_t kOrange  = 0xffc78b5d;   // peach
+
+    constexpr LkPadEntry kPadMap[] = {
+        // Top row
+        { 0, 0, 0x09, kAmber  },   // Grid
+        { 0, 1, 0x0D, kYellow },   // Quantize
+        { 0, 2, 0x15, kGreen  },   // New
+        { 0, 3, 0x05, kRed    },   // Delete
+        { 0, 4, 0x57, kOrange },   // Split
+        { 0, 5, 0x29, kBlue   },   // Edit
+        { 0, 6, 0x35, kPurple },   // Save
+        { 0, 7, 0x37, kViolet },   // Load
+        // Bottom row
+        { 1, 0, 0x21, kSky    },   // Undo
+        { 1, 1, 0x25, kCyan   },   // Redo
+        { 1, 2, 0x11, kLime   },   // Capture
+        { 1, 3, 0x19, kSpring },   // Export
+        { 1, 4, 0x39, kMagenta},   // Arp
+        { 1, 5, 0x3D, kPink   },   // Arp Mode
+        { 1, 6, 0x53, kCoral  },   // Arp Rate
+        { 1, 7, 0x57, kOrange },   // Arp Oct
+    };
+    constexpr int kPadMapCount = sizeof(kPadMap) / sizeof(kPadMap[0]);
+
+    const LkPadEntry* findPadEntry(int row, int col) {
+        for (int i = 0; i < kPadMapCount; ++i)
+            if (kPadMap[i].row == row && kPadMap[i].col == col) return &kPadMap[i];
+        return nullptr;
+    }
+}
+
+bool MainComponent::controllerToolbarPadActive() const
+{
+    const auto t = themeManager.getCurrentTheme();
+    return (t == ThemeManager::Launchkey || t == ThemeManager::LaunchkeyDark);
+}
+
+void MainComponent::controllerToolbarPadAction(int row, int col)
+{
+    if (!controllerToolbarPadActive()) return;
+    juce::Component::SafePointer<MainComponent> safe(this);
+    juce::MessageManager::callAsync([safe, row, col] {
+        auto* self = safe.getComponent();
+        if (!self) return;
+        // Layout matches kPadMap above.
+        if (row == 0)
+        {
+            switch (col)
+            {
+                case 0: {   // Grid — advance the dropdown to the next item.
+                    auto& g = self->gridSelector;
+                    const int n = g.getNumItems();
+                    if (n <= 0) return;
+                    int currentIdx = g.getSelectedItemIndex();
+                    int nextIdx = (currentIdx + 1) % n;
+                    g.setSelectedItemIndex(nextIdx, juce::sendNotificationSync);
+                    break;
+                }
+                case 1: self->quantizeButton.triggerClick(); break;
+                case 2: self->newClipButton.triggerClick(); break;
+                case 3: self->deleteClipButton.triggerClick(); break;
+                case 4: self->splitClipButton.triggerClick(); break;
+                case 5: self->editClipButton.triggerClick(); break;
+                case 6: self->saveButton.triggerClick(); break;
+                case 7: self->loadButton.triggerClick(); break;
+            }
+        }
+        else if (row == 1)
+        {
+            switch (col)
+            {
+                case 0: self->undoButton.triggerClick(); break;
+                case 1: self->redoButton.triggerClick(); break;
+                case 2: self->captureButton.triggerClick(); break;
+                case 3: self->exportButton.triggerClick(); break;
+                case 4: self->arpButton.triggerClick(); break;
+                case 5: self->arpModeButton.triggerClick(); break;
+                case 6: self->arpRateButton.triggerClick(); break;
+                case 7: self->arpOctButton.triggerClick(); break;
+            }
+        }
+    });
+}
+
+uint8_t MainComponent::controllerToolbarPadColor(int row, int col) const
+{
+    if (!controllerToolbarPadActive()) return 0;
+    auto* e = findPadEntry(row, col);
+    return e ? e->pal : 0;
+}
+
+uint32_t MainComponent::controllerToolbarPadColorRGB(int row, int col) const
+{
+    if (!controllerToolbarPadActive()) return 0;
+    auto* e = findPadEntry(row, col);
+    if (!e) return 0;
+    // Strip alpha; controller side sends only 24-bit RGB.
+    return e->rgb & 0x00FFFFFFu;
+}
+
+void MainComponent::controllerSetToolbarButtonAnimatedColor(int row, int col, uint32_t rgb)
+{
+    if (!controllerToolbarPadActive()) return;
+    juce::Component* target = nullptr;
+    // Reverse-lookup table mirroring kPadMap → button bindings in
+    // applyLaunchkeyToolbarColors().  Grid is the only ComboBox.
+    if (row == 0)
+    {
+        switch (col) {
+            case 0: target = &gridSelector;       break;
+            case 1: target = &quantizeButton;     break;
+            case 2: target = &newClipButton;      break;
+            case 3: target = &deleteClipButton;   break;
+            case 4: target = &splitClipButton;    break;
+            case 5: target = &editClipButton;     break;
+            case 6: target = &saveButton;         break;
+            case 7: target = &loadButton;         break;
+        }
+    }
+    else if (row == 1)
+    {
+        switch (col) {
+            case 0: target = &undoButton;         break;
+            case 1: target = &redoButton;         break;
+            case 2: target = &captureButton;      break;
+            case 3: target = &exportButton;       break;
+            case 4: target = &arpButton;          break;
+            case 5: target = &arpModeButton;      break;
+            case 6: target = &arpRateButton;      break;
+            case 7: target = &arpOctButton;       break;
+        }
+    }
+    if (target == nullptr) return;
+    // 0xFF000000 alpha so JUCE renders solid; LaF reads the property.
+    const uint32_t packed = 0xFF000000u | (rgb & 0x00FFFFFFu);
+    const auto cur = (uint32_t)(int) target->getProperties().getWithDefault("lkColor", 0);
+    if (cur == packed) return;
+    target->getProperties().set("lkColor", static_cast<int>(packed));
+    target->repaint();
+}
+
+bool   MainComponent::controllerEngineIsPlaying()    const { return pluginHost.getEngine().isPlaying(); }
+bool   MainComponent::controllerEngineIsRecording()  const { return pluginHost.getEngine().isRecording(); }
+double MainComponent::controllerEngineBeatPosition() const { return pluginHost.getEngine().getPositionInBeats(); }
+double MainComponent::controllerEngineBpm()          const { return pluginHost.getEngine().getBpm(); }
+
+void MainComponent::applyLaunchkeyToolbarColors()
+{
+    // (button*, kPadMap row, kPadMap col)
+    struct Tgt { juce::TextButton* btn; int row, col; };
+    const Tgt tgts[] = {
+        { &quantizeButton,    0, 1 },
+        { &newClipButton,     0, 2 },
+        { &deleteClipButton,  0, 3 },
+        { &splitClipButton,   0, 4 },
+        { &editClipButton,    0, 5 },
+        { &saveButton,        0, 6 },
+        { &loadButton,        0, 7 },
+        { &undoButton,        1, 0 },
+        { &redoButton,        1, 1 },
+        { &captureButton,     1, 2 },
+        { &exportButton,      1, 3 },
+        { &arpButton,         1, 4 },
+        { &arpModeButton,     1, 5 },
+        { &arpRateButton,     1, 6 },
+        { &arpOctButton,      1, 7 },
+    };
+
+    if (!controllerToolbarPadActive())
+    {
+        // Clear the LaF hint property so the active theme's
+        // defaults take over again.  Repaint to trigger redraw.
+        for (const auto& t : tgts)
+        {
+            t.btn->getProperties().remove("lkColor");
+            t.btn->repaint();
+        }
+        gridSelector.getProperties().remove("lkColor");
+        gridSelector.repaint();
+        return;
+    }
+
+    // Tag each toolbar control with an "lkColor" hint that the
+    // Launchkey LaFs read in drawButtonBackground / drawComboBox.
+    // setColour() doesn't work because those LaFs don't honor
+    // per-button colourId overrides.
+    for (const auto& t : tgts)
+    {
+        if (auto* e = findPadEntry(t.row, t.col))
+        {
+            t.btn->getProperties().set("lkColor", static_cast<int>(e->rgb));
+            t.btn->repaint();
+        }
+    }
+    if (auto* e = findPadEntry(0, 0))
+    {
+        gridSelector.getProperties().set("lkColor", static_cast<int>(e->rgb));
+        gridSelector.repaint();
+    }
+}
+
+void MainComponent::controllerScrubPlayhead(int delta)
+{
+    // Step the playhead by `delta` encoder units (signed).  Each unit
+    // is a 16th note so a single click feels musical and a fast
+    // full-sweep covers ~8 beats.  Engine position is a thread-safe
+    // atomic but the timeline repaint needs the message thread.
+    onMain(this, [delta](MainComponent* self) {
+        auto& eng = self->pluginHost.getEngine();
+        const double step = 0.0625;   // beats per encoder unit
+        const double next = juce::jmax(0.0, eng.getPositionInBeats() + delta * step);
+        eng.setPosition(next);
         if (self->timelineComponent) self->timelineComponent->repaint();
     });
 }

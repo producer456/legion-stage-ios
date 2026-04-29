@@ -377,6 +377,32 @@ public:
     void controllerParamPageNext();
     void setFocusedTrackVolumeFromController(float value);
     void controllerSetParamBySliderIndex(int sliderIdx, float value);
+    void controllerScrubPlayhead(int delta);       // signed step count (positive = forward)
+
+    // Toolbar-pad mode (Launchkey themes only) — repurposes the
+    // device's 16 pads to trigger the iPad's edit-toolbar buttons
+    // (Grid/Quant/New/Del/Split/Edit/Save/Load on the top row,
+    // Undo/Redo/Capt/Expt/Arp/AMode/ARate/AOct on the bottom).
+    // Returns false when the active theme isn't a Launchkey theme,
+    // in which case the controller falls back to the normal session-
+    // view clip-launch behavior.
+    bool controllerToolbarPadActive() const;
+    void controllerToolbarPadAction(int row, int col);
+    uint8_t controllerToolbarPadColor(int row, int col) const;
+    // 0xRRGGBB packed; 0 if no entry — controller scales these to
+    // the device's 7-bit-per-channel SysEx pad-RGB range.
+    uint32_t controllerToolbarPadColorRGB(int row, int col) const;
+    // Per-tick animated RGB pushed up from the controller so the iPad
+    // toolbar buttons pulse / breathe / flash in lock-step with the
+    // device's pad LEDs.  Called from the controller's tick().
+    void controllerSetToolbarButtonAnimatedColor(int row, int col, uint32_t rgb);
+
+    // Engine snapshot for pad-LED animations (beat pulse, breathing,
+    // record overlay).  All thread-safe atomic reads.
+    bool   controllerEngineIsPlaying()    const;
+    bool   controllerEngineIsRecording()  const;
+    double controllerEngineBeatPosition() const;
+    double controllerEngineBpm()          const;
 
 private:
 
@@ -388,6 +414,15 @@ private:
 #endif
     juce::OwnedArray<juce::Slider> paramSliders;
     juce::OwnedArray<juce::Label> paramLabels;
+
+    // Visible param-knob count for the current theme.  The Launchkey
+    // themes show only 6 (matches the device's encoder layout — knob
+    // 1 = volume, knobs 2-7 hit the 6 visible params).  All other
+    // themes show the full NUM_PARAM_SLIDERS.  Used wherever paging
+    // math or layout iteration cares about how many sliders are in
+    // play; the underlying paramSliders array stays sized at
+    // NUM_PARAM_SLIDERS (extras are hidden, not destroyed).
+    int activeParamCount() const;
 
     // ── Preset Browser ──
     juce::ComboBox presetSelector;
@@ -560,6 +595,10 @@ private:
     void showSettingsMenu();
     void updateStatusLabel();
     void applyThemeToControls();
+    // Paint the edit-toolbar buttons with the same colors as their
+    // mapped Launchkey pads (or restore the default theme palette
+    // when not in a Launchkey theme).
+    void applyLaunchkeyToolbarColors();
 
     // ── MIDI Learn ──
     enum class MidiTarget {

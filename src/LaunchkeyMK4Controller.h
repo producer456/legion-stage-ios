@@ -55,6 +55,7 @@ private:
 
     // Pad / button feedback
     void paintPad(int row, int col, uint8_t paletteColour);
+    void paintPadRGB(int row, int col, uint8_t r, uint8_t g, uint8_t b);
     void clearAllPads();
 
     // Mode-follow — listens for user-driven layout changes on the
@@ -83,8 +84,41 @@ private:
     int currentEncoderMode = 1;   // 1 = mixer
     bool shiftHeld = false;
 
-    // Cache of last-painted pad colours so we only push deltas.
+    // Last value seen per encoder (0..127), -1 = not yet observed.
+    // Encoder 8 (idx 7) uses this to derive a direction (±1) for
+    // playhead scrubbing — the device sends absolute values, so we
+    // delta against the prior reading.
+    int8_t lastEncoderValue[8] = { -1, -1, -1, -1, -1, -1, -1, -1 };
+
+    // Auto-scrub state for the playhead encoder.  The Mk4's encoders
+    // clamp at 0/127 and stop emitting events at the limit, so when
+    // the user pins it past either edge we keep scrubbing on the
+    // shared tick until they turn back or the timeout expires.
+    int8_t scrubAutoDir = 0;             // 0=off, +1=forward, -1=back
+    juce::int64 scrubAutoEndsAt = 0;     // millis (juce::Time::currentTimeMillis())
+
+    // Cache of last-painted pad palette colours so we only push deltas.
     uint8_t lastPaint[16] = {0};
+    // Cache of last-painted RGB triples (packed into uint32 0xRRGGBB).
+    // 0xffffffff means "not yet painted" so the first frame always
+    // pushes.  Used in toolbar-pad mode where pads carry custom RGB.
+    uint32_t lastPaintRGB[16] = {
+        0xffffffffu, 0xffffffffu, 0xffffffffu, 0xffffffffu,
+        0xffffffffu, 0xffffffffu, 0xffffffffu, 0xffffffffu,
+        0xffffffffu, 0xffffffffu, 0xffffffffu, 0xffffffffu,
+        0xffffffffu, 0xffffffffu, 0xffffffffu, 0xffffffffu
+    };
+
+    // ── Pad-LED animation state ──
+    // Boot/wake wave runs for ~600ms after entering toolbar-pad mode
+    // (LK theme detected, hot-plug, theme switch).
+    bool wasInToolbarMode = false;
+    juce::int64 toolbarModeEntryMillis = 0;
+    // Press flash — millis timestamp of the last press per pad (0 = never).
+    juce::int64 padPressMillis[16] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
+    // Idle detection — bumped on any pad/encoder/transport input.
+    juce::int64 lastInputAtMillis = 0;
+
     mutable juce::CriticalSection logLock;
     juce::StringArray recentLog;   // newest first, capped
 };

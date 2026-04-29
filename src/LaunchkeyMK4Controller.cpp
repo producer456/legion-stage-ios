@@ -197,6 +197,18 @@ void LaunchkeyMK4Controller::handlePadPress(uint8_t padNote, uint8_t /*vel*/)
     // Decode the 2x8 grid: top row 0x60..0x67, bottom row 0x70..0x77
     const int row = (padNote & 0x10) ? 1 : 0;
     const int col = padNote & 0x07;
+    const int idx = row * 8 + col;
+    const auto now = juce::Time::currentTimeMillis();
+    padPressMillis[idx] = now;     // press-flash trigger
+    lastInputAtMillis   = now;     // wake from idle
+    // Launchkey themes repurpose pads as edit-toolbar shortcuts —
+    // host owns the mapping.  Other themes fall through to the
+    // session-view clip launcher.
+    if (host->controllerToolbarPadActive())
+    {
+        host->controllerToolbarPadAction(row, col);
+        return;
+    }
     if (auto* sv = host->getSessionViewComponent())
         sv->launchPad(row, col);
 }
@@ -206,6 +218,7 @@ void LaunchkeyMK4Controller::handlePadRelease(uint8_t /*padNote*/) { /* no-op */
 void LaunchkeyMK4Controller::handleEncoder(int idx, uint8_t value)
 {
     if (host == nullptr || idx < 0 || idx > 7) return;
+    lastInputAtMillis = juce::Time::currentTimeMillis();
     if (currentEncoderMode != 1) return;   // mixer mode only for now
 
     const float v = value / 127.0f;
@@ -214,15 +227,36 @@ void LaunchkeyMK4Controller::handleEncoder(int idx, uint8_t value)
         // Encoder 1 (leftmost): volume of the focused track.
         host->setFocusedTrackVolumeFromController(v);
     }
+    else if (idx == 7)
+    {
+        // Encoder 8 (rightmost): scrub the project playhead.  The
+        // device sends absolute 0-127; we derive a signed delta
+        // against the prior value.  First reading just seeds the
+        // cache.  Wrap detection: if the value changes by more than
+        // half the range, the encoder wrapped at 0/127 — adjust by
+        // ±128 to take the short path so direction stays correct.
+        const int prev = lastEncoderValue[idx];
+        lastEncoderValue[idx] = value;
+        if (prev >= 0)
+        {
+            int delta = static_cast<int>(value) - prev;
+            if (delta >  64) delta -= 128;
+            if (delta < -64) delta += 128;
+            if (delta != 0) host->controllerScrubPlayhead(delta);
+        }
+        // Auto-scrub at the limits: the encoder clamps at 0/127 and
+        // stops firing events, so if the user is still trying to
+        // scroll past the limit we keep going on the shared tick().
+        // The 2s timeout protects against an encoder left pinned
+        // unattended (would otherwise scroll forever).
+        if (value >= 126)      { scrubAutoDir = +1; scrubAutoEndsAt = juce::Time::currentTimeMillis() + 2000; }
+        else if (value <= 1)   { scrubAutoDir = -1; scrubAutoEndsAt = juce::Time::currentTimeMillis() + 2000; }
+        else                   { scrubAutoDir = 0; }
+    }
     else
     {
-        // Encoders 2-8: route to on-screen slider position (idx-1) so
+        // Encoders 2-7: route to on-screen slider position (idx-1) so
         // the controller layout mirrors the iPad's visual order.
-        // Param paging via dedicated page-shift buttons is TODO —
-        // needs CC capture from the on-screen MIDI inspector for the
-        // right-of-encoder buttons; once wired, paging will scroll
-        // the slider page in MainComponent and these encoders will
-        // automatically address the new bank.
         host->controllerSetParamBySliderIndex(idx - 1, v);
     }
 }
@@ -230,15 +264,19 @@ void LaunchkeyMK4Controller::handleEncoder(int idx, uint8_t value)
 void LaunchkeyMK4Controller::handleTransportCC(uint8_t cc, uint8_t value)
 {
     if (host == nullptr) return;
+    lastInputAtMillis = juce::Time::currentTimeMillis();
     const bool press = (value >= 64);
 
     if (cc == LkMini::kCcShift)    { shiftHeld = press; return; }
 
-    // Track ◀▶ on the Mk4: each direction is its own CC (UP=0x6A,
+    // Track ▲▼ on the Mk4: each direction is its own CC (UP=0x6A,
     // DOWN=0x6B) with standard press/release values (0x7F/0x00).
-    // Act on press only.
-    if (cc == 0x6A) { if (press) host->controllerSelectTrack(-1); return; }
-    if (cc == 0x6B) { if (press) host->controllerSelectTrack(+1); return; }
+    // Plain press changes preset on the focused track (the more
+    // common operation while playing); Shift+press changes the
+    // focused track itself (CCs 0x66/0x67 — see switch below).
+    // UP feels like "next" in the preset list, DOWN like "previous".
+    if (cc == 0x6A) { if (press) host->controllerPresetNext(); return; }
+    if (cc == 0x6B) { if (press) host->controllerPresetPrev(); return; }
 
     // Encoder param-page buttons (the two arrows next to the encoder
     // row).  UP=0x33, DOWN=0x34 — empirically captured.  Page the
@@ -255,12 +293,11 @@ void LaunchkeyMK4Controller::handleTransportCC(uint8_t cc, uint8_t value)
         case LkMini::kCcRecord:  if (shiftHeld) host->controllerToggleMetronomeAndCountIn(); else host->controllerRecordToggle(); break;
         case LkMini::kCcLoop:    host->controllerLoopToggle();    break;
         // 0x66 / 0x67 arrive only when Shift is held with the Track
-        // ◀▶ buttons — the firmware translates "Shift+Track UP/DOWN"
-        // into these CCs at the hardware level.  UP feels like "next
-        // preset" to the user (scroll forward in the list), DOWN feels
-        // like "previous" — so map opposite to numeric direction.
-        case LkMini::kCcTrackL:  host->controllerPresetNext();    break;
-        case LkMini::kCcTrackR:  host->controllerPresetPrev();    break;
+        // ▲▼ buttons — the firmware translates "Shift+Track UP/DOWN"
+        // into these CCs at the hardware level.  Switch the focused
+        // track (Shift = the deliberate "change context" gesture).
+        case LkMini::kCcTrackL:  host->controllerSelectTrack(-1); break;
+        case LkMini::kCcTrackR:  host->controllerSelectTrack(+1); break;
         case LkMini::kCcSceneDn: host->controllerScrollScenes(+1);break;
         case LkMini::kCcRowRight:host->controllerLaunchScene();   break;
         default: break;
@@ -272,10 +309,144 @@ void LaunchkeyMK4Controller::tick()
     if (!active || host == nullptr) return;
     // Late-arriving input port: try again every tick until it opens.
     if (!dawInput) tryOpenInput();
-    auto* sv = host->getSessionViewComponent();
-    if (sv == nullptr) return;
-    // Repaint each pad based on its visible clip's state — only push
-    // changed colours so we don't flood the wire with redundant SysEx.
+
+    // Continuous playhead scrub when the encoder is pinned at an
+    // extreme — covered by the timeout so an unattended encoder
+    // doesn't keep scrolling forever.
+    if (scrubAutoDir != 0)
+    {
+        if (juce::Time::currentTimeMillis() > scrubAutoEndsAt) scrubAutoDir = 0;
+        else host->controllerScrubPlayhead(scrubAutoDir * 4);
+    }
+
+    const bool toolbarMode = host->controllerToolbarPadActive();
+    auto* sv = toolbarMode ? nullptr : host->getSessionViewComponent();
+    if (!toolbarMode && sv == nullptr) return;
+
+    // Toolbar mode: paint each pad with its assigned RGB plus a
+    // stack of light animations — boot wave, beat pulse during
+    // playback, breathing while idle, hue drift, idle dim, press
+    // flash, and a record-state red overlay.
+    if (toolbarMode)
+    {
+        const auto now = juce::Time::currentTimeMillis();
+
+        // Detect entry into toolbar mode → kick the boot wave.
+        if (!wasInToolbarMode)
+        {
+            wasInToolbarMode = true;
+            toolbarModeEntryMillis = now;
+            if (lastInputAtMillis == 0) lastInputAtMillis = now;
+        }
+
+        const juce::int64 sinceEnter = now - toolbarModeEntryMillis;
+        const bool inBootAnim = sinceEnter < 640;
+        const int  waveCol = static_cast<int>(sinceEnter / 80);   // 0..7 over ~640ms
+
+        const bool isPlaying   = host->controllerEngineIsPlaying();
+        const bool isRecording = host->controllerEngineIsRecording();
+        const double posBeats  = host->controllerEngineBeatPosition();
+        const double bpm       = juce::jmax(60.0, host->controllerEngineBpm());
+
+        const bool isIdle = !inBootAnim && !isPlaying
+                            && (now - lastInputAtMillis) > 5000;
+
+        for (int row = 0; row < 2; ++row)
+        {
+            for (int col = 0; col < 8; ++col)
+            {
+                const int idx = row * 8 + col;
+                const uint32_t baseRgb = host->controllerToolbarPadColorRGB(row, col);
+                if (baseRgb == 0)
+                {
+                    if (lastPaintRGB[idx] != 0u)
+                    {
+                        lastPaintRGB[idx] = 0u;
+                        paintPadRGB(row, col, 0, 0, 0);
+                    }
+                    continue;
+                }
+
+                juce::Colour c(static_cast<juce::uint32>(0xff000000u | baseRgb));
+
+                // Boot wave: pads light only after the wave passes
+                // their column; the crest itself flashes white.
+                if (inBootAnim)
+                {
+                    if (col > waveCol)       c = juce::Colours::black;
+                    else if (col == waveCol) c = juce::Colours::white;
+                }
+                else if (isPlaying)
+                {
+                    // Beat pulse — brightest at beat onset, decays
+                    // toward the next beat.  Quadratic ease feels
+                    // musical without being seizure-y.
+                    const float frac = static_cast<float>(posBeats - std::floor(posBeats));
+                    const float lift = 0.30f * (1.0f - frac) * (1.0f - frac);
+                    c = c.withMultipliedBrightness(1.0f + lift);
+                }
+                else
+                {
+                    // Breathing while transport is stopped — uses
+                    // tempo halved as a slow heartbeat.
+                    const double breathHz = bpm / 60.0 / 2.0;
+                    const float breath = 1.0f + 0.07f * static_cast<float>(
+                        std::sin(now / 1000.0 * breathHz * 2.0 * juce::MathConstants<double>::pi));
+                    c = c.withMultipliedBrightness(breath);
+
+                    // Subtle hue drift while idle for >5s.
+                    if (isIdle)
+                    {
+                        const float drift = 0.025f * static_cast<float>(std::sin(now / 4000.0));
+                        c = c.withRotatedHue(drift);
+                    }
+                }
+
+                // Idle dim — applies regardless of playback state.
+                if (isIdle) c = c.withMultipliedBrightness(0.65f);
+
+                // Press flash (additive white pulse, ~220ms decay).
+                if (padPressMillis[idx] > 0)
+                {
+                    const auto sincePress = now - padPressMillis[idx];
+                    if (sincePress >= 0 && sincePress < 220)
+                    {
+                        const float k = 1.0f - static_cast<float>(sincePress) / 220.0f;
+                        c = c.interpolatedWith(juce::Colours::white, k * 0.7f);
+                    }
+                }
+
+                // Record overlay — blend toward a pulsing red while
+                // the engine is recording.
+                if (isRecording)
+                {
+                    const float pulse = 0.18f + 0.14f * static_cast<float>(
+                        std::sin(now / 220.0));
+                    c = c.interpolatedWith(juce::Colour(0xffff3030), pulse);
+                }
+
+                const uint32_t finalRgb = c.getARGB() & 0x00FFFFFFu;
+                // Always mirror to the iPad button so the on-screen
+                // glow tracks the device animation; the host method
+                // self-throttles by only repainting on change.
+                host->controllerSetToolbarButtonAnimatedColor(row, col, finalRgb);
+                if (lastPaintRGB[idx] == finalRgb) continue;
+                lastPaintRGB[idx] = finalRgb;
+                lastPaint[idx] = 0;   // invalidate palette cache
+                const uint8_t r8 = static_cast<uint8_t>((finalRgb >> 16) & 0xFF);
+                const uint8_t g8 = static_cast<uint8_t>((finalRgb >>  8) & 0xFF);
+                const uint8_t b8 = static_cast<uint8_t>( finalRgb        & 0xFF);
+                paintPadRGB(row, col,
+                            static_cast<uint8_t>(r8 * 127 / 255),
+                            static_cast<uint8_t>(g8 * 127 / 255),
+                            static_cast<uint8_t>(b8 * 127 / 255));
+            }
+        }
+        return;
+    }
+    // Leaving toolbar mode resets so the boot wave plays next time.
+    wasInToolbarMode = false;
+
     for (int row = 0; row < 2; ++row)
     {
         for (int col = 0; col < 8; ++col)
@@ -290,6 +461,9 @@ void LaunchkeyMK4Controller::tick()
                 default: break;
             }
             const int idx = row * 8 + col;
+            // Coming out of toolbar mode: invalidate the RGB cache
+            // so a future toolbar-mode entry re-pushes.
+            lastPaintRGB[idx] = 0xffffffffu;
             if (lastPaint[idx] == colour) continue;
             lastPaint[idx] = colour;
             paintPad(row, col, colour);
@@ -304,6 +478,24 @@ void LaunchkeyMK4Controller::paintPad(int row, int col, uint8_t colour)
         // Note On ch1 with the pad note + palette colour.
         o->sendMessageNow(juce::MidiMessage(0x90, LkMini::sessionPadNote(row, col), colour));
     }
+}
+
+void LaunchkeyMK4Controller::paintPadRGB(int row, int col, uint8_t r, uint8_t g, uint8_t b)
+{
+    auto* o = out(); if (!o) return;
+    // Custom-RGB SysEx — Launchkey Mk4 (works on Mini per Live's
+    // remote script + the bornacvitanic SDK).  Channels are 7-bit
+    // (0-127), high bit clears or the SysEx framing breaks.  Caller
+    // is responsible for scaling 0-255 → 0-127.
+    const uint8_t bytes[] = {
+        0x00, 0x20, 0x29, 0x02, 0x13,
+        0x01, 0x43,
+        LkMini::sessionPadNote(row, col),
+        static_cast<uint8_t>(r & 0x7F),
+        static_cast<uint8_t>(g & 0x7F),
+        static_cast<uint8_t>(b & 0x7F)
+    };
+    o->sendMessageNow(juce::MidiMessage::createSysExMessage(bytes, sizeof(bytes)));
 }
 
 juce::String LaunchkeyMK4Controller::getLastMessages() const

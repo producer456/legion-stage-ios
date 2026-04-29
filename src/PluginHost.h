@@ -161,6 +161,7 @@ public:
 
     // Sequencer engine access
     SequencerEngine& getEngine() { return engine; }
+    const SequencerEngine& getEngine() const { return engine; }
 
     std::atomic<int> soloCount { 0 };
 
