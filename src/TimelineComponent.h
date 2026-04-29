@@ -48,6 +48,12 @@ private:
     int headerHeight = 28;
     int trackLabelWidth = 140;  // room for track name + M/S buttons
     double gridResolution = 0.25; // beats per grid line (0.25 = 1/16, 0.5 = 1/8, 1.0 = 1/4)
+
+    // Wireframe-grid intro animation — when the wireframe theme just
+    // activated, sweep a bright cyan line left → right inscribing the
+    // grid as it passes.  Lasts ~700ms.
+    bool wireframeWasActive = false;
+    juce::int64 wireframeAnimStartMs = 0;
     void recalcTrackHeight();
 
 public:

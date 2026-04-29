@@ -18,6 +18,26 @@ MainComponent::MainComponent()
     deviceTier = AUScanner::DeviceTier::High;
 #endif
 
+    // Register bundled fonts so look-and-feels can request them by
+    // name.  Plus Jakarta Sans is the closest free match to Novation's
+    // brand typeface (Brockmann is licensed and can't ship).
+    {
+        auto fontsDir = juce::File::getSpecialLocation(juce::File::currentApplicationFile)
+                          .getChildFile("Contents/Resources/fonts");
+        if (!fontsDir.isDirectory())
+            fontsDir = juce::File::getSpecialLocation(juce::File::currentApplicationFile)
+                          .getChildFile("fonts");
+        if (fontsDir.isDirectory())
+        {
+            for (const auto& f : juce::RangedDirectoryIterator(fontsDir, false, "*.ttf"))
+            {
+                juce::MemoryBlock data;
+                if (f.getFile().loadFileAsData(data))
+                    juce::Typeface::createSystemTypefaceFor(data.getData(), data.getSize());
+            }
+        }
+    }
+
     themeManager.setTheme(ThemeManager::Ioniq, this);
 
     auto result = deviceManager.initialiseWithDefaultDevices(2, 2);  // 2 in, 2 out for mic recording
@@ -8226,50 +8246,58 @@ namespace {
     struct LkPadEntry {
         // Identity
         int row, col;
-        // Novation palette index for the pad LED
+        // Novation palette index for the pad LED (kept for the light
+        // theme's pad colouring; the dark theme overrides via RGB).
         uint8_t pal;
-        // RGB for the corresponding iPad toolbar button background
-        uint32_t rgb;
+        // Light-theme RGB — vibrant jewel tones, one per function
+        uint32_t rgbLight;
+        // Dark-theme RGB — collapsed to OLED-cyan brightness levels
+        uint32_t rgbDark;
     };
-    // Refined "jewel-tone" palette — mid-saturation, slightly muted
-    // so they sit nicely against both the cream Launchkey light theme
-    // and the dark Launchkey Dark theme.  All play well with white
-    // button text.
-    constexpr uint32_t kRed     = 0xffc26161;   // muted brick
-    constexpr uint32_t kAmber   = 0xffc4894e;   // warm amber
-    constexpr uint32_t kYellow  = 0xffbd9c4a;   // mustard
-    constexpr uint32_t kLime    = 0xff8ea65a;   // sage
-    constexpr uint32_t kGreen   = 0xff5e9978;   // forest
-    constexpr uint32_t kSpring  = 0xff579a8c;   // teal-mint
-    constexpr uint32_t kCyan    = 0xff5891a3;   // steel blue
-    constexpr uint32_t kSky     = 0xff6790c4;   // periwinkle
-    constexpr uint32_t kBlue    = 0xff6e7ec0;   // soft indigo
-    constexpr uint32_t kPurple  = 0xff8a72bf;   // lavender
-    constexpr uint32_t kViolet  = 0xff9c72ba;   // mauve
-    constexpr uint32_t kMagenta = 0xffb27590;   // dusty rose
-    constexpr uint32_t kPink    = 0xffc18097;   // rose
-    constexpr uint32_t kCoral   = 0xffbd8377;   // terracotta
-    constexpr uint32_t kOrange  = 0xffc78b5d;   // peach
+    // ── Jewel tones (light theme) ──
+    constexpr uint32_t jRed     = 0xffc26161;
+    constexpr uint32_t jAmber   = 0xffc4894e;
+    constexpr uint32_t jYellow  = 0xffbd9c4a;
+    constexpr uint32_t jLime    = 0xff8ea65a;
+    constexpr uint32_t jGreen   = 0xff5e9978;
+    constexpr uint32_t jSpring  = 0xff579a8c;
+    constexpr uint32_t jCyan    = 0xff5891a3;
+    constexpr uint32_t jSky     = 0xff6790c4;
+    constexpr uint32_t jBlue    = 0xff6e7ec0;
+    constexpr uint32_t jPurple  = 0xff8a72bf;
+    constexpr uint32_t jViolet  = 0xff9c72ba;
+    constexpr uint32_t jMagenta = 0xffb27590;
+    constexpr uint32_t jPink    = 0xffc18097;
+    constexpr uint32_t jCoral   = 0xffbd8377;
+    constexpr uint32_t jOrange  = 0xffc78b5d;
+    // ── OLED-cyan brightness levels (dark theme) ──
+    constexpr uint32_t cFaint  = 0xff2a4a55;
+    constexpr uint32_t cDim    = 0xff3a5a64;
+    constexpr uint32_t cMid    = 0xff5891a3;
+    constexpr uint32_t cAccent = 0xff78b0c4;
+    constexpr uint32_t cHigh   = 0xffa0c8d4;
+    constexpr uint32_t cBright = 0xffd2e4e8;
 
     constexpr LkPadEntry kPadMap[] = {
+        //  row col  pal   light       dark
         // Top row
-        { 0, 0, 0x09, kAmber  },   // Grid
-        { 0, 1, 0x0D, kYellow },   // Quantize
-        { 0, 2, 0x15, kGreen  },   // New
-        { 0, 3, 0x05, kRed    },   // Delete
-        { 0, 4, 0x57, kOrange },   // Split
-        { 0, 5, 0x29, kBlue   },   // Edit
-        { 0, 6, 0x35, kPurple },   // Save
-        { 0, 7, 0x37, kViolet },   // Load
+        { 0, 0, 0x09, jAmber,   cDim    },   // Grid
+        { 0, 1, 0x0D, jYellow,  cDim    },   // Quantize
+        { 0, 2, 0x15, jGreen,   cAccent },   // New
+        { 0, 3, 0x05, jRed,     cBright },   // Delete (destructive — pops)
+        { 0, 4, 0x57, jOrange,  cFaint  },   // Split
+        { 0, 5, 0x29, jBlue,    cHigh   },   // Edit
+        { 0, 6, 0x35, jPurple,  cHigh   },   // Save
+        { 0, 7, 0x37, jViolet,  cHigh   },   // Load
         // Bottom row
-        { 1, 0, 0x21, kSky    },   // Undo
-        { 1, 1, 0x25, kCyan   },   // Redo
-        { 1, 2, 0x11, kLime   },   // Capture
-        { 1, 3, 0x19, kSpring },   // Export
-        { 1, 4, 0x39, kMagenta},   // Arp
-        { 1, 5, 0x3D, kPink   },   // Arp Mode
-        { 1, 6, 0x53, kCoral  },   // Arp Rate
-        { 1, 7, 0x57, kOrange },   // Arp Oct
+        { 1, 0, 0x21, jSky,     cMid    },   // Undo
+        { 1, 1, 0x25, jCyan,    cMid    },   // Redo
+        { 1, 2, 0x11, jLime,    cAccent },   // Capture
+        { 1, 3, 0x19, jSpring,  cAccent },   // Export
+        { 1, 4, 0x39, jMagenta, cMid    },   // Arp
+        { 1, 5, 0x3D, jPink,    cMid    },   // Arp Mode
+        { 1, 6, 0x53, jCoral,   cMid    },   // Arp Rate
+        { 1, 7, 0x57, jOrange,  cFaint  },   // Arp Oct
     };
     constexpr int kPadMapCount = sizeof(kPadMap) / sizeof(kPadMap[0]);
 
@@ -8345,8 +8373,9 @@ uint32_t MainComponent::controllerToolbarPadColorRGB(int row, int col) const
     if (!controllerToolbarPadActive()) return 0;
     auto* e = findPadEntry(row, col);
     if (!e) return 0;
+    const bool dark = (themeManager.getCurrentTheme() == ThemeManager::LaunchkeyDark);
     // Strip alpha; controller side sends only 24-bit RGB.
-    return e->rgb & 0x00FFFFFFu;
+    return (dark ? e->rgbDark : e->rgbLight) & 0x00FFFFFFu;
 }
 
 void MainComponent::syncLaunchkeyDeviceModes()
@@ -8459,17 +8488,20 @@ void MainComponent::applyLaunchkeyToolbarColors()
     // Launchkey LaFs read in drawButtonBackground / drawComboBox.
     // setColour() doesn't work because those LaFs don't honor
     // per-button colourId overrides.
+    const bool dark = (themeManager.getCurrentTheme() == ThemeManager::LaunchkeyDark);
     for (const auto& t : tgts)
     {
         if (auto* e = findPadEntry(t.row, t.col))
         {
-            t.btn->getProperties().set("lkColor", static_cast<int>(e->rgb));
+            const uint32_t c = dark ? e->rgbDark : e->rgbLight;
+            t.btn->getProperties().set("lkColor", static_cast<int>(c));
             t.btn->repaint();
         }
     }
     if (auto* e = findPadEntry(0, 0))
     {
-        gridSelector.getProperties().set("lkColor", static_cast<int>(e->rgb));
+        const uint32_t c = dark ? e->rgbDark : e->rgbLight;
+        gridSelector.getProperties().set("lkColor", static_cast<int>(c));
         gridSelector.repaint();
     }
 }

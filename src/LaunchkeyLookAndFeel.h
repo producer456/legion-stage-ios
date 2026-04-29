@@ -109,7 +109,7 @@ public:
     }
 
     float getButtonRadius() const override { return 7.0f; }
-    juce::String getUIFontName() const override { return "Avenir Next"; }
+    juce::String getUIFontName() const override { return "Plus Jakarta Sans"; }
     int getSidePanelWidth() const override { return 6; }
 
     // Smooth white side panels with a soft inner shadow

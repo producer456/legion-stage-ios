@@ -157,8 +157,12 @@ void TimelineComponent::timerCallback()
         }
     }
 
-    // Only repaint when playing or scroll changed
-    if (engine.isPlaying() || scrollX != lastPaintedScrollX)
+    // Wireframe-grid sweep needs continuous repaints while it runs.
+    const juce::int64 sinceWireAnim = juce::Time::currentTimeMillis() - wireframeAnimStartMs;
+    const bool wireAnimActive = wireframeWasActive && sinceWireAnim < 800;
+
+    // Only repaint when playing, scroll changed, or animation running
+    if (engine.isPlaying() || scrollX != lastPaintedScrollX || wireAnimActive)
         repaint();
     lastPaintedScrollX = scrollX;
 }
@@ -1196,6 +1200,21 @@ void TimelineComponent::drawHeader(juce::Graphics& g)
                           : juce::Colour(tc ? tc->bodyDark : 0xff0a0a0a));
     g.fillRect(0, 0, getWidth(), headerHeight);
 
+    // Detect wireframe-theme entry → kick the grid-draw-in sweep.
+    const bool wireframe = tc && tc->wireframe;
+    if (wireframe && !wireframeWasActive)
+        wireframeAnimStartMs = juce::Time::currentTimeMillis();
+    wireframeWasActive = wireframe;
+
+    // Sweep position (only meaningful when wireframe is active).
+    constexpr int kAnimDurationMs = 700;
+    const auto nowMs = juce::Time::currentTimeMillis();
+    const float animProgress = wireframe
+        ? juce::jlimit(0.0f, 1.0f, (float)(nowMs - wireframeAnimStartMs) / (float) kAnimDurationMs)
+        : 1.0f;
+    const float sweepX = (float) trackLabelWidth
+                       + (float)(getWidth() - trackLabelWidth) * animProgress;
+
     double firstBeat = std::floor(scrollX / gridResolution) * gridResolution;
     double lastBeat = scrollX + (getWidth() - trackLabelWidth) / pixelsPerBeat;
 
@@ -1210,6 +1229,8 @@ void TimelineComponent::drawHeader(juce::Graphics& g)
     {
         float x = beatToX(beat);
         if (x < trackLabelWidth) continue;
+        // Wireframe-grid sweep: skip lines the sweep hasn't reached yet.
+        if (wireframe && x > sweepX) continue;
 
         bool isBar = std::abs(std::fmod(beat, 4.0)) < 0.001;
         bool isBeat = std::abs(std::fmod(beat, 1.0)) < 0.001;
@@ -1240,14 +1261,27 @@ void TimelineComponent::drawHeader(juce::Graphics& g)
             g.setColour(juce::Colour(tc ? tc->timelineGridBeat : 0xff444444));
             g.drawVerticalLine(static_cast<int>(x), gridTop, gridBot);
         }
-        else
+        else if (!(tc && tc->wireframe))
         {
+            // Sub-beat divisions — only drawn when the theme isn't
+            // in wireframe mode (the LK Dark "OLED" look skips these
+            // for a cleaner 4-cell-per-bar grid).
             g.setColour(juce::Colour(tc ? tc->timelineGridBeat : 0xff444444));
             g.drawVerticalLine(static_cast<int>(x), static_cast<float>(headerHeight * 3 / 4),
                                static_cast<float>(headerHeight));
             g.setColour(juce::Colour(tc ? tc->timelineGridFaint : 0xff2d2d2d));
             g.drawVerticalLine(static_cast<int>(x), gridTop, gridBot);
         }
+    }
+
+    // Bright cyan sweep edge during the wireframe-grid intro.
+    if (wireframe && animProgress < 1.0f)
+    {
+        g.setColour(juce::Colour(0xffd2e4e8));
+        g.drawVerticalLine((int) sweepX, 0.0f, (float) getHeight());
+        // Soft trailing glow just behind the edge.
+        g.setColour(juce::Colour(0x6078b0c4));
+        g.drawVerticalLine((int) sweepX - 1, 0.0f, (float) getHeight());
     }
 
     g.setColour(juce::Colour(tc ? tc->border : 0xff444444));
@@ -1289,12 +1323,22 @@ void TimelineComponent::drawTrackLanes(juce::Graphics& g)
             continue;
         }
 
+        const bool wireframe = tc && tc->wireframe;
         if (isSelected)
+        {
             g.setColour(juce::Colour(tc ? tc->timelineSelectedRow : 0xff0a1520));
-        else
-            g.setColour(t % 2 == 0 ? juce::Colour(tc ? tc->timelineBg : 0xff000000)
-                                    : juce::Colour(tc ? tc->timelineAltRow : 0xff060606));
-        g.fillRect(0, y, getWidth(), trackHeight);
+            // Wireframe themes: outline the selected row instead of
+            // filling so the pure-black body shows through.
+            if (wireframe) g.drawRect(0, y, getWidth(), trackHeight, 1);
+            else           g.fillRect(0, y, getWidth(), trackHeight);
+        }
+        else if (!wireframe)
+        {
+            g.setColour(t % 2 == 0 ? juce::Colour(tc->timelineBg)
+                                    : juce::Colour(tc->timelineAltRow));
+            g.fillRect(0, y, getWidth(), trackHeight);
+        }
+        // (wireframe + not selected → no row fill at all)
 
         g.setColour(juce::Colour(tc ? tc->timelineGridMinor : 0xff333333));
         g.drawHorizontalLine(y + trackHeight - 1, 0, static_cast<float>(getWidth()));
@@ -1336,14 +1380,13 @@ void TimelineComponent::drawTrackControls(juce::Graphics& g)
         auto selRect = getSelectButtonRect(t);
 
         auto* tc = getThemeColors(this);
-        if (isLocked)
-            g.setColour(juce::Colour(tc ? tc->trackArmed : 0xff882222));
-        else if (isSelected)
-            g.setColour(juce::Colour(tc ? tc->trackSelected : 0xff3a5a8a));
-        else
-            g.setColour(juce::Colour(tc ? tc->timelineGridMinor : 0xff333333));
-
-        g.fillRoundedRectangle(selRect.toFloat(), 3.0f);
+        const bool wireframe = tc && tc->wireframe;
+        const auto selColor = isLocked ? juce::Colour(tc ? tc->trackArmed : 0xff882222)
+                            : isSelected ? juce::Colour(tc ? tc->trackSelected : 0xff3a5a8a)
+                                         : juce::Colour(tc ? tc->timelineGridMinor : 0xff333333);
+        g.setColour(selColor);
+        if (wireframe) g.drawRoundedRectangle(selRect.toFloat(), 3.0f, 1.0f);
+        else           g.fillRoundedRectangle(selRect.toFloat(), 3.0f);
 
         // Arm indicator dot on the left side
         if (isArmed || isLocked)
@@ -1364,21 +1407,26 @@ void TimelineComponent::drawTrackControls(juce::Graphics& g)
         // Mute button
         auto muteRect = getMuteButtonRect(t);
         bool isMuted = track.gainProcessor != nullptr && track.gainProcessor->muted.load();
-        g.setColour(isMuted ? juce::Colour(tc ? tc->trackMuteOn : 0xffff0000)
-                            : juce::Colour(tc ? tc->border : 0xff444444));
-        g.fillRoundedRectangle(muteRect.toFloat(), 3.0f);
-        g.setColour(juce::Colour(tc ? tc->textBright : 0xffffffff));
+        const auto muteColor = isMuted ? juce::Colour(tc ? tc->trackMuteOn : 0xffff0000)
+                                       : juce::Colour(tc ? tc->border : 0xff444444);
+        g.setColour(muteColor);
+        if (wireframe) g.drawRoundedRectangle(muteRect.toFloat(), 3.0f, 1.0f);
+        else           g.fillRoundedRectangle(muteRect.toFloat(), 3.0f);
+        g.setColour(wireframe ? muteColor : juce::Colour(tc ? tc->textBright : 0xffffffff));
         g.setFont(13.0f);
         g.drawText("M", muteRect, juce::Justification::centred);
 
         // Solo button
         auto soloRect = getSoloButtonRect(t);
         bool isSoloed = track.gainProcessor != nullptr && track.gainProcessor->soloed.load();
-        g.setColour(isSoloed ? juce::Colour(tc ? tc->trackSoloOn : 0xffffff00)
-                             : juce::Colour(tc ? tc->border : 0xff444444));
-        g.fillRoundedRectangle(soloRect.toFloat(), 3.0f);
-        g.setColour(isSoloed ? juce::Colour(tc ? tc->trackSoloText : 0xff000000)
-                             : juce::Colour(tc ? tc->textBright : 0xffffffff));
+        const auto soloColor = isSoloed ? juce::Colour(tc ? tc->trackSoloOn : 0xffffff00)
+                                        : juce::Colour(tc ? tc->border : 0xff444444);
+        g.setColour(soloColor);
+        if (wireframe) g.drawRoundedRectangle(soloRect.toFloat(), 3.0f, 1.0f);
+        else           g.fillRoundedRectangle(soloRect.toFloat(), 3.0f);
+        g.setColour(wireframe ? soloColor
+                              : (isSoloed ? juce::Colour(tc ? tc->trackSoloText : 0xff000000)
+                                          : juce::Colour(tc ? tc->textBright : 0xffffffff)));
         g.setFont(13.0f);
         g.drawText("S", soloRect, juce::Justification::centred);
 

@@ -62,6 +62,15 @@ foreach(KIT ${DRUMKIT_DIRS})
     )
 endforeach()
 
+# ── Bundled fonts ──
+# Plus Jakarta Sans (variable weight) for the Launchkey themes —
+# closest free match to Novation's brand font Brockmann.
+file(GLOB FONT_FILES "${CMAKE_CURRENT_SOURCE_DIR}/resources/fonts/*.ttf")
+target_sources(Sequencer PRIVATE ${FONT_FILES})
+set_source_files_properties(${FONT_FILES} PROPERTIES
+    MACOSX_PACKAGE_LOCATION "Resources/fonts"
+)
+
 target_sources(Sequencer PRIVATE
     src/Main.cpp
     src/MainComponent.h

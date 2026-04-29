@@ -91,4 +91,9 @@ struct DawTheme
     uint32_t trackMuteOn;
     uint32_t trackSoloOn;
     uint32_t trackSoloText;
+
+    // When true, theme-aware components (TimelineComponent etc.)
+    // render their fills as transparent + outlined borders instead.
+    // Used by the LaunchkeyDark "true black" wireframe theme.
+    bool wireframe = false;
 };

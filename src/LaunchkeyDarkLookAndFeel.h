@@ -10,25 +10,32 @@ class LaunchkeyDarkLookAndFeel : public DawLookAndFeel
 public:
     LaunchkeyDarkLookAndFeel()
     {
-        // ── Surfaces — matte black plastic with subtle gradient ──
-        theme.body        = 0xff181818;
-        theme.bodyLight   = 0xff222222;
-        theme.bodyDark    = 0xff0e0e0e;
-        theme.border      = 0xff333333;
-        theme.borderLight = 0xff444444;
+        // ── Surfaces — true black; everything else is wireframe ──
+        // OLED-cyan brightness scale (~190° hue):
+        //   bright   : 0xffd2e4e8   text / selected / strong UI
+        //   accent   : 0xff78b0c4   active borders / accent stripe
+        //   mid      : 0xff5891a3   regular outlines
+        //   dim      : 0xff3a5a64   subtle dividers
+        //   faint    : 0xff1a3038   barely-visible grid
+        theme.body        = 0xff000000;
+        theme.bodyLight   = 0xff000000;
+        theme.bodyDark    = 0xff000000;
+        theme.border      = 0xff5891a3;   // mid OLED-cyan
+        theme.borderLight = 0xff78b0c4;   // accent OLED-cyan
+        theme.wireframe   = true;
 
-        // ── Text — cool off-white ──
-        theme.textPrimary   = 0xffd8d8d8;
-        theme.textSecondary = 0xff8a8a8a;
-        theme.textBright    = 0xfff2f2f2;
+        // ── Text — all OLED-cyan, brightness conveys hierarchy ──
+        theme.textPrimary   = 0xffd2e4e8;
+        theme.textSecondary = 0xff78b0c4;
+        theme.textBright    = 0xffe2f0f4;
 
-        // ── Accents — same Launchkey LED palette as the light theme ──
-        theme.red       = 0xffe04848;
-        theme.redDark   = 0xff3a1c1c;
-        theme.amber     = 0xff78b0c4;   // OLED teal
-        theme.amberDark = 0xff4c8080;
-        theme.green     = 0xff4ed058;
-        theme.greenDark = 0xff1a2e1c;
+        // ── Accents — collapsed to OLED-cyan brightness levels ──
+        theme.red       = 0xffd2e4e8;
+        theme.redDark   = 0xff1a3038;
+        theme.amber     = 0xff78b0c4;
+        theme.amberDark = 0xff5891a3;
+        theme.green     = 0xffd2e4e8;
+        theme.greenDark = 0xff1a3038;
 
         // ── LCD / OLED — true black with bright cool text ──
         theme.lcdBg    = 0xff050a0c;
@@ -62,33 +69,33 @@ public:
         theme.loopRegion     = 0x2878b0c4;
         theme.loopBorder     = 0xff78b0c4;
 
-        // ── Timeline — deep gray with subtle teal-tinted grid ──
-        theme.timelineBg          = 0xff121212;
-        theme.timelineAltRow      = 0xff181818;
-        theme.timelineSelectedRow = 0xff1c3a44;
-        theme.timelineGridMajor   = 0xff333333;
-        theme.timelineGridMinor   = 0xff262626;
-        theme.timelineGridFaint   = 0xff1c1c1c;
-        theme.timelineGridBeat    = 0xff2a2a2a;
+        // ── Timeline — true black, OLED-cyan grid at the dim end ──
+        theme.timelineBg          = 0xff000000;
+        theme.timelineAltRow      = 0xff000000;
+        theme.timelineSelectedRow = 0xff1a3038;
+        theme.timelineGridMajor   = 0xff5891a3;
+        theme.timelineGridMinor   = 0xff3a5a64;
+        theme.timelineGridFaint   = 0xff1a3038;
+        theme.timelineGridBeat    = 0xff3a5a64;
 
-        // ── Clips — slightly desaturated pastels so they pop on black ──
-        theme.clipDefault     = 0xff5891a3;   // teal-cyan (matches OLED hue)
-        theme.clipRecording   = 0xffc26161;   // muted brick (matches kRed)
-        theme.clipQueued      = 0xffc4894e;   // warm amber (matches kAmber)
-        theme.clipPlaying     = 0xff5e9978;   // forest (matches kGreen)
-        theme.clipNotePreview = 0xccf0f0f0;
+        // ── Clips — OLED-cyan brightness levels for state ──
+        theme.clipDefault     = 0xff3a5a64;   // dim cyan — idle
+        theme.clipRecording   = 0xffd2e4e8;   // brightest cyan — recording
+        theme.clipQueued      = 0xff5891a3;   // mid cyan — queued
+        theme.clipPlaying     = 0xff78b0c4;   // accent cyan — playing
+        theme.clipNotePreview = 0xccd2e4e8;
 
-        // ── Playhead — bright teal needle for visibility on black ──
-        theme.playhead     = 0xcc8acac8;
-        theme.playheadGlow = 0x308acac8;
+        // ── Playhead — bright OLED cyan needle ──
+        theme.playhead     = 0xccd2e4e8;
+        theme.playheadGlow = 0x30d2e4e8;
 
         theme.accentStripe = 0xff78b0c4;
 
-        theme.trackSelected = 0xff1c3a44;
-        theme.trackArmed    = 0xff3a1c1c;
+        theme.trackSelected = 0xff1a3038;
+        theme.trackArmed    = 0xffd2e4e8;     // bright cyan when armed
         theme.trackMuteOn   = 0xff78b0c4;
-        theme.trackSoloOn   = 0xffe8a840;
-        theme.trackSoloText = 0xff181818;
+        theme.trackSoloOn   = 0xffd2e4e8;     // bright cyan when soloed
+        theme.trackSoloText = 0xff000000;
 
         applyThemeColors();
 
@@ -107,54 +114,23 @@ public:
     }
 
     float getButtonRadius() const override { return 7.0f; }
-    juce::String getUIFontName() const override { return "Avenir Next"; }
+    juce::String getUIFontName() const override { return "Plus Jakarta Sans"; }
     int getSidePanelWidth() const override { return 6; }
 
-    // Black side panels with a subtle gradient and inner highlight
-    void drawSidePanels(juce::Graphics& g, int width, int height) override
-    {
-        const int panelW = getSidePanelWidth();
-        juce::Colour edge(0xff0a0a0a);
-        juce::Colour inner(0xff181818);
-
-        g.setGradientFill(juce::ColourGradient(edge, 0.0f, 0.0f,
-                                               inner, (float) panelW, 0.0f, false));
-        g.fillRect(0, 0, panelW, height);
-
-        g.setGradientFill(juce::ColourGradient(inner, (float)(width - panelW), 0.0f,
-                                               edge,  (float) width, 0.0f, false));
-        g.fillRect(width - panelW, 0, panelW, height);
-
-        g.setColour(juce::Colour(0x18ffffff));
-        g.fillRect((float)(panelW - 1), 0.0f, 1.0f, (float) height);
-        g.fillRect((float)(width - panelW), 0.0f, 1.0f, (float) height);
-    }
+    // No side-panel fill — let the body's pure black show through.
+    void drawSidePanels(juce::Graphics&, int, int) override {}
 
     void invalidateCaches() override { topBarCacheW = 0; topBarCacheH = 0; }
 
-    void drawInnerStrip(juce::Graphics& g, int x, int /*y*/, int width, int height) override
-    {
-        g.setColour(juce::Colour(0xff1c1c1c));
-        g.fillRect(x, 0, width, height);
-        g.setColour(juce::Colour(0x18ffffff));
-        g.drawVerticalLine(x, 0.0f, (float) height);
-        g.drawVerticalLine(x + width - 1, 0.0f, (float) height);
-    }
+    // No inner-strip fill — pure black body shows through.
+    void drawInnerStrip(juce::Graphics&, int, int, int, int) override {}
 
+    // No top-bar fill — just a thin accent rule along the bottom so
+    // the topbar is still visually separated from the content area.
     void drawTopBarBackground(juce::Graphics& g, int x, int y, int width, int height) override
     {
-        if (width != topBarCacheW || height != topBarCacheH)
-        {
-            topBarCache = juce::Image(juce::Image::RGB, width, height, false);
-            juce::Graphics tg(topBarCache);
-            tg.setColour(juce::Colour(0xff222222));
-            tg.fillAll();
-            tg.setColour(juce::Colour(0xff78b0c4));
-            tg.fillRect(0, height - 1, width, 1);
-            topBarCacheW = width;
-            topBarCacheH = height;
-        }
-        g.drawImageAt(topBarCache, x, y);
+        g.setColour(juce::Colour(0xff78b0c4));
+        g.fillRect(x, y + height - 1, width, 1);
     }
 
     mutable juce::Image topBarCache;
@@ -214,12 +190,26 @@ public:
         }
         else
         {
-            if (shouldDrawButtonAsDown)        g.setColour(juce::Colour(0xff404040));
-            else if (shouldDrawButtonAsHighlighted) g.setColour(juce::Colour(0xff333333));
-            else                                g.setColour(juce::Colour(0xff2a2a2a));
-            g.fillRoundedRectangle(bounds, getButtonRadius());
-            g.setColour(juce::Colour(0xff111111));
-            g.drawRoundedRectangle(bounds, getButtonRadius(), 0.8f);
+            // Outlined wireframe — OLED-cyan border, no fill.  Tier
+            // by brightness: dim → mid → accent → bright with state.
+            const float radius = getButtonRadius();
+            if (shouldDrawButtonAsDown)
+            {
+                g.setColour(juce::Colour(0x2078b0c4));
+                g.fillRoundedRectangle(bounds, radius);
+                g.setColour(juce::Colour(0xffd2e4e8));
+                g.drawRoundedRectangle(bounds, radius, 1.2f);
+            }
+            else if (shouldDrawButtonAsHighlighted)
+            {
+                g.setColour(juce::Colour(0xff78b0c4));
+                g.drawRoundedRectangle(bounds, radius, 1.2f);
+            }
+            else
+            {
+                g.setColour(juce::Colour(0xff5891a3));
+                g.drawRoundedRectangle(bounds, radius, 0.9f);
+            }
         }
     }
 
@@ -285,7 +275,7 @@ public:
         if (useOled)
             g.setColour(on ? bright : bright.withAlpha(0.7f));
         else
-            g.setColour(on ? juce::Colour(0xfff2f2f2) : juce::Colour(0xffd8d8d8));
+            g.setColour(on ? juce::Colour(0xffd2e4e8) : juce::Colour(0xff78b0c4));
         g.setFont(juce::Font(getUIFontName(),
                   juce::jmin(12.0f, dispBounds.getHeight() * 0.5f), juce::Font::bold));
         g.drawText(formatButtonText(text), button.getLocalBounds().reduced(2),
