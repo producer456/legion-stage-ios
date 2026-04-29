@@ -99,6 +99,42 @@ public:
 
     static constexpr int MAX_SLOTS = 256;
 
+    // ── Step sequencer (Launchkey-pad-driven) ──
+    // When enabled, the track plays a drum-machine-style pattern at
+    // the engine's tempo: 8 voices × 16 steps, each voice firing its
+    // own MIDI note (default GM drum map — kick / snare / hats /
+    // toms / cymbal).  16 pads = 16 steps for the selected voice.
+    static constexpr int STEP_PATTERN_MAX = 16;
+    static constexpr int STEP_NUM_VOICES  = 8;
+    std::atomic<bool> stepSeqEnabled { false };
+
+    struct DrumVoice {
+        std::atomic<bool>    on[STEP_PATTERN_MAX]   = {};
+        std::atomic<uint8_t> vel[STEP_PATTERN_MAX]  = {};
+        std::atomic<int>     note    { 36 };       // MIDI note this voice fires
+        DrumVoice() {
+            for (int i = 0; i < STEP_PATTERN_MAX; ++i) { on[i].store(false); vel[i].store(100); }
+        }
+    };
+
+    struct DrumPattern {
+        DrumVoice            voices[STEP_NUM_VOICES];
+        std::atomic<int>     length        { 16 };
+        std::atomic<int>     channel       { 0 };
+        std::atomic<float>   gate          { 0.5f };
+        std::atomic<int>     selectedVoice { 0 };  // which voice the pads edit
+
+        DrumPattern() {
+            // GM drum-map defaults — pair well with our built-in
+            // drum-kit samplers (CR-78 / TR-505 / LM-2).
+            const int defaults[STEP_NUM_VOICES] = { 36, 38, 42, 46, 41, 45, 48, 49 };
+            for (int v = 0; v < STEP_NUM_VOICES; ++v) voices[v].note.store(defaults[v]);
+        }
+    } stepPattern;
+
+    // Most-recent step index (for UI playhead highlight on iPad / pads).
+    std::atomic<int> stepSeqCurrentStep { -1 };
+
 private:
     SequencerEngine& engine;
     std::vector<ClipSlot> slots;
@@ -122,6 +158,19 @@ private:
     void killActiveNotes(juce::MidiBuffer& midi, int sampleOffset, bool hard = false, bool panicKill = false);
 
     void processClipPlayback(int slotIndex, juce::MidiBuffer& midi, int numSamples);
+
+    // Step sequencer per-block processing — fires note-on at each
+    // step boundary and tracks pending note-offs so the gate can
+    // span block boundaries.
+    void processStepSequencer(juce::MidiBuffer& midi, int numSamples);
+    struct StepPendingOff {
+        int note = -1;
+        int channel = 1;
+        double offBeat = 0.0;
+        bool active = false;
+    };
+    static constexpr int STEP_MAX_PENDING_OFFS = 32;
+    StepPendingOff stepPendingOffs[STEP_MAX_PENDING_OFFS] = {};
     void processAudioClipPlayback(int slotIndex, juce::AudioBuffer<float>& buffer, int numSamples);
     void processRecording(const juce::MidiBuffer& incomingMidi, int numSamples);
     void processAudioRecording(const juce::AudioBuffer<float>& inputBuffer, int numSamples);

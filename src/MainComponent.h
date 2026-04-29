@@ -389,6 +389,18 @@ public:
     bool controllerToolbarPadActive() const;
     void controllerToolbarPadAction(int row, int col);
     uint8_t controllerToolbarPadColor(int row, int col) const;
+
+    // ── Step-sequencer pad mode ──
+    // When the focused track has stepSeqEnabled, the device pads
+    // become a 16-step editor (top row = steps 0-7, bottom = 8-15).
+    // Tap toggles a step; the playhead column white-pulses as it
+    // sweeps through.  Toolbar-pad mode is suppressed in this mode.
+    bool controllerStepSeqPadActive() const;
+    void controllerStepSeqPadToggle(int row, int col);
+    void controllerStepSeqSelectVoice(int row, int col);
+    // Returns 0xRRGGBB for the pad: dim base = step off, bright = on,
+    // overridden white when the playhead is on this step.
+    uint32_t controllerStepSeqPadColor(int row, int col) const;
     // 0xRRGGBB packed; 0 if no entry — controller scales these to
     // the device's 7-bit-per-channel SysEx pad-RGB range.
     uint32_t controllerToolbarPadColorRGB(int row, int col) const;

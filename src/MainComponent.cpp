@@ -2129,6 +2129,29 @@ void MainComponent::scanPlugins()
         pluginSelector.addItem("Juno-60", id++);
     }
 
+    // Built-in drum-kit sampler entries — one per kit folder under
+    // resources/drumkits/.  The kit name lives in the identifier so
+    // PluginHost::loadPlugin knows which kit to load into the
+    // BuiltinSamplerProcessor.
+    {
+        const juce::StringArray kitNames = BuiltinSamplerProcessor::getDrumKitNames();
+        for (const auto& kit : kitNames)
+        {
+            juce::PluginDescription kitDesc;
+            kitDesc.name = "Drum Kit: " + kit;
+            kitDesc.pluginFormatName = "Built-in";
+            kitDesc.category = "Drum";
+            kitDesc.manufacturerName = "Legion Stage";
+            kitDesc.version = "1.0";
+            kitDesc.isInstrument = true;
+            kitDesc.numInputChannels = 0;
+            kitDesc.numOutputChannels = 2;
+            kitDesc.fileOrIdentifier = "legion-stage-builtin-sampler:" + kit;
+            pluginDescriptions.add(kitDesc);
+            pluginSelector.addItem(kitDesc.name, id++);
+        }
+    }
+
     for (const auto& desc : pluginHost.getPluginList().getTypes())
     {
         bool instrument = desc.isInstrument;
@@ -2222,6 +2245,9 @@ void MainComponent::loadSelectedPlugin()
     if (ok)
     {
         updateTrackDisplay();
+        // Re-evaluate Launchkey pad/encoder mode now that this
+        // track's plugin changed — drum-kit loads enable step-seq.
+        syncLaunchkeyDeviceModes();
 #if JUCE_IOS
         // Show plugin info in the beat OLED briefly
         {
@@ -8282,8 +8308,71 @@ namespace {
 
 bool MainComponent::controllerToolbarPadActive() const
 {
+    // Step-seq mode wins when enabled — pads become the step editor.
+    if (controllerStepSeqPadActive()) return false;
     const auto t = themeManager.getCurrentTheme();
     return (t == ThemeManager::Launchkey || t == ThemeManager::LaunchkeyDark);
+}
+
+bool MainComponent::controllerStepSeqPadActive() const
+{
+    auto& trk = pluginHost.getTrack(selectedTrackIndex);
+    return trk.clipPlayer != nullptr && trk.clipPlayer->stepSeqEnabled.load();
+}
+
+void MainComponent::controllerStepSeqPadToggle(int row, int col)
+{
+    auto& trk = pluginHost.getTrack(selectedTrackIndex);
+    if (trk.clipPlayer == nullptr) return;
+    const int step = row * 8 + col;
+    if (step < 0 || step >= ClipPlayerNode::STEP_PATTERN_MAX) return;
+    auto& sp = trk.clipPlayer->stepPattern;
+    const int v = juce::jlimit(0, ClipPlayerNode::STEP_NUM_VOICES - 1, sp.selectedVoice.load());
+    auto& voice = sp.voices[v];
+    const bool was = voice.on[step].load();
+    voice.on[step].store(!was);
+}
+
+void MainComponent::controllerStepSeqSelectVoice(int row, int col)
+{
+    auto& trk = pluginHost.getTrack(selectedTrackIndex);
+    if (trk.clipPlayer == nullptr) return;
+    // Only the top row (8 pads) maps to voice select.  Bottom row
+    // shifted-presses are ignored so the user doesn't accidentally
+    // select voice 8+ which doesn't exist.
+    if (row != 0) return;
+    const int v = juce::jlimit(0, ClipPlayerNode::STEP_NUM_VOICES - 1, col);
+    trk.clipPlayer->stepPattern.selectedVoice.store(v);
+}
+
+uint32_t MainComponent::controllerStepSeqPadColor(int row, int col) const
+{
+    auto& trk = pluginHost.getTrack(selectedTrackIndex);
+    if (trk.clipPlayer == nullptr) return 0;
+    const int step = row * 8 + col;
+    if (step < 0 || step >= ClipPlayerNode::STEP_PATTERN_MAX) return 0;
+    auto& cp = *trk.clipPlayer;
+    const int v = juce::jlimit(0, ClipPlayerNode::STEP_NUM_VOICES - 1, cp.stepPattern.selectedVoice.load());
+    const auto& voice = cp.stepPattern.voices[v];
+    const bool on = voice.on[step].load();
+    const int play = cp.stepSeqCurrentStep.load();
+    // Per-voice color — distinct hue so the user knows which voice
+    // they're editing without an OLED label.
+    static constexpr uint32_t kVoiceColors[ClipPlayerNode::STEP_NUM_VOICES] = {
+        0xffe06060,  // V0 kick — red
+        0xff60d090,  // V1 snare — mint
+        0xfff0c060,  // V2 closed hat — yellow
+        0xffe09040,  // V3 open hat — orange
+        0xff6090e0,  // V4 tom low — blue
+        0xff9070e0,  // V5 tom mid — purple
+        0xffe070b0,  // V6 tom high — pink
+        0xff60c0c0,  // V7 cymbal — cyan
+    };
+    const uint32_t voiceColor = kVoiceColors[v];
+    // Playhead overrides — bright white on the current step.
+    if (play == step && pluginHost.getEngine().isPlaying()) return 0xfffefefe;
+    if (on) return voiceColor;
+    return 0xff1a2024;   // empty — dim slate
 }
 
 void MainComponent::controllerToolbarPadAction(int row, int col)
@@ -8353,11 +8442,6 @@ void MainComponent::syncLaunchkeyDeviceModes()
 {
     if (!launchkey.isActive()) return;
 
-    // Pad mode: DRUM (1) when the focused track hosts a drum-kit
-    // sampler, otherwise back to DAW/session (2) so our toolbar
-    // shortcuts work.  Encoder mode: PLUGIN (0) when the focused
-    // track has a plugin loaded (so the OLED label reads "PLUGIN"
-    // when the user touches a knob), otherwise MIXER (1).
     auto& trk = pluginHost.getTrack(selectedTrackIndex);
 
     bool isDrumKit = false;
@@ -8367,10 +8451,28 @@ void MainComponent::syncLaunchkeyDeviceModes()
             isDrumKit = sampler->isDrumKitMode();
     }
 
-    const uint8_t padMode = isDrumKit ? 1 : 2;
-    const uint8_t encMode = (trk.plugin != nullptr) ? 0 : 1;
-    launchkey.setDevicePadMode(padMode);
-    launchkey.setDeviceEncoderMode(encMode);
+    // Auto-enable the step sequencer on drum-kit tracks — pads
+    // become a 16-step pattern editor for that drum kit.  Other
+    // tracks keep the toolbar-pad mode (or session-launch when not
+    // in a Launchkey theme).  All ClipPlayers update so a previously
+    // focused drum-kit track keeps stepping when we switch away.
+    for (int t = 0; t < PluginHost::NUM_TRACKS; ++t)
+    {
+        auto* cp = pluginHost.getTrack(t).clipPlayer;
+        if (!cp) continue;
+        bool wantStep = false;
+        if (auto* p = pluginHost.getTrack(t).plugin)
+            if (auto* s = dynamic_cast<BuiltinSamplerProcessor*>(p))
+                wantStep = s->isDrumKitMode();
+        cp->stepSeqEnabled.store(wantStep);
+    }
+
+    // Pad mode: DAW/session (2) — pads are software-driven (toolbar
+    // shortcuts OR step editor).  Encoder mode: PLUGIN (0) when a
+    // plugin is loaded so the OLED label reads "PLUGIN" on encoder
+    // touch, MIXER (1) otherwise.
+    launchkey.setDevicePadMode(2);
+    launchkey.setDeviceEncoderMode(trk.plugin != nullptr ? 0 : 1);
 }
 
 void MainComponent::controllerSetToolbarButtonAnimatedColor(int row, int col, uint32_t rgb)

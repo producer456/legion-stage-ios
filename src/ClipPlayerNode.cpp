@@ -30,7 +30,14 @@ void ClipPlayerNode::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBu
         arpeggiator.reset();
         lastPositionInBeats = -1.0;
         std::fill(wasInsideClip.begin(), wasInsideClip.end(), false);
+        // Also clear any pending step-seq note-offs.
+        for (auto& p : stepPendingOffs) p.active = false;
     }
+
+    // Step sequencer — fires per-step note-on/off events for the
+    // focused track when enabled.
+    if (stepSeqEnabled.load() && engine.isPlaying() && !engine.isInCountIn())
+        processStepSequencer(midi, numSamples);
 
     // Arpeggiator: transform live MIDI input BEFORE recording captures it.
     // This way the recorded clip contains the arpeggiated notes, not the raw held chord.
@@ -565,5 +572,78 @@ void ClipPlayerNode::processAudioClipPlayback(int slotIndex, juce::AudioBuffer<f
     {
         for (int ch = 0; ch < numCh; ++ch)
             buffer.addFrom(ch, startInBuffer, clip.samples, ch, startInClip, copyLen);
+    }
+}
+
+// ── Step sequencer ───────────────────────────────────────────────
+//
+// Per-block: emit any pending note-offs whose gate time falls in
+// this block, then for every step boundary crossed, fire note-on
+// for active steps and queue the matching note-off.
+
+void ClipPlayerNode::processStepSequencer(juce::MidiBuffer& midi, int numSamples)
+{
+    const double bpm = engine.getBpm();
+    if (bpm <= 0.0 || currentSampleRate <= 0.0) return;
+
+    const double beatsPerSample = bpm / 60.0 / currentSampleRate;
+    const double posEnd   = engine.getPositionInBeats();
+    const double posStart = posEnd - beatsPerSample * numSamples;
+
+    const double stepLen   = 0.25;   // 1/16 grid for v1
+    const int    patternLen = juce::jmax(1, stepPattern.length.load());
+    const int    channel    = juce::jlimit(1, 16, stepPattern.channel.load() + 1);
+    const float  gateFrac   = juce::jlimit(0.05f, 1.0f, stepPattern.gate.load());
+
+    // 1) Drain pending note-offs whose offBeat lands in this block.
+    for (auto& p : stepPendingOffs)
+    {
+        if (!p.active) continue;
+        if (p.offBeat >= posStart && p.offBeat < posEnd)
+        {
+            const int sampOff = juce::jlimit(0, numSamples - 1,
+                                             (int) std::floor((p.offBeat - posStart) / beatsPerSample));
+            midi.addEvent(juce::MidiMessage::noteOff(p.channel, p.note), sampOff);
+            p.active = false;
+        }
+        else if (p.offBeat < posStart)
+        {
+            midi.addEvent(juce::MidiMessage::noteOff(p.channel, p.note), 0);
+            p.active = false;
+        }
+    }
+
+    // 2) For each step boundary crossed in this block, fire note-on
+    //    for every voice that has this step active.
+    const int firstStep = (int) std::floor(posStart / stepLen);
+    const int lastStep  = (int) std::floor((posEnd - 1.0e-9) / stepLen);
+    for (int s = firstStep + 1; s <= lastStep; ++s)
+    {
+        const int patIdx = ((s % patternLen) + patternLen) % patternLen;
+        const double beatOfStep = s * stepLen;
+        const int sampOff = juce::jlimit(0, numSamples - 1,
+                                         (int) std::floor((beatOfStep - posStart) / beatsPerSample));
+        for (int v = 0; v < STEP_NUM_VOICES; ++v)
+        {
+            auto& voice = stepPattern.voices[v];
+            if (!voice.on[patIdx].load()) continue;
+            const int     note = juce::jlimit(0, 127, voice.note.load());
+            const uint8_t vel  = juce::jmax<uint8_t>(1, voice.vel[patIdx].load());
+            midi.addEvent(juce::MidiMessage::noteOn(channel, note, (juce::uint8) vel), sampOff);
+
+            const double offBeat = beatOfStep + stepLen * gateFrac;
+            for (auto& p : stepPendingOffs)
+            {
+                if (!p.active)
+                {
+                    p.active  = true;
+                    p.note    = note;
+                    p.channel = channel;
+                    p.offBeat = offBeat;
+                    break;
+                }
+            }
+        }
+        stepSeqCurrentStep.store(patIdx);
     }
 }

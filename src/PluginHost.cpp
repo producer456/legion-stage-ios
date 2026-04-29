@@ -3,6 +3,7 @@
 #include <atomic>
 #include "AUScanner.h"
 #include "BuiltinJuno60Processor.h"
+#include "BuiltinSamplerProcessor.h"
 #include "SpectrumComponent.h"
 #include "LissajousComponent.h"
 #include "WaveTerrainComponent.h"
@@ -208,6 +209,29 @@ bool PluginHost::loadPlugin(int trackIndex, const juce::PluginDescription& desc,
         else {
             track.plugin = nullptr;
             errorMsg = "Failed to add Juno-60 to audio graph";
+            return false;
+        }
+        rewireTrack(trackIndex);
+        return true;
+    }
+
+    // Built-in drum-kit sampler — identifier is
+    // "legion-stage-builtin-sampler:<kit-name>".  Loads the named
+    // kit folder from resources/drumkits/.
+    if (desc.fileOrIdentifier.startsWith("legion-stage-builtin-sampler:"))
+    {
+        const auto kitName = desc.fileOrIdentifier
+                             .fromFirstOccurrenceOf(":", false, false);
+        auto& track = tracks[static_cast<size_t>(trackIndex)];
+        auto sampler = std::make_unique<BuiltinSamplerProcessor>();
+        sampler->prepareToPlay(storedSampleRate, storedBlockSize);
+        sampler->loadDrumKit(kitName);
+        track.pluginNode = addNode(std::move(sampler));
+        if (track.pluginNode != nullptr)
+            track.plugin = track.pluginNode->getProcessor();
+        else {
+            track.plugin = nullptr;
+            errorMsg = "Failed to add drum kit to audio graph";
             return false;
         }
         rewireTrack(trackIndex);

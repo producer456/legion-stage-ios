@@ -217,9 +217,17 @@ void LaunchkeyMK4Controller::handlePadPress(uint8_t padNote, uint8_t /*vel*/)
     const auto now = juce::Time::currentTimeMillis();
     padPressMillis[idx] = now;     // press-flash trigger
     lastInputAtMillis   = now;     // wake from idle
-    // Launchkey themes repurpose pads as edit-toolbar shortcuts —
-    // host owns the mapping.  Other themes fall through to the
+    // Step-seq mode wins (focused track has stepSeqEnabled).  Then
+    // toolbar mode (Launchkey themes).  Then fall through to the
     // session-view clip launcher.
+    if (host->controllerStepSeqPadActive())
+    {
+        // Shift+pad on top row 0-7 = select voice for editing.
+        // Plain pad = toggle step in the currently selected voice.
+        if (shiftHeld) host->controllerStepSeqSelectVoice(row, col);
+        else           host->controllerStepSeqPadToggle(row, col);
+        return;
+    }
     if (host->controllerToolbarPadActive())
     {
         host->controllerToolbarPadAction(row, col);
@@ -338,9 +346,36 @@ void LaunchkeyMK4Controller::tick()
         else host->controllerScrubPlayhead(scrubAutoDir * 4);
     }
 
-    const bool toolbarMode = host->controllerToolbarPadActive();
-    auto* sv = toolbarMode ? nullptr : host->getSessionViewComponent();
-    if (!toolbarMode && sv == nullptr) return;
+    const bool stepSeqMode = host->controllerStepSeqPadActive();
+    const bool toolbarMode = !stepSeqMode && host->controllerToolbarPadActive();
+    auto* sv = (stepSeqMode || toolbarMode) ? nullptr : host->getSessionViewComponent();
+    if (!stepSeqMode && !toolbarMode && sv == nullptr) return;
+
+    // Step-seq mode: pads are the editor.  Skip the heavy animation
+    // pipeline; just push the per-step base colour (with playhead
+    // override done host-side).
+    if (stepSeqMode)
+    {
+        for (int row = 0; row < 2; ++row)
+        {
+            for (int col = 0; col < 8; ++col)
+            {
+                const int idx = row * 8 + col;
+                const uint32_t rgb = host->controllerStepSeqPadColor(row, col);
+                if (lastPaintRGB[idx] == rgb) continue;
+                lastPaintRGB[idx] = rgb;
+                lastPaint[idx] = 0;
+                const uint8_t r8 = (rgb >> 16) & 0xFF;
+                const uint8_t g8 = (rgb >>  8) & 0xFF;
+                const uint8_t b8 =  rgb        & 0xFF;
+                paintPadRGB(row, col,
+                            static_cast<uint8_t>(r8 * 127 / 255),
+                            static_cast<uint8_t>(g8 * 127 / 255),
+                            static_cast<uint8_t>(b8 * 127 / 255));
+            }
+        }
+        return;
+    }
 
     // Toolbar mode: paint each pad with its assigned RGB plus a
     // stack of light animations — boot wave, beat pulse during
