@@ -231,6 +231,11 @@ private:
     juce::TextButton quantizeButton { "Quantize" };
     juce::TextButton clearAutoButton { "CLR AUTO" };
     juce::ComboBox gridSelector;
+    // Visible toolbar button — shows the currently-selected grid value
+    // and cycles through grid resolutions on click.  gridSelector
+    // remains as the underlying state holder (kept invisible) so the
+    // existing onChange wiring + project save/load still work.
+    juce::TextButton gridButton { "1/16" };
     juce::TextButton countInButton { "Count-In" };
     juce::TextButton loopButton { "LOOP" };
     juce::TextButton panicButton { "PANIC" };

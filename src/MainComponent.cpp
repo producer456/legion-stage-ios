@@ -280,7 +280,7 @@ MainComponent::MainComponent()
     // the callback wiring.
     clearAutoButton.setVisible(false);
 
-    addAndMakeVisible(gridSelector);
+    addChildComponent(gridSelector);    // state holder; never visible
     gridSelector.addItem("1/4", 1);
     gridSelector.addItem("1/8", 2);
     gridSelector.addItem("1/16", 3);
@@ -299,6 +299,17 @@ MainComponent::MainComponent()
             }
             timelineComponent->setGridResolution(res);
         }
+        // Mirror the current value to the visible toolbar button.
+        gridButton.setButtonText(gridSelector.getText());
+    };
+
+    addAndMakeVisible(gridButton);
+    gridButton.setButtonText(gridSelector.getText());
+    gridButton.onClick = [this] {
+        const int n = gridSelector.getNumItems();
+        if (n <= 0) return;
+        const int next = (gridSelector.getSelectedItemIndex() + 1) % n;
+        gridSelector.setSelectedItemIndex(next, juce::sendNotificationSync);
     };
 
     addAndMakeVisible(countInButton);
@@ -6208,7 +6219,7 @@ void MainComponent::resized()
     splitClipButton.setVisible(true);
     editClipButton.setVisible(true);
     quantizeButton.setVisible(true);
-    gridSelector.setVisible(true);
+    gridButton.setVisible(true);
     saveButton.setVisible(true);
     loadButton.setVisible(true);
     undoButton.setVisible(true);
@@ -6525,8 +6536,17 @@ void MainComponent::resized()
     // ── Edit Toolbar ──
     // All buttons positioned L→R in the brightness gradient that
     // matches the LaunchkeyDark theme + the device pad layout:
-    //   Arp(faint) → Timing(dim) → Project(mid) → Clip(accent) → I/O(high)
+    //   CPU meter | Arp(faint) → Timing(dim) → Project(mid) → Clip(accent) → I/O(high)
     auto toolbar = area.removeFromTop(65).reduced(4, 4);
+
+    // CPU/RAM EKG meter — anchored at the far left.
+    {
+        const int cpuW = 150;
+        auto cpuArea = toolbar.removeFromLeft(cpuW);
+        cpuLabel.setBounds(cpuArea);
+        cpuLabel.setVisible(true);
+        toolbar.removeFromLeft(8);
+    }
 
     // Arp group (faintest)
     arpButton.setBounds(toolbar.removeFromLeft(48));
@@ -6543,7 +6563,8 @@ void MainComponent::resized()
     toolbar.removeFromLeft(6);
 
     // Timing group
-    gridSelector.setBounds(toolbar.removeFromLeft(65));
+    gridButton.setBounds(toolbar.removeFromLeft(65));
+    gridButton.setVisible(true);
     toolbar.removeFromLeft(2);
     quantizeButton.setBounds(toolbar.removeFromLeft(70));
     toolbar.removeFromLeft(6);
@@ -6578,10 +6599,7 @@ void MainComponent::resized()
     exportButton.setBounds(toolbar.removeFromLeft(55));
     exportButton.setVisible(true);
     loopSetButton.setVisible(false);
-    // CPU label — takes remaining toolbar space (expands when panel hidden)
-    auto cpuArea = toolbar;
-    cpuLabel.setBounds(cpuArea.getX(), captureButton.getY(), cpuArea.getWidth(), captureButton.getHeight());
-    cpuLabel.setVisible(true);
+    // CPU label is positioned at the far left now (see top of layout).
 
     // Pack remaining controls at the right end of the toolbar
 #if !JUCE_IOS
@@ -8492,7 +8510,7 @@ void MainComponent::controllerSetToolbarButtonAnimatedColor(int row, int col, ui
             case 1: target = &arpModeButton;      break;
             case 2: target = &arpRateButton;      break;
             case 3: target = &arpOctButton;       break;
-            case 4: target = &gridSelector;       break;
+            case 4: target = &gridButton;         break;
             case 5: target = &quantizeButton;     break;
             case 6: target = &saveButton;         break;
             case 7: target = &loadButton;         break;
@@ -8536,6 +8554,7 @@ void MainComponent::applyLaunchkeyToolbarColors()
         { &arpModeButton,     0, 1 },
         { &arpRateButton,     0, 2 },
         { &arpOctButton,      0, 3 },
+        { &gridButton,        0, 4 },
         { &quantizeButton,    0, 5 },
         { &saveButton,        0, 6 },
         { &loadButton,        0, 7 },
@@ -8559,8 +8578,6 @@ void MainComponent::applyLaunchkeyToolbarColors()
             t.btn->getProperties().remove("lkColor");
             t.btn->repaint();
         }
-        gridSelector.getProperties().remove("lkColor");
-        gridSelector.repaint();
         return;
     }
 
@@ -8578,14 +8595,6 @@ void MainComponent::applyLaunchkeyToolbarColors()
             t.btn->repaint();
         }
     }
-    // Grid combobox sits at the gradient-ordered position (0,4).
-    if (auto* e = findPadEntry(0, 4))
-    {
-        const uint32_t c = dark ? e->rgbDark : e->rgbLight;
-        gridSelector.getProperties().set("lkColor", static_cast<int>(c));
-        gridSelector.repaint();
-    }
-
     // Arm the iPad-side boot wave when the wireframe theme just
     // activated AND no Launchkey is connected to do it for us.
     const bool wfNow = dark;
