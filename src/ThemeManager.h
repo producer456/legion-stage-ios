@@ -77,6 +77,7 @@ public:
 
     bool isGlassOverlay() const { return currentTheme == GlassOverlay || currentTheme == OceanGlass || currentTheme == LiquidGlassLight || currentTheme == Laboratory; }
     DawLookAndFeel* getLookAndFeel() { return themes[currentTheme].get(); }
+    const DawLookAndFeel* getLookAndFeel() const { return themes[currentTheme].get(); }
     const DawTheme& getColors() const { return themes[currentTheme]->getTheme(); }
 
     static juce::String getThemeName(Theme t)

@@ -8520,7 +8520,7 @@ uint32_t MainComponent::controllerToolbarPadColorRGB(int row, int col) const
     // hardware LEDs match the on-screen monochrome canvas.
     if (themeManager.getCurrentTheme() == ThemeManager::LaunchkeyOled)
     {
-        if (auto* oled = dynamic_cast<LaunchkeyOledLookAndFeel*>(themeManager.getLookAndFeel()))
+        if (auto* oled = dynamic_cast<const LaunchkeyOledLookAndFeel*>(themeManager.getLookAndFeel()))
             return oled->getOledColour() & 0x00FFFFFFu;
     }
     const bool dark = (themeManager.getCurrentTheme() == ThemeManager::LaunchkeyDark);
