@@ -148,6 +148,32 @@ MainComponent::MainComponent()
     playButton.onClick = [this] {
         if (midiLearnActive) { startMidiLearn(MidiTarget::Play); return; }
         auto& eng = pluginHost.getEngine();
+
+        const double now = juce::Time::getMillisecondCounterHiRes();
+        const bool isDoubleTap = (now - lastPlayTapMs < 1200.0);
+        lastPlayTapMs = now;
+
+        if (isDoubleTap)
+        {
+            // Double-tap — stop playback and jump back to the start.
+            // Does NOT resume play; user can tap once more to play
+            // from the top.
+            eng.stop();
+            for (int t = 0; t < PluginHost::NUM_TRACKS; ++t)
+            {
+                auto* cp = pluginHost.getTrack(t).clipPlayer;
+                if (cp)
+                {
+                    cp->stopAllSlots();
+                    cp->sendAllNotesOff.store(true);
+                }
+            }
+            eng.resetPosition();
+            if (timelineComponent) timelineComponent->repaint();
+            return;
+        }
+
+        // Single tap — toggle play/stop.
         if (eng.isPlaying())
         {
             eng.stop();
@@ -6545,7 +6571,7 @@ void MainComponent::resized()
         auto cpuArea = toolbar.removeFromLeft(cpuW);
         cpuLabel.setBounds(cpuArea);
         cpuLabel.setVisible(true);
-        toolbar.removeFromLeft(8);
+        toolbar.removeFromLeft(18);
     }
 
     // Arp group (faintest)
@@ -6560,24 +6586,26 @@ void MainComponent::resized()
     toolbar.removeFromLeft(2);
     arpOctButton.setBounds(toolbar.removeFromLeft(42));
     arpOctButton.setVisible(true);
-    toolbar.removeFromLeft(6);
+    toolbar.removeFromLeft(18);
 
     // Timing group
     gridButton.setBounds(toolbar.removeFromLeft(65));
     gridButton.setVisible(true);
     toolbar.removeFromLeft(2);
     quantizeButton.setBounds(toolbar.removeFromLeft(70));
-    toolbar.removeFromLeft(6);
+    toolbar.removeFromLeft(18);
 
-    // Project group
+    // Project I/O group — Save + Load
     saveButton.setBounds(toolbar.removeFromLeft(45));
     toolbar.removeFromLeft(2);
     loadButton.setBounds(toolbar.removeFromLeft(45));
-    toolbar.removeFromLeft(2);
+    toolbar.removeFromLeft(18);
+
+    // History group — Undo + Redo
     undoButton.setBounds(toolbar.removeFromLeft(42));
     toolbar.removeFromLeft(2);
     redoButton.setBounds(toolbar.removeFromLeft(42));
-    toolbar.removeFromLeft(6);
+    toolbar.removeFromLeft(18);
 
     // Clip group
     newClipButton.setBounds(toolbar.removeFromLeft(80));
@@ -6587,7 +6615,7 @@ void MainComponent::resized()
     splitClipButton.setBounds(toolbar.removeFromLeft(50));
     toolbar.removeFromLeft(2);
     editClipButton.setBounds(toolbar.removeFromLeft(60));
-    toolbar.removeFromLeft(6);
+    toolbar.removeFromLeft(18);
     // clearAutoButton lives in the PianoRollWindow now — keep
     // hidden + skip layout so it doesn't reserve toolbar space.
 
@@ -8297,17 +8325,6 @@ void MainComponent::controllerLaunchScene()
     onMain(this, [](MainComponent* self) {
         if (self->sessionViewComponent)
             self->sessionViewComponent->launchSceneAtRow(self->sessionViewComponent->currentSceneRow());
-    });
-}
-
-void MainComponent::controllerReturnToStart()
-{
-    // resetPosition() writes to an atomic so it's thread-safe, but
-    // hop to the message thread anyway so the timeline gets a repaint
-    // and the visible playhead jumps to 0 immediately.
-    onMain(this, [](MainComponent* self) {
-        self->pluginHost.getEngine().resetPosition();
-        if (self->timelineComponent) self->timelineComponent->repaint();
     });
 }
 

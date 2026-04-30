@@ -200,6 +200,7 @@ private:
 
     // Transport
     double lastSpaceStopTime = 0.0;
+    double lastPlayTapMs = 0.0;   // double-tap detection on the play button
     bool wasRecording = false;
 
     // BPM drag
@@ -449,7 +450,6 @@ public:
     void controllerSelectTrack(int delta);
     void controllerScrollScenes(int delta);
     void controllerLaunchScene();
-    void controllerReturnToStart();
     void controllerPresetPrev();
     void controllerPresetNext();
     void controllerToggleMetronomeAndCountIn();
