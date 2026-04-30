@@ -237,6 +237,10 @@ private:
     // remains as the underlying state holder (kept invisible) so the
     // existing onChange wiring + project save/load still work.
     juce::TextButton gridButton { "1/16" };
+    // Visible only in the Launchkey OLED theme — cycles the panel's
+    // emission colour through the cheap-OLED palette (blue, white,
+    // amber, green, deep blue).
+    juce::TextButton oledColorButton { "BLUE" };
     juce::TextButton countInButton { "Count-In" };
     juce::TextButton loopButton { "LOOP" };
     juce::TextButton panicButton { "PANIC" };

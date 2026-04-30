@@ -338,6 +338,22 @@ MainComponent::MainComponent()
         gridSelector.setSelectedItemIndex(next, juce::sendNotificationSync);
     };
 
+    // OLED color cycler — only visible in the Launchkey OLED theme.
+    addChildComponent(oledColorButton);
+    oledColorButton.onClick = [this] {
+        if (auto* oled = dynamic_cast<LaunchkeyOledLookAndFeel*>(themeManager.getLookAndFeel()))
+        {
+            oled->cycleOledColour();
+            oledColorButton.setButtonText(oled->getOledColourName());
+            applyThemeToControls();
+            // Re-tint the on-screen toolbar pads so they match the
+            // new hue alongside the hardware (which refreshes via
+            // controllerToolbarPadColorRGB on the next tick).
+            applyLaunchkeyToolbarColors();
+            repaint();
+        }
+    };
+
     addAndMakeVisible(countInButton);
     countInButton.setClickingTogglesState(true);
     countInButton.onClick = [this] { pluginHost.getEngine().toggleCountIn(); };
@@ -2976,7 +2992,7 @@ int MainComponent::activeParamCount() const
     // platform default.  Centralized here so paging math, slider
     // population, and layout iteration all agree.
     const auto t = themeManager.getCurrentTheme();
-    if (t == ThemeManager::Launchkey || t == ThemeManager::LaunchkeyDark) return 6;
+    if (t == ThemeManager::Launchkey || t == ThemeManager::LaunchkeyDark || t == ThemeManager::LaunchkeyOled) return 6;
     return NUM_PARAM_SLIDERS;
 }
 
@@ -6627,6 +6643,21 @@ void MainComponent::resized()
     exportButton.setBounds(toolbar.removeFromLeft(55));
     exportButton.setVisible(true);
     loopSetButton.setVisible(false);
+
+    // OLED-color cycler — only visible in the LK OLED theme.
+    const bool oledTheme = themeManager.getCurrentTheme() == ThemeManager::LaunchkeyOled;
+    if (oledTheme)
+    {
+        toolbar.removeFromLeft(18);
+        oledColorButton.setBounds(toolbar.removeFromLeft(70));
+        if (auto* lf = dynamic_cast<LaunchkeyOledLookAndFeel*>(themeManager.getLookAndFeel()))
+            oledColorButton.setButtonText(lf->getOledColourName());
+        oledColorButton.setVisible(true);
+    }
+    else
+    {
+        oledColorButton.setVisible(false);
+    }
     // CPU label is positioned at the far left now (see top of layout).
 
     // Pack remaining controls at the right end of the toolbar
@@ -8421,7 +8452,7 @@ namespace {
 bool MainComponent::controllerToolbarPadActive() const
 {
     const auto t = themeManager.getCurrentTheme();
-    return (t == ThemeManager::Launchkey || t == ThemeManager::LaunchkeyDark);
+    return (t == ThemeManager::Launchkey || t == ThemeManager::LaunchkeyDark || t == ThemeManager::LaunchkeyOled);
 }
 
 void MainComponent::controllerToolbarPadAction(int row, int col)
@@ -8485,6 +8516,13 @@ uint32_t MainComponent::controllerToolbarPadColorRGB(int row, int col) const
     if (!controllerToolbarPadActive()) return 0;
     auto* e = findPadEntry(row, col);
     if (!e) return 0;
+    // OLED theme: every pad emits the single selected hue so the
+    // hardware LEDs match the on-screen monochrome canvas.
+    if (themeManager.getCurrentTheme() == ThemeManager::LaunchkeyOled)
+    {
+        if (auto* oled = dynamic_cast<LaunchkeyOledLookAndFeel*>(themeManager.getLookAndFeel()))
+            return oled->getOledColour() & 0x00FFFFFFu;
+    }
     const bool dark = (themeManager.getCurrentTheme() == ThemeManager::LaunchkeyDark);
     // Strip alpha; controller side sends only 24-bit RGB.
     return (dark ? e->rgbDark : e->rgbLight) & 0x00FFFFFFu;
@@ -8602,12 +8640,21 @@ void MainComponent::applyLaunchkeyToolbarColors()
     // Launchkey LaFs read in drawButtonBackground / drawComboBox.
     // setColour() doesn't work because those LaFs don't honor
     // per-button colourId overrides.
-    const bool dark = (themeManager.getCurrentTheme() == ThemeManager::LaunchkeyDark);
+    const bool dark = (themeManager.getCurrentTheme() == ThemeManager::LaunchkeyDark
+                       || themeManager.getCurrentTheme() == ThemeManager::LaunchkeyOled);
+    // OLED theme: collapse every per-button hue to the single
+    // currently-selected OLED palette colour so the on-screen
+    // toolbar matches the hardware pads.
+    uint32_t oledOverride = 0;
+    if (themeManager.getCurrentTheme() == ThemeManager::LaunchkeyOled)
+        if (auto* oled = dynamic_cast<LaunchkeyOledLookAndFeel*>(themeManager.getLookAndFeel()))
+            oledOverride = oled->getOledColour();
     for (const auto& t : tgts)
     {
         if (auto* e = findPadEntry(t.row, t.col))
         {
-            const uint32_t c = dark ? e->rgbDark : e->rgbLight;
+            const uint32_t c = oledOverride != 0 ? oledOverride
+                                                 : (dark ? e->rgbDark : e->rgbLight);
             t.btn->getProperties().set("lkColor", static_cast<int>(c));
             t.btn->repaint();
         }
