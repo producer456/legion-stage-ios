@@ -8642,19 +8642,24 @@ void MainComponent::applyLaunchkeyToolbarColors()
     // per-button colourId overrides.
     const bool dark = (themeManager.getCurrentTheme() == ThemeManager::LaunchkeyDark
                        || themeManager.getCurrentTheme() == ThemeManager::LaunchkeyOled);
-    // OLED theme: collapse every per-button hue to the single
-    // currently-selected OLED palette colour so the on-screen
-    // toolbar matches the hardware pads.
-    uint32_t oledOverride = 0;
-    if (themeManager.getCurrentTheme() == ThemeManager::LaunchkeyOled)
-        if (auto* oled = dynamic_cast<LaunchkeyOledLookAndFeel*>(themeManager.getLookAndFeel()))
-            oledOverride = oled->getOledColour();
+    // OLED theme: don't tag buttons with a vivid base colour — the
+    // OLED LaF's drawButtonBackground would interpret high
+    // brightness as "fill solid", which washes out the canvas.
+    // Leaving lkColor unset lets it render the wireframe outline
+    // path (fill only on press), matching the cheap-monochrome
+    // OLED look.  The boot wave still sets/clears lkColor itself.
+    const bool oledTheme = (themeManager.getCurrentTheme() == ThemeManager::LaunchkeyOled);
     for (const auto& t : tgts)
     {
+        if (oledTheme)
+        {
+            t.btn->getProperties().remove("lkColor");
+            t.btn->repaint();
+            continue;
+        }
         if (auto* e = findPadEntry(t.row, t.col))
         {
-            const uint32_t c = oledOverride != 0 ? oledOverride
-                                                 : (dark ? e->rgbDark : e->rgbLight);
+            const uint32_t c = dark ? e->rgbDark : e->rgbLight;
             t.btn->getProperties().set("lkColor", static_cast<int>(c));
             t.btn->repaint();
         }
