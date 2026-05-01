@@ -4,9 +4,9 @@
 
 // "KeyLab 88 MkII" — modeled on the white Arturia KeyLab 88 MkII.
 // Borrows the Ioniq theme's restrained aesthetic: subtle textures
-// (matte chassis dither + walnut grain), recessed OLED bezels for
-// transport/animated buttons, and soft cream tactile buttons for the
-// toolbar.  Cobalt-blue STN display matches the device's actual LCD.
+// (matte chassis dither + smooth-concrete end-caps), recessed OLED
+// bezels for transport/animated buttons, and soft cream tactile buttons
+// for the toolbar.  Cobalt-blue STN display matches the device's LCD.
 class KeyLab88LookAndFeel : public DawLookAndFeel
 {
 public:
@@ -16,8 +16,8 @@ public:
         theme.body        = 0xfff5f3ee;
         theme.bodyLight   = 0xfffcfaf5;
         theme.bodyDark    = 0xffe8e4dc;
-        theme.border      = 0xff5a3818;   // dark walnut end-cap shadow
-        theme.borderLight = 0xff7a4e2c;   // walnut grain highlight
+        theme.border      = 0xff6c6862;   // deep concrete shadow
+        theme.borderLight = 0xffaba59c;   // light cement highlight
 
         // ── Text — black silkscreen on white panel ──
         theme.textPrimary   = 0xff1a1816;
@@ -28,8 +28,8 @@ public:
         //              to fit the Ioniq-style restraint.
         theme.red       = 0xffc04848;
         theme.redDark   = 0xfff0d4d4;
-        theme.amber     = 0xffd89030;
-        theme.amberDark = 0xfff0e0c4;
+        theme.amber     = 0xff1a3a8a;   // cobalt LCD — replaces amber for meter warm zone
+        theme.amberDark = 0xffd0deef;   // pale cobalt background
         theme.green     = 0xff4a9c52;
         theme.greenDark = 0xffd8eed8;
 
@@ -85,12 +85,12 @@ public:
         theme.playhead     = 0xcc1a3a8a;
         theme.playheadGlow = 0x181a3a8a;
 
-        theme.accentStripe  = 0xff5a3818;        // walnut trim line
+        theme.accentStripe  = 0xff6c6862;        // concrete trim line
 
         theme.trackSelected = 0xffd8e0ef;
         theme.trackArmed    = 0xfff0d4d4;
         theme.trackMuteOn   = 0xff1a3a8a;
-        theme.trackSoloOn   = 0xffe8a840;
+        theme.trackSoloOn   = 0xff264a9a;        // bright cobalt — replaces amber solo
         theme.trackSoloText = 0xfffcfaf5;
 
         applyThemeColors();
@@ -112,7 +112,7 @@ public:
 
     float getButtonRadius() const override { return 5.0f; }
     juce::String getUIFontName() const override { return "Avenir Next"; }
-    int getSidePanelWidth() const override { return 22; }   // wood end-caps
+    int getSidePanelWidth() const override { return 22; }   // concrete end-caps
 
     void invalidateCaches() override
     {
@@ -120,8 +120,8 @@ public:
         topBarCacheW = 0; topBarCacheH = 0;
     }
 
-    // Walnut end-caps with horizontal grain lines (cached image so the
-    // grain isn't re-randomised every frame).
+    // Smooth-concrete end-caps — flat warm-grey base with a sparse
+    // aggregate speckle (cached so it doesn't re-randomise per frame).
     void drawSidePanels(juce::Graphics& g, int width, int height) override
     {
         if (width != sideCacheW || height != sideCacheH)
@@ -130,38 +130,43 @@ public:
             juce::Graphics sg(sideCache);
 
             const int panelW = getSidePanelWidth();
-            juce::Colour edge   (0xff3d2510);   // shadowed outer edge
-            juce::Colour mid    (0xff5a3818);   // base walnut
-            juce::Colour highlight(0xff7a4e2c); // grain highlight
+            juce::Colour base    (0xff8e8a82);   // mid concrete
+            juce::Colour shadow  (0xff6c6862);   // pour shadow
+            juce::Colour highlight(0xffaba59c);  // light cement
+            juce::Colour aggDark (0xff4f4b46);   // deep aggregate fleck
+            juce::Colour aggLight(0xffc4bdb3);   // pale aggregate fleck
 
-            // Left cap — gradient from outer shadow to inner highlight
-            sg.setGradientFill(juce::ColourGradient(edge, 0.0f, 0.0f,
+            // Soft gradient — barely lit from the inside edge.
+            sg.setGradientFill(juce::ColourGradient(shadow,    0.0f, 0.0f,
                                                     highlight, (float) panelW, 0.0f, false));
             sg.fillRect(0, 0, panelW, height);
-            // Right cap — mirrored
             sg.setGradientFill(juce::ColourGradient(highlight, (float)(width - panelW), 0.0f,
-                                                    edge, (float) width, 0.0f, false));
+                                                    shadow,    (float) width,           0.0f, false));
             sg.fillRect(width - panelW, 0, panelW, height);
 
-            // Horizontal wood-grain striations
-            juce::Random rng(31);
-            for (int y = 0; y < height; y += 2)
+            // Aggregate speckle: ~3% density, mix of dark and light flecks.
+            juce::Random rng(43);
+            const int specs = (panelW * height) / 30;
+            for (int i = 0; i < specs; ++i)
             {
-                float a = 0.04f + rng.nextFloat() * 0.10f;
-                sg.setColour(mid.withAlpha(a));
-                sg.drawHorizontalLine(y, 0.0f, (float) panelW);
-                sg.drawHorizontalLine(y, (float)(width - panelW), (float) width);
-
-                if (rng.nextFloat() < 0.18f)
-                {
-                    sg.setColour(highlight.withAlpha(0.18f));
-                    sg.drawHorizontalLine(y, 0.0f, (float) panelW);
-                    sg.drawHorizontalLine(y, (float)(width - panelW), (float) width);
-                }
+                const int x = rng.nextInt(panelW);
+                const int y = rng.nextInt(height);
+                const float a = 0.10f + rng.nextFloat() * 0.30f;
+                sg.setColour((rng.nextFloat() < 0.55f ? aggDark : aggLight).withAlpha(a));
+                sg.fillRect((float) x, (float) y, 1.0f, 1.0f);
+                sg.fillRect((float)(width - panelW + x), (float) y, 1.0f, 1.0f);
             }
 
-            // Inner edge shadow where wood meets chassis
-            sg.setColour(juce::Colour(0x60000000));
+            // Very faint horizontal pour bands — subtle, every ~30 px.
+            for (int y = 0; y < height; y += 28 + rng.nextInt(8))
+            {
+                sg.setColour(base.darker(0.12f).withAlpha(0.18f));
+                sg.drawHorizontalLine(y, 0.0f, (float) panelW);
+                sg.drawHorizontalLine(y, (float)(width - panelW), (float) width);
+            }
+
+            // Inner shadow seam where end-cap meets chassis.
+            sg.setColour(juce::Colour(0x55000000));
             sg.fillRect((float)(panelW - 1), 0.0f, 1.0f, (float) height);
             sg.fillRect((float)(width - panelW), 0.0f, 1.0f, (float) height);
 
@@ -185,7 +190,7 @@ public:
     }
 
     // Matte-white top bar with very faint plastic-grain dither and a
-    // walnut accent line along the bottom edge (cached image).
+    // concrete accent line along the bottom edge (cached image).
     void drawTopBarBackground(juce::Graphics& g, int x, int y, int width, int height) override
     {
         if (width != topBarCacheW || height != topBarCacheH)
@@ -208,8 +213,8 @@ public:
                     tg.fillRect((float) px, (float) py, 1.0f, 1.0f);
                 }
 
-            // Walnut trim accent rule along the bottom edge.
-            tg.setColour(juce::Colour(0xff5a3818));
+            // Concrete trim accent rule along the bottom edge.
+            tg.setColour(juce::Colour(0xff6c6862));
             tg.fillRect(0, height - 1, width, 1);
 
             topBarCacheW = width; topBarCacheH = height;

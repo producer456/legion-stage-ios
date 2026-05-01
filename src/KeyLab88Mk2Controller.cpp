@@ -8,48 +8,58 @@ namespace
 // CoreMIDI enumeration on the connected machine).
 constexpr auto kDawPortHint = "KeyLab mkII 88 DAW";
 
-// MCU master / transport notes (channel 1).
-constexpr uint8_t kNoteSave     = 0x4C;
-constexpr uint8_t kNoteUndo     = 0x4D;
-constexpr uint8_t kNoteCancel   = 0x4E;
-constexpr uint8_t kNoteEnter    = 0x4F;
-constexpr uint8_t kNoteCycle    = 0x52;     // Loop
-constexpr uint8_t kNoteDrop     = 0x53;     // Punch in / record-arm shortcut
-constexpr uint8_t kNoteClick    = 0x55;     // Metronome
-constexpr uint8_t kNoteRewind   = 0x5B;
-constexpr uint8_t kNoteForward  = 0x5C;
-constexpr uint8_t kNoteStop     = 0x5D;
-constexpr uint8_t kNotePlay     = 0x5E;
-constexpr uint8_t kNoteRecord   = 0x5F;
-constexpr uint8_t kNoteUp       = 0x60;
-constexpr uint8_t kNoteDown     = 0x61;
-constexpr uint8_t kNoteLeft     = 0x62;
-constexpr uint8_t kNoteRight    = 0x63;
+// Mapping target: KeyLab 88 MkII in "Analog Lab" mode with DAW Map = MCU.
+// Per-track Solo/Mute/Rec on the strip is MCU-style (channel 1 notes
+// 0x00/0x08/0x10 + slot index); the rest of the surface uses the
+// Analog Lab MIDI codes.
 
-// Per-channel button rows (notes 0x00..0x1F).
-constexpr uint8_t kNoteRecArmBase = 0x00;   // 0x00..0x07
-constexpr uint8_t kNoteSoloBase   = 0x08;   // 0x08..0x0F
-constexpr uint8_t kNoteMuteBase   = 0x10;   // 0x10..0x17
-constexpr uint8_t kNoteSelectBase = 0x18;   // 0x18..0x1F
+// ── DAW + Transport notes (channel 1) — Analog Lab block ─────────
+constexpr uint8_t kNoteRecord   = 0x00;     //  0  per-track Record (ch 1, +trk)
+constexpr uint8_t kNoteSolo     = 0x08;     //  8  per-track Solo
+constexpr uint8_t kNoteMute     = 0x10;     // 16  per-track Mute
+constexpr uint8_t kNoteRead     = 0x4A;     // 74  Read / Arm-none
+constexpr uint8_t kNoteWrite    = 0x4B;     // 75  Write / QuickSnapshot
+constexpr uint8_t kNoteSave     = 0x50;     // 80  Save
+constexpr uint8_t kNoteUndo     = 0x51;     // 81  Undo
+constexpr uint8_t kNoteCycle    = 0x56;     // 86  Loop
+constexpr uint8_t kNotePunchIn  = 0x57;     // 87  Punch In
+constexpr uint8_t kNotePunchOut = 0x58;     // 88  Punch Out
+constexpr uint8_t kNoteMetro    = 0x59;     // 89  Metronome
+constexpr uint8_t kNoteRewind   = 0x5B;     // 91  Rewind
+constexpr uint8_t kNoteForward  = 0x5C;     // 92  Fast forward
+constexpr uint8_t kNoteStop     = 0x5D;     // 93  Stop
+constexpr uint8_t kNotePlay     = 0x5E;     // 94  Play
+constexpr uint8_t kNoteRecXport = 0x5F;     // 95  Record (transport row)
 
-// Snapshot row — 5 buttons.  KL88 sends these on a contiguous note
-// range starting at 0x36 in user-mode (educated guess; the live MIDI
-// inspector will confirm and we'll iterate if needed).
-constexpr uint8_t kNoteSnapshotBase = 0x36;
-constexpr uint8_t kNoteSnapshotCount = 5;
+// ── Pads — Arturia Analog Lab physical layout (channel 10) ───────
+// Top row notes 48-51, then 44-47, 40-43, 36-39 (bottom).  We map
+// note→(row,col) so (0,0) is the top-left pad.
+constexpr int kPadChannel = 10;
 
-// Tap tempo button.
-constexpr uint8_t kNoteTapTempo = 0x65;
+// ── Analog Lab cluster + bank cluster CCs (channel 1) ────────────
+constexpr uint8_t kCcNextBank   = 0x16;     // 22  Part 1 / Next bank
+constexpr uint8_t kCcPrevBank   = 0x17;     // 23  Part 2 / Prev bank
+constexpr uint8_t kCcLiveBank   = 0x18;     // 24  Live / Bank toggle
+constexpr uint8_t kCcLeftArrow  = 0x1C;     // 28
+constexpr uint8_t kCcRightArrow = 0x1D;     // 29
+constexpr uint8_t kCcSelectMux  = 0x1E;     // 30  Select toggles (multiplexed)
+constexpr uint8_t kCcBigKnobRot = 0x70;     // 112 Big knob rotate (63=back, 65=fwd)
+constexpr uint8_t kCcBigKnobPush= 0x71;     // 113 Big knob push (panic)
+constexpr uint8_t kCcCategory   = 0x74;     // 116
+constexpr uint8_t kCcPreset     = 0x75;     // 117
+constexpr uint8_t kCcSustain    = 0x40;     // 64
 
-// Pad notes — Arturia drum pads sit at C1..D#2 on channel 10.
-constexpr uint8_t kPadBaseNote   = 0x24;
-constexpr int     kPadCount      = 16;
-constexpr int     kPadChannel    = 10;
+// ── Encoders + Faders (channel 1) — Analog Lab scattered map ─────
+// Index 0..7 = groups 1..8 (track strip).  Index 8 = master/group 9.
+constexpr uint8_t kCcEncoder[9] = { 0x4A, 0x47, 0x4C, 0x4D, 0x5D, 0x12, 0x13, 0x10, 0x11 };
+constexpr uint8_t kCcFader  [9] = { 0x49, 0x4B, 0x4F, 0x48, 0x50, 0x51, 0x52, 0x53, 0x55 };
 
-// MCU encoder CCs — 9 encoders in 0x10..0x18.  Values are
-// relative deltas: 0x01..0x07 = forward, 0x41..0x47 = back.
-constexpr uint8_t kEncoderBaseCc = 0x10;
-constexpr int     kJogEncoderIdx = 8;     // rightmost encoder doubles as jog wheel
+constexpr int padRowColToHostRowCol(int row, int col, int& outRow, int& outCol)
+{
+    outRow = row;  // (0,0) = top-left, matches host's session-view (0,0)
+    outCol = col;
+    return 0;
+}
 }
 
 KeyLab88Mk2Controller::~KeyLab88Mk2Controller() { detach(); }
@@ -114,19 +124,17 @@ void KeyLab88Mk2Controller::handleIncomingMidiMessage(juce::MidiInput*, const ju
 
     if (msg.isNoteOn())
     {
-        // Drum pads arrive on a separate channel — split them out here
-        // so they don't shadow the button-row note range (0x00..0x33).
+        // Drum pads arrive on channel 10 with the Analog Lab physical
+        // layout: top row notes 48-51, then 44-47, 40-43, 36-39 (bottom).
         if (msg.getChannel() == kPadChannel)
         {
-            const uint8_t n = (uint8_t) msg.getNoteNumber();
-            if (n >= kPadBaseNote && n < kPadBaseNote + kPadCount)
-            {
-                const int idx = n - kPadBaseNote;
-                const int row = idx / 4;     // 0..3
-                const int col = idx % 4;     // 0..3
-                if (host) host->controllerLaunchClipAt(row, col);
-                return;
-            }
+            const int n = msg.getNoteNumber();
+            int row = -1, col = -1;
+            if      (n >= 48 && n <= 51) { row = 0; col = n - 48; }
+            else if (n >= 44 && n <= 47) { row = 1; col = n - 44; }
+            else if (n >= 40 && n <= 43) { row = 2; col = n - 40; }
+            else if (n >= 36 && n <= 39) { row = 3; col = n - 36; }
+            if (row >= 0 && host) { host->controllerLaunchClipAt(row, col); return; }
         }
         handleNoteOn((uint8_t) msg.getNoteNumber(), (uint8_t) msg.getVelocity());
     }
@@ -141,84 +149,155 @@ void KeyLab88Mk2Controller::handleNoteOn(uint8_t note, uint8_t velocity)
     if (velocity == 0) { handleNoteOff(note); return; }
     if (host == nullptr) return;
 
-    // Per-channel button rows.
-    if (note >= kNoteRecArmBase && note < kNoteRecArmBase + 8)
-        { host->controllerTrackRecArm(note - kNoteRecArmBase); return; }
-    if (note >= kNoteSoloBase   && note < kNoteSoloBase + 8)
-        { host->controllerTrackSolo  (note - kNoteSoloBase);   return; }
-    if (note >= kNoteMuteBase   && note < kNoteMuteBase + 8)
-        { host->controllerTrackMute  (note - kNoteMuteBase);   return; }
-    if (note >= kNoteSelectBase && note < kNoteSelectBase + 8)
-        { host->controllerTrackRecArm(note - kNoteSelectBase); return; }
-    if (note >= kNoteSnapshotBase && note < kNoteSnapshotBase + kNoteSnapshotCount)
-        { host->controllerLoadSnapshot(note - kNoteSnapshotBase); return; }
+    // Per-track strip — Solo/Mute/Rec follow the focused track in
+    // single-track mode; in bank-of-8 mode the index identifies the
+    // group (kept simple here: forward index directly to the host).
+    if (note >= kNoteRecord && note < kNoteRecord + 8)
+        { host->controllerTrackRecArm(note - kNoteRecord); return; }
+    if (note >= kNoteSolo   && note < kNoteSolo + 8)
+        { host->controllerTrackSolo  (note - kNoteSolo);   return; }
+    if (note >= kNoteMute   && note < kNoteMute + 8)
+        { host->controllerTrackMute  (note - kNoteMute);   return; }
 
-    // Master row.
     switch (note)
     {
-        case kNotePlay:    host->controllerPlayToggle();                 break;
-        case kNoteStop:    host->controllerStop();                       break;
-        case kNoteRecord:  host->controllerRecordToggle();               break;
-        case kNoteCycle:   host->controllerLoopToggle();                 break;
-        case kNoteRewind:  host->controllerScrubPlayhead(-4);            break;
-        case kNoteForward: host->controllerScrubPlayhead(+4);            break;
-        case kNoteSave:    host->controllerSaveProject();                break;
-        case kNoteUndo:    host->controllerUndo();                       break;
-        case kNoteClick:   host->controllerToggleMetronomeAndCountIn(); break;
-        case kNoteTapTempo:host->controllerTapTempo();                   break;
-        case kNoteUp:      host->controllerCursorUp();                   break;
-        case kNoteDown:    host->controllerCursorDown();                 break;
-        case kNoteLeft:    host->controllerCursorLeft();                 break;
-        case kNoteRight:   host->controllerCursorRight();                break;
-        case kNoteEnter:   host->controllerLaunchScene();                break;
-        case kNoteDrop:    host->controllerRecordToggle();               break;
-        // Cancel / others — left unmapped intentionally.
+        case kNotePlay:     host->controllerPlayToggle();                 break;
+        case kNoteStop:     host->controllerStop();                       break;
+        case kNoteRecXport: host->controllerRecordToggle();               break;
+        case kNoteCycle:    host->controllerLoopToggle();                 break;
+        case kNoteRewind:   host->controllerScrubPlayhead(-4);            break;
+        case kNoteForward:  host->controllerScrubPlayhead(+4);            break;
+        case kNoteSave:     host->controllerSaveProject();                break;
+        case kNoteUndo:     host->controllerUndo();                       break;
+        case kNoteMetro:    host->controllerToggleMetronomeAndCountIn(); break;
+        case kNotePunchIn:  host->controllerSetLoopIn();                  break;
+        case kNotePunchOut: host->controllerSetLoopOut();                 break;
+        case kNoteRead:     /* TODO: automation read mode */              break;
+        case kNoteWrite:    host->controllerSaveSnapshot(0);              break;
         default: break;
     }
 }
 
 void KeyLab88Mk2Controller::handleNoteOff(uint8_t /*note*/) {}
 
+bool KeyLab88Mk2Controller::processIncoming(const juce::MidiMessage& msg)
+{
+    if (host == nullptr) return false;
+
+    // Channel-10 pads → clip launchers (consume).
+    if (msg.isNoteOn() && msg.getChannel() == kPadChannel)
+    {
+        const int n = msg.getNoteNumber();
+        int row = -1, col = -1;
+        if      (n >= 48 && n <= 51) { row = 0; col = n - 48; }
+        else if (n >= 44 && n <= 47) { row = 1; col = n - 44; }
+        else if (n >= 40 && n <= 43) { row = 2; col = n - 40; }
+        else if (n >= 36 && n <= 39) { row = 3; col = n - 36; }
+        if (row >= 0) { host->controllerLaunchClipAt(row, col); return true; }
+    }
+    if (msg.isNoteOff() && msg.getChannel() == kPadChannel)
+        return true;   // swallow pad note-offs too
+
+    // Control-surface CCs → consume.  Sustain (CC 64) is intentionally
+    // NOT in this set — it forwards to plugins normally.
+    if (msg.isController())
+    {
+        const int cc = msg.getControllerNumber();
+        const bool isControlSurface =
+               cc == kCcNextBank   || cc == kCcPrevBank   || cc == kCcLiveBank
+            || cc == kCcLeftArrow  || cc == kCcRightArrow
+            || cc == kCcSelectMux
+            || cc == kCcBigKnobRot || cc == kCcBigKnobPush
+            || cc == kCcCategory   || cc == kCcPreset;
+        bool isEncoderOrFader = false;
+        for (int i = 0; i < 9 && !isEncoderOrFader; ++i)
+            if (cc == kCcEncoder[i] || cc == kCcFader[i]) isEncoderOrFader = true;
+
+        if (isControlSurface || isEncoderOrFader)
+        {
+            logMessage(msg);
+            handleCC((uint8_t) cc, (uint8_t) msg.getControllerValue());
+            return true;
+        }
+    }
+    return false;
+}
+
 void KeyLab88Mk2Controller::handleCC(uint8_t cc, uint8_t value)
 {
     if (host == nullptr) return;
 
-    // MCU-style encoders sit at 0x10..0x18.  Values 0x01..0x3f are
-    // forward deltas; 0x41..0x7f are reverse (with magnitude in the
-    // low 6 bits).
-    if (cc >= kEncoderBaseCc && cc < kEncoderBaseCc + 9)
+    // ── Big knob ──
+    if (cc == kCcBigKnobRot)
     {
-        const int idx = cc - kEncoderBaseCc;
-        const int8_t delta = (value & 0x40) ? -(int8_t)(value & 0x3f)
-                                            :  (int8_t)(value & 0x3f);
-        lastEncoderDelta[idx] = delta;
-
-        if (idx == kJogEncoderIdx)
+        // Relative: 63=back, 65=fwd; magnitude in the low bits.
+        const int delta = (value < 0x40) ? +(value - 0x3f)
+                                         : -(value - 0x40);
+        if (delta != 0)
         {
-            // Jog wheel → scrub the playhead.  Auto-extend so the
-            // playhead keeps moving for ~250ms after the user lets go,
-            // gives a smoother feel than per-click stepping.
             host->controllerScrubPlayhead(delta);
-            scrubAutoDir = delta > 0 ? +1 : -1;
+            scrubAutoDir    = delta > 0 ? +1 : -1;
             scrubAutoEndsAt = juce::Time::currentTimeMillis() + 250;
         }
-        else
+        return;
+    }
+    if (cc == kCcBigKnobPush) { host->controllerStop(); return; }   // panic
+
+    // ── Bank cluster ──
+    if (cc == kCcNextBank) { host->controllerParamPageNext(); return; }
+    if (cc == kCcPrevBank) { host->controllerParamPagePrev(); return; }
+    if (cc == kCcLiveBank) { /* TODO: bank-toggle / unity-gain */  return; }
+
+    // ── Analog Lab cluster ──
+    if (cc == kCcLeftArrow)  { host->controllerSelectTrack(-1); return; }
+    if (cc == kCcRightArrow) { host->controllerSelectTrack(+1); return; }
+    if (cc == kCcCategory)   { host->controllerPresetPrev();    return; }
+    if (cc == kCcPreset)     { host->controllerPresetNext();    return; }
+
+    // ── Sustain pedal ── (already routed via the MIDI port to plugins;
+    // logged here for debugging but no host action needed)
+    if (cc == kCcSustain) return;
+
+    // ── Select-button row (CC 30 multiplexed) ──
+    // Press = odd value, release = even value. Track index = (value - 1) / 2.
+    // Each select button focuses the track of the fader directly above it.
+    if (cc == kCcSelectMux)
+    {
+        if (value & 0x01)
         {
-            // The first 8 encoders nudge the visible param sliders.
-            host->controllerEncoderDelta(idx, delta);
+            const int trackIdx = (value - 1) / 2;   // 0..8
+            host->controllerFocusTrack(trackIdx);
         }
+        return;
+    }
+
+    // ── Encoders (scattered CCs, relative deltas) ──
+    for (int i = 0; i < 9; ++i)
+    {
+        if (cc != kCcEncoder[i]) continue;
+        const int8_t delta = (value & 0x40) ? -(int8_t)(value & 0x3f)
+                                            :  (int8_t)(value & 0x3f);
+        lastEncoderDelta[i] = delta;
+        if (i < 8) host->controllerEncoderDelta(i, delta);
+        return;
+    }
+
+    // ── Faders (scattered CCs, absolute 0..127) ──
+    for (int i = 0; i < 9; ++i)
+    {
+        if (cc != kCcFader[i]) continue;
+        const float norm = juce::jlimit(0.0f, 1.0f, value / 127.0f);
+        if (i < 8) host->controllerFaderMove(i, norm);
+        // Master fader (i == 8) — no host method yet; ignore.
+        return;
     }
 }
 
-void KeyLab88Mk2Controller::handlePitchBend(int channel, int value)
+void KeyLab88Mk2Controller::handlePitchBend(int /*channel*/, int /*value*/)
 {
-    // MCU faders — 9 channels of pitch bend, where channel 1..8 are the
-    // mixer faders and channel 9 is the master.  value is 0..16383;
-    // map to 0..1 for the host.
-    if (host == nullptr) return;
-    const int   trackIdx = juce::jlimit(0, 8, channel - 1);
-    const float norm     = juce::jlimit(0.0f, 1.0f, value / 16383.0f);
-    host->controllerFaderMove(trackIdx, norm);
+    // Analog Lab mode doesn't use pitch-bend for faders (those live on CCs
+    // above).  Pitch-bend from the keyboard is forwarded via the MIDI port
+    // directly to plugins — no host action here.
 }
 
 void KeyLab88Mk2Controller::logMessage(const juce::MidiMessage& msg)

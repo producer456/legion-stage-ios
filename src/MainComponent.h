@@ -467,6 +467,7 @@ public:
     void controllerRecordToggle();
     void controllerLoopToggle();
     void controllerSelectTrack(int delta);
+    void controllerFocusTrack(int trackIdx);   // absolute (used by select-row buttons)
     void controllerScrollScenes(int delta);
     void controllerLaunchScene();
     void controllerPresetPrev();
@@ -503,6 +504,9 @@ public:
     void controllerCursorRight();
     // Tap tempo button on the device's transport row.
     void controllerTapTempo();
+    // Punch in / out — set loop boundary at current playhead.
+    void controllerSetLoopIn();
+    void controllerSetLoopOut();
 
     // Toolbar-pad mode (Launchkey themes only) — repurposes the
     // device's 16 pads to trigger the iPad's edit-toolbar buttons

@@ -2541,6 +2541,16 @@ void MainComponent::handleIncomingMidiMessage(juce::MidiInput* source, const juc
         if (launchkey.processIncoming(msg)) return;
     }
 
+    // KeyLab 88 MIDI port carries the encoder/fader/big-knob/arrows/banks
+    // CCs and the channel-10 pads.  Intercept those before they hit the
+    // plugin host; keyboard notes / pitch-bend / sustain fall through.
+    if (source != nullptr
+        && source->getName().containsIgnoreCase("keylab")
+        && !source->getName().containsIgnoreCase("daw"))
+    {
+        if (keylab88.processIncoming(msg)) return;
+    }
+
     // Chord detection for incoming MIDI notes
     if (msg.isNoteOn())
         chordDetector.noteOn(msg.getNoteNumber());
@@ -2998,12 +3008,14 @@ void MainComponent::updateStatusLabel()
 
 int MainComponent::activeParamCount() const
 {
-    // Launchkey themes show only 6 visible param knobs (matching the
-    // device's encoder count after volume); other themes use the
-    // platform default.  Centralized here so paging math, slider
-    // population, and layout iteration all agree.
+    // Launchkey themes show 6 visible param knobs (matching the device's
+    // 6 encoders left over after the volume knob).  KeyLab 88 shows 8
+    // (matches its 8-encoder bank — the 9th encoder is master).  Other
+    // themes use the platform default.  Centralized here so paging math,
+    // slider population, and layout iteration all agree.
     const auto t = themeManager.getCurrentTheme();
     if (t == ThemeManager::Launchkey || t == ThemeManager::LaunchkeyDark || t == ThemeManager::LaunchkeyOled) return 6;
+    if (t == ThemeManager::KeyLab88) return 8;
     return NUM_PARAM_SLIDERS;
 }
 
@@ -8337,6 +8349,19 @@ void MainComponent::controllerLoopToggle()
     });
 }
 
+void MainComponent::controllerFocusTrack(int trackIdx)
+{
+    juce::Component::SafePointer<MainComponent> safe(this);
+    juce::MessageManager::callAsync([safe, trackIdx] {
+        if (auto* self = safe.getComponent())
+        {
+            int next = juce::jlimit(0, PluginHost::NUM_TRACKS - 1, trackIdx);
+            self->selectTrack(next);
+            if (self->timelineComponent) self->timelineComponent->repaint();
+        }
+    });
+}
+
 void MainComponent::controllerSelectTrack(int delta)
 {
     juce::Component::SafePointer<MainComponent> safe(this);
@@ -8870,6 +8895,30 @@ void MainComponent::controllerTapTempo()
 {
     juce::Component::SafePointer<MainComponent> safe(this);
     juce::MessageManager::callAsync([safe] { if (safe) safe->tapTempoButton.triggerClick(); });
+}
+
+void MainComponent::controllerSetLoopIn()
+{
+    // KL88 In button → loop START at the current playhead. Nothing else.
+    juce::Component::SafePointer<MainComponent> safe(this);
+    juce::MessageManager::callAsync([safe] {
+        if (!safe) return;
+        auto& eng = safe->pluginHost.getEngine();
+        eng.setLoopRegion(eng.getPositionInBeats(), eng.getLoopEnd());
+        if (safe->timelineComponent) safe->timelineComponent->repaint();
+    });
+}
+
+void MainComponent::controllerSetLoopOut()
+{
+    // KL88 Out button → loop END at the current playhead. Nothing else.
+    juce::Component::SafePointer<MainComponent> safe(this);
+    juce::MessageManager::callAsync([safe] {
+        if (!safe) return;
+        auto& eng = safe->pluginHost.getEngine();
+        eng.setLoopRegion(eng.getLoopStart(), eng.getPositionInBeats());
+        if (safe->timelineComponent) safe->timelineComponent->repaint();
+    });
 }
 
 void MainComponent::controllerScrubPlayhead(int delta)

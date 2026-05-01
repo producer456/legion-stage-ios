@@ -38,6 +38,15 @@ public:
     /// inspector.  Same shape as the Launchkey controller's log.
     juce::String getLastMessages() const;
 
+    /// Filter messages arriving on the user-selected MIDI port.  In
+    /// Analog Lab mode the DAW port carries notes (transport / mute
+    /// / solo / save), but the encoders, faders, big knob, arrows,
+    /// banks, Category/Preset, and select-mux all arrive on the MIDI
+    /// port — same port as the keyboard.  This intercepts those CCs
+    /// and pad notes; everything else (keyboard notes, pitch-bend,
+    /// sustain) returns false so the caller forwards it to plugins.
+    bool processIncoming(const juce::MidiMessage&);
+
 private:
     void tryOpenInput();
     void handleNoteOn(uint8_t note, uint8_t velocity);
