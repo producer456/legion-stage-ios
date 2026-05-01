@@ -86,6 +86,8 @@ target_sources(Sequencer PRIVATE
     src/MainComponent.cpp
     src/LaunchkeyMK4Controller.h
     src/LaunchkeyMK4Controller.cpp
+    src/KeyLab88Mk2Controller.h
+    src/KeyLab88Mk2Controller.cpp
     src/PluginHost.h
     src/PluginHost.cpp
     src/GainProcessor.h

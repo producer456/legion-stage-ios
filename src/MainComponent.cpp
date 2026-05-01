@@ -1471,6 +1471,17 @@ void MainComponent::timerCallback()
     // is plugged in now, attach() will succeed; otherwise no-op.
     if (!launchkey.isActive()) launchkey.attach(this);
     launchkey.tick();
+    if (!keylab88.isActive()) keylab88.attach(this);
+    keylab88.tick();
+    if (keylab88.isActive() && !keylab88ThemeApplied)
+    {
+        keylab88ThemeApplied = true;
+        themeManager.setTheme(ThemeManager::Ioniq, this);
+        themeSelector.setSelectedId(ThemeManager::Ioniq + 1, juce::dontSendNotification);
+        applyThemeToControls();
+        updateParamSliders();
+        resized();
+    }
 
     // iPad-side toolbar boot wave (only fires when no Launchkey is
     // connected — otherwise the controller's tick mirrors the device
@@ -8720,6 +8731,145 @@ void MainComponent::updateIpadToolbarBootWave()
         t.btn->getProperties().set("lkColor", static_cast<int>(color));
         t.btn->repaint();
     }
+}
+
+// KeyLab 88 surface helpers --------------------------------------------------
+//
+// Encoder nudge — translate a signed delta into an absolute param value
+// scaled to the slider's range, then forward to the existing slider
+// setter so MIDI learn / automation / repaint all behave consistently.
+void MainComponent::controllerEncoderDelta(int sliderIdx, int delta)
+{
+    if (sliderIdx < 0 || sliderIdx >= NUM_PARAM_SLIDERS) return;
+    juce::Component::SafePointer<MainComponent> safe(this);
+    juce::MessageManager::callAsync([safe, sliderIdx, delta] {
+        if (!safe) return;
+        if (auto* slider = safe->paramSliders[sliderIdx])
+        {
+            const double range  = slider->getMaximum() - slider->getMinimum();
+            const double step   = range / 127.0;          // ~one full sweep per 128 clicks
+            const double newVal = juce::jlimit(slider->getMinimum(),
+                                                slider->getMaximum(),
+                                                slider->getValue() + delta * step);
+            slider->setValue(newVal, juce::sendNotificationSync);
+        }
+    });
+}
+
+// Fader move — set track 0..7 volume to 0..1.  Track index 8 (master)
+// is no-op for now since Legion Stage doesn't expose a master fader.
+void MainComponent::controllerFaderMove(int trackIdx, float norm)
+{
+    if (trackIdx < 0 || trackIdx >= PluginHost::NUM_TRACKS) return;
+    auto& track = pluginHost.getTrack(trackIdx);
+    if (track.gainProcessor)
+        track.gainProcessor->volume.store(juce::jlimit(0.0f, 1.0f, norm));
+}
+
+void MainComponent::controllerSaveProject()
+{
+    juce::Component::SafePointer<MainComponent> safe(this);
+    juce::MessageManager::callAsync([safe] { if (safe) safe->saveButton.triggerClick(); });
+}
+
+void MainComponent::controllerUndo()
+{
+    juce::Component::SafePointer<MainComponent> safe(this);
+    juce::MessageManager::callAsync([safe] { if (safe) safe->undoButton.triggerClick(); });
+}
+
+void MainComponent::controllerRedo()
+{
+    juce::Component::SafePointer<MainComponent> safe(this);
+    juce::MessageManager::callAsync([safe] { if (safe) safe->redoButton.triggerClick(); });
+}
+
+void MainComponent::controllerTrackMute(int trackIdx)
+{
+    if (trackIdx < 0 || trackIdx >= PluginHost::NUM_TRACKS) return;
+    auto& track = pluginHost.getTrack(trackIdx);
+    if (track.gainProcessor)
+        track.gainProcessor->muted.store(! track.gainProcessor->muted.load());
+}
+
+void MainComponent::controllerTrackSolo(int trackIdx)
+{
+    if (trackIdx < 0 || trackIdx >= PluginHost::NUM_TRACKS) return;
+    auto& track = pluginHost.getTrack(trackIdx);
+    if (track.gainProcessor)
+    {
+        const bool nowSoloed = ! track.gainProcessor->soloed.load();
+        track.gainProcessor->soloed.store(nowSoloed);
+        if (track.gainProcessor->soloCount)
+            track.gainProcessor->soloCount->fetch_add(nowSoloed ? +1 : -1);
+    }
+}
+
+void MainComponent::controllerTrackRecArm(int trackIdx)
+{
+    // Legion Stage records to the focused track only — Rec-arm on the
+    // device just swaps the focused track to that index.
+    controllerSelectTrack(trackIdx - selectedTrackIndex);
+}
+
+void MainComponent::controllerLaunchClipAt(int row, int col)
+{
+    // 4×4 pad grid: pad row = scene index, pad column = track index.
+    // Triggers the clipPlayer slot directly so this works whether or
+    // not the on-screen SessionView is visible.
+    juce::Component::SafePointer<MainComponent> safe(this);
+    juce::MessageManager::callAsync([safe, row, col] {
+        if (!safe) return;
+        if (col < 0 || col >= PluginHost::NUM_TRACKS) return;
+        auto& tk = safe->pluginHost.getTrack(col);
+        if (tk.clipPlayer) tk.clipPlayer->triggerSlot(row);
+    });
+}
+
+void MainComponent::controllerSaveSnapshot(int slot)
+{
+    if (slot < 0 || slot >= NUM_SNAPSHOTS) return;
+    auto& s = snapshots[slot];
+    s.paramSliderValues.clear();
+    for (auto* sl : paramSliders)
+        s.paramSliderValues.push_back(sl ? (float) sl->getValue() : 0.0f);
+    s.trackVolumes.clear();
+    for (int t = 0; t < PluginHost::NUM_TRACKS; ++t)
+    {
+        auto& tk = pluginHost.getTrack(t);
+        s.trackVolumes.push_back(tk.gainProcessor ? tk.gainProcessor->volume.load() : 0.0f);
+    }
+    s.hasData = true;
+}
+
+void MainComponent::controllerLoadSnapshot(int slot)
+{
+    if (slot < 0 || slot >= NUM_SNAPSHOTS) return;
+    auto& s = snapshots[slot];
+    if (! s.hasData) return;
+    juce::Component::SafePointer<MainComponent> safe(this);
+    juce::MessageManager::callAsync([safe, &s] {
+        if (!safe) return;
+        for (size_t i = 0; i < s.paramSliderValues.size() && (int) i < safe->paramSliders.size(); ++i)
+            if (auto* sl = safe->paramSliders[(int) i])
+                sl->setValue(s.paramSliderValues[i], juce::sendNotificationSync);
+        for (size_t t = 0; t < s.trackVolumes.size() && (int) t < PluginHost::NUM_TRACKS; ++t)
+        {
+            auto& tk = safe->pluginHost.getTrack((int) t);
+            if (tk.gainProcessor) tk.gainProcessor->volume.store(s.trackVolumes[t]);
+        }
+    });
+}
+
+void MainComponent::controllerCursorUp()    { controllerParamPagePrev(); }
+void MainComponent::controllerCursorDown()  { controllerParamPageNext(); }
+void MainComponent::controllerCursorLeft()  { controllerSelectTrack(-1); }
+void MainComponent::controllerCursorRight() { controllerSelectTrack(+1); }
+
+void MainComponent::controllerTapTempo()
+{
+    juce::Component::SafePointer<MainComponent> safe(this);
+    juce::MessageManager::callAsync([safe] { if (safe) safe->tapTempoButton.triggerClick(); });
 }
 
 void MainComponent::controllerScrubPlayhead(int delta)

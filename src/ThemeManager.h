@@ -17,6 +17,7 @@
 #include "LaunchkeyLookAndFeel.h"
 #include "LaunchkeyDarkLookAndFeel.h"
 #include "LaunchkeyOledLookAndFeel.h"
+#include "KeyLab88LookAndFeel.h"
 
 class ThemeManager
 {
@@ -37,6 +38,7 @@ public:
         Launchkey,
         LaunchkeyDark,
         LaunchkeyOled,
+        KeyLab88,
         NumThemes
     };
 
@@ -56,6 +58,7 @@ public:
         themes[Launchkey] = std::make_unique<LaunchkeyLookAndFeel>();
         themes[LaunchkeyDark] = std::make_unique<LaunchkeyDarkLookAndFeel>();
         themes[LaunchkeyOled] = std::make_unique<LaunchkeyOledLookAndFeel>();
+        themes[KeyLab88]      = std::make_unique<KeyLab88LookAndFeel>();
     }
 
     // Apply the given theme to a component tree
@@ -98,6 +101,7 @@ public:
             case Launchkey:        return "Launchkey";
             case LaunchkeyDark:    return "Launchkey Dark";
             case LaunchkeyOled:    return "Launchkey OLED";
+            case KeyLab88:         return "KeyLab 88";
             default:               return "Unknown";
         }
     }

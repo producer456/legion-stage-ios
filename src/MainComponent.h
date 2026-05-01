@@ -29,6 +29,7 @@
 #include "AudioExporter.h"
 #include "SessionViewComponent.h"
 #include "LaunchkeyMK4Controller.h"
+#include "KeyLab88Mk2Controller.h"
 
 // Content wrapper that paints a wireframe outline + black fill around its
 // child when the active theme is wireframe. Used by floating dialogs so
@@ -427,6 +428,20 @@ private:
     // Native Launchkey Mini MK4 surface integration.  Owns the device's
     // DAW-port output + decodes its DAW-protocol input.
     LaunchkeyMK4Controller launchkey;
+    KeyLab88Mk2Controller  keylab88;
+    bool keylab88ThemeApplied = false;   // one-shot: auto-switch on first detection
+
+    // KL88 snapshot slots — captured mixer + visible-param state per
+    // slot.  In-memory only (lost on app close), small enough that we
+    // could persist later if useful.
+    struct ControllerSnapshot
+    {
+        bool                hasData = false;
+        std::vector<float>  paramSliderValues;
+        std::vector<float>  trackVolumes;
+    };
+    static constexpr int NUM_SNAPSHOTS = 5;
+    ControllerSnapshot snapshots[NUM_SNAPSHOTS];
     juce::Label launchkeyMidiInspector;   // on-screen MIDI byte readout
     juce::TextButton launchkeyInspectorToggle { "LK" };   // tiny always-visible pill to show/hide the inspector
     bool launchkeyThemeApplied = false;   // one-shot: auto-switch the theme once per detection
@@ -462,6 +477,32 @@ public:
     void setFocusedTrackVolumeFromController(float value);
     void controllerSetParamBySliderIndex(int sliderIdx, float value);
     void controllerScrubPlayhead(int delta);       // signed step count (positive = forward)
+    // KeyLab 88 surface helpers ---------------------------------
+    void controllerEncoderDelta(int sliderIdx, int delta);          // nudge param N by signed delta
+    void controllerFaderMove(int trackIdx, float norm0to1);         // 9-fader mixer-volume mapping
+    void controllerSaveProject();
+    void controllerUndo();
+    void controllerRedo();
+    // Per-track quick-toggles, driven by the device's S/M/R columns.
+    void controllerTrackMute(int trackIdx);
+    void controllerTrackSolo(int trackIdx);
+    void controllerTrackRecArm(int trackIdx);
+    // Pad press in 4x4 grid (channel 10 drum pads).  Routes to the
+    // session-view clip at (row, col) so the device's pads launch
+    // clips one-for-one.
+    void controllerLaunchClipAt(int row, int col);
+    // Snapshots — 5 slots that capture the visible param-slider values
+    // + per-track mixer volumes.  saveSnapshot stores; loadSnapshot
+    // restores.  Slot is 0..4.
+    void controllerSaveSnapshot(int slot);
+    void controllerLoadSnapshot(int slot);
+    // Cursor-row navigation (up/down/left/right buttons).
+    void controllerCursorUp();
+    void controllerCursorDown();
+    void controllerCursorLeft();
+    void controllerCursorRight();
+    // Tap tempo button on the device's transport row.
+    void controllerTapTempo();
 
     // Toolbar-pad mode (Launchkey themes only) — repurposes the
     // device's 16 pads to trigger the iPad's edit-toolbar buttons
