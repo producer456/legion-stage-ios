@@ -47,6 +47,12 @@ public:
     /// sustain) returns false so the caller forwards it to plugins.
     bool processIncoming(const juce::MidiMessage&);
 
+    /// Debug entry — feed a synthesized MIDI message through the same
+    /// pipeline a real-device event would take.  Used by the on-screen
+    /// virtual KL88 panel.  Routes CCs / channel-10 pads through the
+    /// MIDI-port path; everything else through the DAW-port path.
+    void injectMessage(const juce::MidiMessage& msg);
+
 private:
     void tryOpenInput();
     void handleNoteOn(uint8_t note, uint8_t velocity);

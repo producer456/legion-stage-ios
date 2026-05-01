@@ -180,6 +180,15 @@ void KeyLab88Mk2Controller::handleNoteOn(uint8_t note, uint8_t velocity)
 
 void KeyLab88Mk2Controller::handleNoteOff(uint8_t /*note*/) {}
 
+void KeyLab88Mk2Controller::injectMessage(const juce::MidiMessage& msg)
+{
+    logMessage(msg);
+    // Try MIDI-port handler first (CCs + channel-10 pads).
+    if (processIncoming(msg)) return;
+    // Otherwise treat as DAW-port traffic (notes for transport / DAW commands).
+    handleIncomingMidiMessage(nullptr, msg);
+}
+
 bool KeyLab88Mk2Controller::processIncoming(const juce::MidiMessage& msg)
 {
     if (host == nullptr) return false;

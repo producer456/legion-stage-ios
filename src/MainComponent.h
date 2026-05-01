@@ -30,6 +30,7 @@
 #include "SessionViewComponent.h"
 #include "LaunchkeyMK4Controller.h"
 #include "KeyLab88Mk2Controller.h"
+#include "KeyLab88DebugView.h"
 
 // Content wrapper that paints a wireframe outline + black fill around its
 // child when the active theme is wireframe. Used by floating dialogs so
@@ -430,6 +431,11 @@ private:
     LaunchkeyMK4Controller launchkey;
     KeyLab88Mk2Controller  keylab88;
     bool keylab88ThemeApplied = false;   // one-shot: auto-switch on first detection
+
+    // Virtual KL88 panel for testing mappings without the hardware.
+    std::unique_ptr<KeyLab88DebugView> keylab88DebugView;
+    juce::TextButton kl88DebugButton { "KL88?" };
+    bool kl88DebugVisible = false;
 
     // KL88 snapshot slots — captured mixer + visible-param state per
     // slot.  In-memory only (lost on app close), small enough that we

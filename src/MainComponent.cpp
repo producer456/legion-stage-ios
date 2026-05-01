@@ -1399,6 +1399,20 @@ MainComponent::MainComponent()
     // safe to call unconditionally from the ctor.
     launchkey.attach(this);
 
+    // ── Virtual KL88 debug surface ────────────────────────────────
+    keylab88DebugView = std::make_unique<KeyLab88DebugView>(keylab88);
+    addChildComponent(*keylab88DebugView);   // hidden by default
+
+    addAndMakeVisible(kl88DebugButton);
+    kl88DebugButton.setClickingTogglesState(true);
+    kl88DebugButton.onClick = [this] {
+        kl88DebugVisible = kl88DebugButton.getToggleState();
+        keylab88DebugView->setVisible(kl88DebugVisible);
+        if (kl88DebugVisible) keylab88DebugView->toFront(false);
+        resized();
+        repaint();
+    };
+
     // On-screen MIDI inspector for the Launchkey DAW port — shows
     // the last 8 raw MIDI messages so we can decode what each
     // button/encoder actually sends without guessing pad colours.
@@ -5695,6 +5709,29 @@ void MainComponent::resized()
         const int insW = juce::jmin(460, getWidth() - 2 * gap);
         const int insH = 280;
         launchkeyMidiInspector.setBounds(gap, getHeight() - pillH - gap - insH - 4, insW, insH);
+
+        // KL88? toggle pill — sits just to the right of the LK pill.
+        kl88DebugButton.setBounds(gap + pillW + gap, getHeight() - pillH - gap, 56, pillH);
+    }
+
+    // Virtual KL88 panel: large overlay near the bottom of the screen.
+    if (keylab88DebugView)
+    {
+        if (kl88DebugVisible)
+        {
+            const int margin = 24;
+            const int panelW = juce::jmin(getWidth() - 2 * margin, 1100);
+            const int panelH = juce::jmin(getHeight() - 2 * margin, 540);
+            keylab88DebugView->setBounds((getWidth() - panelW) / 2,
+                                         (getHeight() - panelH) / 2,
+                                         panelW, panelH);
+            keylab88DebugView->setVisible(true);
+            keylab88DebugView->toFront(false);
+        }
+        else
+        {
+            keylab88DebugView->setVisible(false);
+        }
     }
 
 #if JUCE_IOS
