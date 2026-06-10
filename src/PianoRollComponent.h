@@ -26,6 +26,11 @@ public:
     // calls this to clear automation lanes for the focused track.
     void setOnClearAutomation(std::function<void()> fn);
 
+    // Wired by the owner (which holds the PluginHost): runs the given mutation with
+    // graph processing suspended, so applying note edits to a live clip's event
+    // sequence is exclusive of the audio thread. If unset, the mutation runs directly.
+    void setAudioEditGuard(std::function<void(std::function<void()>)> fn) { audioEditGuard = std::move(fn); }
+
 private:
     MidiClip& clip;
     SequencerEngine& engine;
@@ -37,6 +42,7 @@ private:
     juce::TextButton snapButton { "SNAP" };
     juce::TextButton clearAutoButton { "CLR AUTO" };
     std::function<void()> clearAutoCallback;
+    std::function<void(std::function<void()>)> audioEditGuard;
     bool snapEnabled = true;
 
     // View state
@@ -130,7 +136,8 @@ class PianoRollWindow : public juce::DocumentWindow
 public:
     PianoRollWindow(const juce::String& name, MidiClip& clip, SequencerEngine& engine,
                     juce::LookAndFeel* lf = nullptr,
-                    std::function<void()> onClearAutomation = {})
+                    std::function<void()> onClearAutomation = {},
+                    std::function<void(std::function<void()>)> audioEditGuard = {})
         : DocumentWindow(name,
                          [lf]() -> juce::Colour {
                              if (auto* tc = dynamic_cast<DawLookAndFeel*>(lf))
@@ -142,6 +149,7 @@ public:
         setUsingNativeTitleBar(true);
         auto* roll = new PianoRollComponent(clip, engine);
         if (onClearAutomation) roll->setOnClearAutomation(std::move(onClearAutomation));
+        if (audioEditGuard) roll->setAudioEditGuard(std::move(audioEditGuard));
         setContentOwned(roll, false);
         setSize(800, 500);
         setResizable(true, true);

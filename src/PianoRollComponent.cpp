@@ -89,8 +89,11 @@ void PianoRollComponent::rebuildNoteList()
 
 void PianoRollComponent::applyNoteListToClip()
 {
-    clip.events.clear();
-
+    // Build the new sequence locally, then swap it into the live clip in O(1). The
+    // swap is the only step the audio thread must not see mid-iterate, so it runs
+    // under the audio-edit guard (suspends graph processing). Was: clear()+addEvent
+    // directly on clip.events — a realloc race with the audio thread.
+    juce::MidiMessageSequence next;
     for (auto& n : noteEvents)
     {
         auto noteOn = juce::MidiMessage::noteOn(1, n.noteNumber, (juce::uint8) n.velocity);
@@ -99,12 +102,14 @@ void PianoRollComponent::applyNoteListToClip()
         auto noteOff = juce::MidiMessage::noteOff(1, n.noteNumber);
         noteOff.setTimeStamp(n.startBeat + n.lengthBeats);
 
-        clip.events.addEvent(noteOn);
-        clip.events.addEvent(noteOff);
+        next.addEvent(noteOn);
+        next.addEvent(noteOff);
     }
+    next.sort();
+    next.updateMatchedPairs();
 
-    clip.events.sort();
-    clip.events.updateMatchedPairs();
+    auto swap = [this, &next]() { clip.events.swapWith(next); };
+    if (audioEditGuard) audioEditGuard(swap); else swap();
 }
 
 // ── Coordinate conversion ────────────────────────────────────────────────────

@@ -15,10 +15,7 @@ Severity: CRITICAL = crash/UAF · HIGH = glitch or wrong output · MED/LOW = qua
 ## Tier 2 — RT allocations + clip edits
 - [x] HIGH record-START allocation on the audio thread — spare-clip pool `b8e129e`.
 - [x] HIGH Juno arpeggiator allocates in the RT callback — fixed-capacity buffers + array velocity (commit below).
-- [ ] CRITICAL clip-event edits bypass sync — PianoRoll `applyNoteListToClip`
-      (`PianoRollComponent.cpp:92`); Timeline split/resize/transpose/velocity/quantize
-      (`:587/997/1065/2025/2066`), delete (`:864` → use `clearSlotDeferred`), cross-track
-      move (`:551`). Fix: edit under suspend or a stopped+flushed slot; deferred free.
+- [x] CRITICAL clip-event edits bypass sync — all Timeline edits (move/resize/transpose/velocity/quantize/split) + delete + PianoRoll applyNoteListToClip now run under ScopedAudioEdit (suspend) or clearSlotDeferred. Build clean.
 - [ ] CRITICAL `PianoRollWindow` holds a `MidiClip&` that dangles after clip delete /
       project reload. Fix: weak handle (track+slot) re-resolved each access; close
       open windows on delete/reload.

@@ -177,22 +177,25 @@ public:
     std::atomic<FluidSimComponent*> fluidSimDisplay { nullptr };
     std::atomic<RayMarchComponent*> rayMarchDisplay { nullptr };
 
-    // RAII suspend for exclusive graph-topology edits (add/remove node or
-    // connection). suspendProcessing(true) makes the AudioProcessorPlayer hold the
-    // graph's callback lock and bypass processing, so the audio thread is never
-    // inside processBlock while the graph is rebuilt (which would dereference a
-    // half-rebuilt render sequence or a node being deleted). Refcounted so the
-    // nested calls (loadPlugin → unloadPlugin → unloadFx, etc.) suspend only once,
-    // and so the long async plugin instantiation in loadPlugin/loadFx stays OUTSIDE
-    // the suspend. Message-thread only — graphEditDepth needs no atomic.
-    struct ScopedGraphEdit
+    // RAII suspend for any edit that must be exclusive of the audio thread:
+    //  - graph topology (add/remove node or connection), and
+    //  - clip-event mutation (a slot's MidiClip events, which processBlock iterates).
+    // suspendProcessing(true) makes the AudioProcessorPlayer hold the graph's
+    // callback lock and bypass processing, so the audio thread is never inside
+    // processBlock during the edit (which would dereference a half-rebuilt render
+    // sequence, a node being deleted, or a MidiMessageSequence being reallocated).
+    // Refcounted so nested edits (loadPlugin → unloadPlugin → unloadFx) suspend only
+    // once, and so the long async plugin instantiation stays OUTSIDE the suspend.
+    // Message-thread only — graphEditDepth needs no atomic. Keep the guarded region
+    // SHORT (the audio output is silent while suspended).
+    struct ScopedAudioEdit
     {
         PluginHost& host;
-        explicit ScopedGraphEdit(PluginHost& h) : host(h)
+        explicit ScopedAudioEdit(PluginHost& h) : host(h)
         {
             if (host.graphEditDepth++ == 0) host.suspendProcessing(true);
         }
-        ~ScopedGraphEdit()
+        ~ScopedAudioEdit()
         {
             if (--host.graphEditDepth == 0) host.suspendProcessing(false);
         }

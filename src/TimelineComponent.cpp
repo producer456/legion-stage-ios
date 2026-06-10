@@ -305,7 +305,8 @@ void TimelineComponent::mouseDown(const juce::MouseEvent& e)
         {
             new PianoRollWindow("Piano Roll - Track " + juce::String(hit.trackIndex + 1)
                 + " Slot " + juce::String(hit.slotIndex + 1), *clip,
-                pluginHost.getEngine());
+                pluginHost.getEngine(), nullptr, {},
+                [this](std::function<void()> fn) { PluginHost::ScopedAudioEdit e(pluginHost); fn(); });
         }
         return;
     }
@@ -544,14 +545,18 @@ void TimelineComponent::mouseDrag(const juce::MouseEvent& e)
 
                 if (emptySlot >= 0)
                 {
-                    // Move the clip
+                    // Move the clip — under suspend, since the source slot may be
+                    // Playing and the audio thread could be reading srcSlot.clip.
                     auto& srcSlot = srcCp->getSlot(dragClip.slotIndex);
                     auto& dstSlot = dstCp->getSlot(emptySlot);
 
-                    dstSlot.clip = std::move(srcSlot.clip);
-                    dstSlot.audioClip = std::move(srcSlot.audioClip);
-                    dstSlot.state.store(srcSlot.state.load());
-                    srcSlot.state.store(ClipSlot::Empty);
+                    {
+                        PluginHost::ScopedAudioEdit edit(pluginHost);
+                        dstSlot.clip = std::move(srcSlot.clip);
+                        dstSlot.audioClip = std::move(srcSlot.audioClip);
+                        dstSlot.state.store(srcSlot.state.load());
+                        srcSlot.state.store(ClipSlot::Empty);
+                    }
 
                     dragClip.trackIndex = newTrack;
                     dragClip.slotIndex = emptySlot;
@@ -578,10 +583,13 @@ void TimelineComponent::mouseDrag(const juce::MouseEvent& e)
         double newLength = origEnd - newStart;
         if (newLength < 0.25) newLength = 0.25;
 
-        // Shift MIDI events to compensate for the start position change
+        // Shift MIDI events to compensate for the start position change. This
+        // mutates a live clip's events in place (the audio thread may be iterating
+        // them), so do it under suspend.
         if (clip)
         {
             double shift = clip->timelinePosition - newStart;
+            PluginHost::ScopedAudioEdit edit(pluginHost);
             if (std::abs(shift) > 0.001)
             {
                 for (int i = 0; i < clip->events.getNumEvents(); ++i)
@@ -751,7 +759,8 @@ void TimelineComponent::mouseDoubleClick(const juce::MouseEvent& e)
         if (clip != nullptr)
         {
             new PianoRollWindow("Piano Roll - Track " + juce::String(hit.trackIndex + 1),
-                *clip, pluginHost.getEngine());
+                *clip, pluginHost.getEngine(), nullptr, {},
+                [this](std::function<void()> fn) { PluginHost::ScopedAudioEdit e(pluginHost); fn(); });
         }
     }
 }
@@ -857,13 +866,14 @@ bool TimelineComponent::keyPressed(const juce::KeyPress& key)
 void TimelineComponent::deleteSelectedClip()
 {
     if (!selectedClip.isValid()) return;
+    if (selectedClip.trackIndex < 0 || selectedClip.trackIndex >= PluginHost::NUM_TRACKS) return;
 
-    auto* slot = getSlot(selectedClip);
-    if (slot == nullptr) return;
+    auto* cp = pluginHost.getTrack(selectedClip.trackIndex).clipPlayer;
+    if (cp == nullptr) return;
 
-    slot->clip = nullptr;
-    slot->audioClip = nullptr;
-    slot->state.store(ClipSlot::Empty);
+    // Mark Empty now and defer the free — the audio thread may be mid-block on this
+    // clip if it was Playing. (Was: slot->clip = nullptr, a use-after-free.)
+    cp->clearSlotDeferred(selectedClip.slotIndex);
     selectedClip = {};
     repaint();
 }
@@ -994,7 +1004,7 @@ void TimelineComponent::splitClipAtBeat(const ClipRef& ref, double beat)
     secondHalf.updateMatchedPairs();
 
     // Update original clip (first half)
-    srcClip->events = firstHalf;
+    { PluginHost::ScopedAudioEdit edit(pluginHost); srcClip->events = firstHalf; }
     srcClip->lengthInBeats = splitPoint;
 
     // Set up second half
@@ -1062,7 +1072,7 @@ void TimelineComponent::quantizeSelectedClip()
     }
 
     quantized.updateMatchedPairs();
-    clip->events = quantized;
+    { PluginHost::ScopedAudioEdit edit(pluginHost); clip->events = quantized; }
     repaint();
 }
 
@@ -2022,7 +2032,9 @@ void TimelineComponent::showClipContextMenu(const ClipRef& ref)
                     newEvents.addEvent(msg);
                 }
                 newEvents.updateMatchedPairs();
-                clip->events = newEvents;
+                // Swap into the live clip under suspend — the audio thread may be
+                // iterating clip->events; operator= reallocates the sequence.
+                { PluginHost::ScopedAudioEdit edit(pluginHost); clip->events = newEvents; }
                 repaint();
                 break;
             }
@@ -2041,7 +2053,9 @@ void TimelineComponent::showClipContextMenu(const ClipRef& ref)
                     newEvents.addEvent(msg);
                 }
                 newEvents.updateMatchedPairs();
-                clip->events = newEvents;
+                // Swap into the live clip under suspend — the audio thread may be
+                // iterating clip->events; operator= reallocates the sequence.
+                { PluginHost::ScopedAudioEdit edit(pluginHost); clip->events = newEvents; }
                 repaint();
                 break;
             }
@@ -2063,7 +2077,9 @@ void TimelineComponent::showClipContextMenu(const ClipRef& ref)
                     newEvents.addEvent(msg);
                 }
                 newEvents.updateMatchedPairs();
-                clip->events = newEvents;
+                // Swap into the live clip under suspend — the audio thread may be
+                // iterating clip->events; operator= reallocates the sequence.
+                { PluginHost::ScopedAudioEdit edit(pluginHost); clip->events = newEvents; }
                 repaint();
                 break;
             }

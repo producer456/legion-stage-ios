@@ -202,7 +202,7 @@ bool PluginHost::loadPlugin(int trackIndex, const juce::PluginDescription& desc,
         auto& track = tracks[static_cast<size_t>(trackIndex)];
         auto juno = std::make_unique<BuiltinJuno60Processor>();
         juno->prepareToPlay(storedSampleRate, storedBlockSize);
-        ScopedGraphEdit edit(*this);   // suspend only around the graph mutation
+        ScopedAudioEdit edit(*this);   // suspend only around the graph mutation
         track.pluginNode = addNode(std::move(juno));
         if (track.pluginNode != nullptr)
             track.plugin = track.pluginNode->getProcessor();
@@ -259,7 +259,7 @@ bool PluginHost::loadPlugin(int trackIndex, const juce::PluginDescription& desc,
 
     // Suspend only now — the async instantiation above must NOT hold the suspend
     // (it pumps the run loop for up to 15s; audio would be muted that whole time).
-    ScopedGraphEdit edit(*this);
+    ScopedAudioEdit edit(*this);
     track.pluginNode = addNode(std::move(instance));
 
     if (track.pluginNode != nullptr)
@@ -285,7 +285,7 @@ void PluginHost::unloadPlugin(int trackIndex)
     auto& track = tracks[static_cast<size_t>(trackIndex)];
     if (track.pluginNode == nullptr) return;
 
-    ScopedGraphEdit edit(*this);   // exclusive of the audio thread's processBlock
+    ScopedAudioEdit edit(*this);   // exclusive of the audio thread's processBlock
 
     // Send all-notes-off to prevent stuck notes
     if (track.clipPlayer != nullptr)
@@ -332,7 +332,7 @@ void PluginHost::setTrackType(int trackIndex, TrackType type)
 
 void PluginHost::rewireTrack(int trackIndex)
 {
-    ScopedGraphEdit edit(*this);   // exclusive of the audio thread's processBlock
+    ScopedAudioEdit edit(*this);   // exclusive of the audio thread's processBlock
     auto& track = tracks[static_cast<size_t>(trackIndex)];
 
     // Remove all audio connections for this track's nodes
@@ -371,7 +371,7 @@ void PluginHost::rewireTrack(int trackIndex)
 
 void PluginHost::connectTrackAudio(int trackIndex)
 {
-    ScopedGraphEdit edit(*this);   // exclusive of the audio thread's processBlock
+    ScopedAudioEdit edit(*this);   // exclusive of the audio thread's processBlock
     auto& track = tracks[static_cast<size_t>(trackIndex)];
 
     juce::AudioProcessorGraph::NodeID lastNodeID{0};
@@ -454,7 +454,7 @@ bool PluginHost::loadFx(int trackIndex, int slotIndex, const juce::PluginDescrip
     auto& track = tracks[static_cast<size_t>(trackIndex)];
 
     // Suspend only now — the async instantiation above must stay outside the suspend.
-    ScopedGraphEdit edit(*this);
+    ScopedAudioEdit edit(*this);
     track.fxSlots[slotIndex].node = addNode(std::move(instance));
     track.fxSlots[slotIndex].bypassed = false;
 
@@ -482,7 +482,7 @@ void PluginHost::unloadFx(int trackIndex, int slotIndex)
     auto& slot = track.fxSlots[slotIndex];
     if (slot.node == nullptr) return;
 
-    ScopedGraphEdit edit(*this);   // exclusive of the audio thread's processBlock
+    ScopedAudioEdit edit(*this);   // exclusive of the audio thread's processBlock
 
     // Remove all connections to/from this FX node
     auto connections = getConnections();
@@ -544,7 +544,7 @@ void PluginHost::setSelectedTrack(int index)
 
 void PluginHost::updateMidiRouting()
 {
-    ScopedGraphEdit edit(*this);   // exclusive of the audio thread's processBlock
+    ScopedAudioEdit edit(*this);   // exclusive of the audio thread's processBlock
 
     // Remove all MIDI connections from MIDI input node
     auto connections = getConnections();

@@ -533,7 +533,8 @@ MainComponent::MainComponent()
                     if (self->timelineComponent) self->timelineComponent->repaint();
                 };
                 new PianoRollWindow("Piano Roll", *clip, pluginHost.getEngine(),
-                                    nullptr, std::move(onClearAuto));
+                                    nullptr, std::move(onClearAuto),
+                                    [this](std::function<void()> fn) { PluginHost::ScopedAudioEdit e(pluginHost); fn(); });
             }
         }
     };
