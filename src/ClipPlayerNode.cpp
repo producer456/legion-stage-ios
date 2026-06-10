@@ -12,6 +12,12 @@ ClipPlayerNode::ClipPlayerNode(SequencerEngine& eng)
     slotCount.store(0);  // start with 0 logical slots — grow as needed
 }
 
+ClipPlayerNode::~ClipPlayerNode()
+{
+    delete spareAudioClip.exchange(nullptr);
+    delete spareMidiClip.exchange(nullptr);
+}
+
 void ClipPlayerNode::prepareToPlay(double sampleRate, int /*samplesPerBlock*/)
 {
     currentSampleRate = sampleRate;
@@ -75,6 +81,21 @@ void ClipPlayerNode::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBu
             targetSlot = findOrCreateEmptySlot();
         }
 
+        // Take a pre-built spare clip (allocated by maintain() on the message
+        // thread) so record-start never mallocs on the audio thread. If the spare
+        // isn't ready yet, skip starting this block and retry next — a one-block-
+        // late start beats a ~10 MB malloc on the realtime callback.
+        AudioClip* spareAudio = nullptr;
+        MidiClip*  spareMidi  = nullptr;
+        if (targetSlot >= 0)
+        {
+            if (audioMode) { spareAudio = spareAudioClip.exchange(nullptr); if (spareAudio == nullptr) targetSlot = -1; }
+            else if (slots[static_cast<size_t>(targetSlot)].clip == nullptr)
+            {
+                spareMidi = spareMidiClip.exchange(nullptr); if (spareMidi == nullptr) targetSlot = -1;
+            }
+        }
+
         if (targetSlot >= 0)
         {
             auto& slot = slots[static_cast<size_t>(targetSlot)];
@@ -83,34 +104,28 @@ void ClipPlayerNode::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBu
 
             if (audioMode)
             {
-                // Audio recording — create AudioClip
-                slot.audioClip = std::make_unique<AudioClip>();
+                slot.audioClip.reset(spareAudio);           // pre-allocated buffer, no malloc
                 slot.audioClip->sampleRate = currentSampleRate;
+                slot.audioClip->recordWritePos.store(0);
                 if (engine.isLoopEnabled() && engine.hasLoopRegion())
                 {
                     double ls = engine.getLoopStart();
                     slot.audioClip->timelinePosition = ls;
                     slot.audioClip->lengthInBeats = engine.getLoopEnd() - ls;
                     recordStartBeat = ls;
-                    // Pre-allocate buffer for the loop length (at least 30s to avoid audio-thread realloc)
-                    int loopSamples = static_cast<int>((slot.audioClip->lengthInBeats / (engine.getBpm() / 60.0)) * currentSampleRate);
-                    int preAllocSamples = static_cast<int>(currentSampleRate * 30); // 30 seconds
-                    slot.audioClip->samples.setSize(2, juce::jmax(loopSamples, preAllocSamples), false, true);
                 }
                 else
                 {
                     slot.audioClip->timelinePosition = blockStartPos;
+                    slot.audioClip->lengthInBeats = 0.0;
                     recordStartBeat = blockStartPos;
-                    // Pre-allocate 30 seconds upfront to avoid audio-thread reallocation
-                    int preAllocSamples = static_cast<int>(currentSampleRate * 30); // 30 seconds
-                    slot.audioClip->samples.setSize(2, preAllocSamples, false, true);
                 }
             }
             else
             {
-                // MIDI recording
+                // MIDI recording — reuse the slot's clip, else the pre-built spare.
                 if (slot.clip == nullptr)
-                    slot.clip = std::make_unique<MidiClip>();
+                    slot.clip.reset(spareMidi);
 
                 if (engine.isLoopEnabled() && engine.hasLoopRegion())
                 {
@@ -441,6 +456,21 @@ void ClipPlayerNode::clearSlotDeferred(int slotIndex)
 void ClipPlayerNode::maintain()
 {
     const double now = juce::Time::getMillisecondCounterHiRes();
+
+    // 0) Keep spare clips ready so record-start never allocates on the audio thread.
+    if (spareAudioClip.load() == nullptr)
+    {
+        auto* c = new AudioClip();
+        c->samples.setSize(2, static_cast<int>(currentSampleRate * 30.0), false, true, true);  // 30s, zeroed
+        AudioClip* expected = nullptr;
+        if (!spareAudioClip.compare_exchange_strong(expected, c)) delete c;
+    }
+    if (spareMidiClip.load() == nullptr)
+    {
+        auto* m = new MidiClip();
+        MidiClip* expected = nullptr;
+        if (!spareMidiClip.compare_exchange_strong(expected, m)) delete m;
+    }
 
     // 1) Free deferred-cleared clips once they've been Empty long enough that no
     //    in-flight audio block can still reference them (~250ms = dozens of blocks).

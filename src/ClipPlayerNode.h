@@ -14,6 +14,7 @@ public:
     static constexpr int NUM_SLOTS = 4;
 
     ClipPlayerNode(SequencerEngine& engine);
+    ~ClipPlayerNode() override;
 
     const juce::String getName() const override { return "ClipPlayerNode"; }
 
@@ -134,6 +135,12 @@ private:
     // be freed out from under mid-block.
     struct PendingClear { int slot; double markedMs; };
     std::vector<PendingClear> pendingClears;
+
+    // Pre-built spare clips kept ready by maintain() (message thread) so the audio
+    // thread never allocates at record-start. The audio thread atomically takes one
+    // (exchange to nullptr) when it begins recording; maintain() refills.
+    std::atomic<AudioClip*> spareAudioClip { nullptr };
+    std::atomic<MidiClip*>  spareMidiClip  { nullptr };
 
     // Track active notes so we can send explicit note-offs on loop wrap
     // First dimension is channel (0-15), second is note number (0-127)
