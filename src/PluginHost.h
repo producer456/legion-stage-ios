@@ -177,7 +177,30 @@ public:
     std::atomic<FluidSimComponent*> fluidSimDisplay { nullptr };
     std::atomic<RayMarchComponent*> rayMarchDisplay { nullptr };
 
+    // RAII suspend for exclusive graph-topology edits (add/remove node or
+    // connection). suspendProcessing(true) makes the AudioProcessorPlayer hold the
+    // graph's callback lock and bypass processing, so the audio thread is never
+    // inside processBlock while the graph is rebuilt (which would dereference a
+    // half-rebuilt render sequence or a node being deleted). Refcounted so the
+    // nested calls (loadPlugin → unloadPlugin → unloadFx, etc.) suspend only once,
+    // and so the long async plugin instantiation in loadPlugin/loadFx stays OUTSIDE
+    // the suspend. Message-thread only — graphEditDepth needs no atomic.
+    struct ScopedGraphEdit
+    {
+        PluginHost& host;
+        explicit ScopedGraphEdit(PluginHost& h) : host(h)
+        {
+            if (host.graphEditDepth++ == 0) host.suspendProcessing(true);
+        }
+        ~ScopedGraphEdit()
+        {
+            if (--host.graphEditDepth == 0) host.suspendProcessing(false);
+        }
+    };
+
 private:
+    int graphEditDepth = 0;   // message-thread only
+
     juce::AudioPluginFormatManager formatManager;
     juce::KnownPluginList knownPluginList;
     juce::MidiMessageCollector midiCollector;
