@@ -212,6 +212,7 @@ bool PluginHost::loadPlugin(int trackIndex, const juce::PluginDescription& desc,
             return false;
         }
         rewireTrack(trackIndex);
+        prepareToPlay(storedSampleRate, storedBlockSize);   // prepare the graph at the current rate (matches the external-plugin path)
         return true;
     }
 
@@ -664,10 +665,18 @@ void PluginHost::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer
             if (touchedIdx >= 0 && !hasFreshTouch)
                 track.touchedParamIndex.store(-1);
 
+            // Collect the values to apply UNDER the lock (cheap binary search only),
+            // then release it BEFORE calling into hosted-plugin setValue. setValue can
+            // run unbounded plugin code; holding a SpinLock across it spin-blocks the
+            // UI thread's automation edits (priority inversion / glitch).
+            struct ParamSet { int index; float value; };
+            ParamSet pending[64];
+            int numPending = 0;
             {
                 const juce::SpinLock::ScopedLockType lock(track.automationLock);
                 for (auto* lane : track.automationLanes)
                 {
+                    if (numPending >= 64) break;
                     if (lane->parameterIndex >= 0 && lane->parameterIndex < params.size()
                         && !lane->points.isEmpty())
                     {
@@ -677,10 +686,12 @@ void PluginHost::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer
 
                         float val = lane->getValueAtBeat(beat);
                         if (val >= 0.0f && val <= 1.0f && std::isfinite(val))
-                            params[lane->parameterIndex]->setValue(val);
+                            pending[numPending++] = { lane->parameterIndex, val };
                     }
                 }
             }
+            for (int i = 0; i < numPending; ++i)
+                params[pending[i].index]->setValue(pending[i].value);
         }
     }
 
@@ -758,17 +769,25 @@ void PluginHost::processBlockOffline(juce::AudioBuffer<float>& buffer, juce::Mid
         {
             auto& track = tracks[static_cast<size_t>(t)];
             if (!track.plugin) continue;
-            auto params = track.plugin->getParameters();
-            const juce::SpinLock::ScopedLockType lock(track.automationLock);
-            for (auto* lane : track.automationLanes)
+            auto& params = track.plugin->getParameters();   // reference, not a per-block copy
+            struct ParamSet { int index; float value; };
+            ParamSet pending[64];
+            int numPending = 0;
             {
-                if (lane->parameterIndex >= 0 && lane->parameterIndex < params.size())
+                const juce::SpinLock::ScopedLockType lock(track.automationLock);
+                for (auto* lane : track.automationLanes)
                 {
-                    float val = lane->getValueAtBeat(static_cast<float>(beat));
-                    if (val >= 0.0f && val <= 1.0f && std::isfinite(val))
-                        params[lane->parameterIndex]->setValue(val);
+                    if (numPending >= 64) break;
+                    if (lane->parameterIndex >= 0 && lane->parameterIndex < params.size())
+                    {
+                        float val = lane->getValueAtBeat(static_cast<float>(beat));
+                        if (val >= 0.0f && val <= 1.0f && std::isfinite(val))
+                            pending[numPending++] = { lane->parameterIndex, val };
+                    }
                 }
             }
+            for (int i = 0; i < numPending; ++i)
+                params[pending[i].index]->setValue(pending[i].value);
         }
     }
 

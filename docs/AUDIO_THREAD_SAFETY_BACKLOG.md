@@ -36,15 +36,14 @@ Severity: CRITICAL = crash/UAF · HIGH = glitch or wrong output · MED/LOW = qua
 - [ ] HIGH `out()`/`deviceOutputs` lazy map-insert + concurrent sends raced across
       MIDI + timer threads — all four controllers / `MainComponent.cpp:9224`. Fix:
       resolve+cache MidiOutput* on the message thread; don't open from MIDI callback.
-- [ ] HIGH SpinLock held across plugin `setValue` on the audio thread — `PluginHost.cpp:651`.
-      Fix: copy (index,value) out under the lock, apply setValue outside it.
+- [x] HIGH SpinLock held across plugin setValue (live + offline paths) — collect-then-apply.
 - [ ] HIGH offline export races the live audio device — `AudioExporter.h:117`. Fix:
       stop/suspend the live callback before `releaseResources()`/`setNonRealtime`.
 - [ ] HIGH capture ring buffer multi-producer race — `MainComponent.cpp:2924` (MIDI+UI).
       Fix: single `fetch_add` reservation, or one producer.
 - [ ] HIGH `controllerSaveSnapshot` reads `juce::Slider` off the message thread —
       `MainComponent.cpp:8998`. Fix: marshal the body via callAsync (like its siblings).
-- [ ] HIGH missing graph `prepareToPlay` on the Juno load path — `PluginHost.cpp:204`.
+- [x] HIGH missing graph prepareToPlay on the Juno load path.
 - [ ] MED Launchkey mode/animation scalars shared MIDI↔message unsynchronized —
       `LaunchkeyMK4Controller.cpp:191-272` (make `std::atomic`).
 
@@ -55,7 +54,7 @@ Severity: CRITICAL = crash/UAF · HIGH = glitch or wrong output · MED/LOW = qua
 - [ ] MED Metal renderer `waitUntilCompleted` hitches + unfenced buffer swap —
       `MetalVisualizerRenderer.mm:226-276`.
 - [ ] LOW `getMillisecondCounter` on the RT path — `PluginHost.cpp:645`, `GainProcessor.cpp:24,79`.
-- [ ] LOW per-block param-array copy in offline export loop — `PluginHost.cpp:745` (`auto&`).
+- [x] LOW per-block param-array copy in offline export loop (auto&).
 - [ ] LOW 60Hz paint does string formatting + per-pixel waveform loops — `TimelineComponent` paint.
 - [ ] LOW `getSlot` not bounds-checked vs `slotCount`; clear cached selection on reload.
 - [ ] LOW Midi2Handler `headerLen` not clamped before JSON copy — `Midi2Handler.cpp:268`.
