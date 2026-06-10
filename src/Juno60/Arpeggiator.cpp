@@ -6,6 +6,10 @@ void Arpeggiator::setSampleRate (double sr)
 {
     sampleRate = sr;
     phaseIncrement = (double) rateHz / sampleRate;
+    // Reserve to max here (message/prepare thread) so the audio-thread note/sequence
+    // mutations never reallocate. 128 distinct MIDI notes; sequence = notes × octaves.
+    heldNotes.reserve (128);
+    sequence.reserve (128 * 4);
 }
 
 void Arpeggiator::setEnabled (bool on)
@@ -58,11 +62,12 @@ void Arpeggiator::setHold (bool on)
 void Arpeggiator::noteOn (int midiNote, float velocity)
 {
     // Add note if not already held
+    if (midiNote < 0 || midiNote > 127) return;
     auto it = std::lower_bound (heldNotes.begin(), heldNotes.end(), midiNote);
     if (it == heldNotes.end() || *it != midiNote)
         heldNotes.insert (it, midiNote);
 
-    noteVelocities[midiNote] = velocity;
+    noteVelocities[(size_t) midiNote] = velocity;
 
     rebuildSequence();
 
@@ -80,11 +85,12 @@ void Arpeggiator::noteOff (int midiNote)
     if (holdMode)
         return;
 
+    if (midiNote < 0 || midiNote > 127) return;
     auto it = std::lower_bound (heldNotes.begin(), heldNotes.end(), midiNote);
     if (it != heldNotes.end() && *it == midiNote)
         heldNotes.erase (it);
 
-    noteVelocities.erase (midiNote);
+    noteVelocities[(size_t) midiNote] = 0.0f;
 
     rebuildSequence();
 
@@ -98,7 +104,7 @@ void Arpeggiator::noteOff (int midiNote)
 void Arpeggiator::allNotesOff()
 {
     heldNotes.clear();
-    noteVelocities.clear();
+    noteVelocities.fill (0.0f);
     sequence.clear();
     currentIndex = 0;
     currentNote = -1;
@@ -130,14 +136,15 @@ Arpeggiator::ArpEvent Arpeggiator::process()
         int nextNote = sequence[(size_t) currentIndex];
         advanceIndex();
 
-        // Look up velocity for the base note (un-transposed by octave)
+        // Look up velocity for the base note (un-transposed by octave) from the
+        // held notes (the velocity array is indexed by absolute MIDI note).
         int baseNote = nextNote % 12;
         float vel = 0.8f;
-        for (auto& [n, v] : noteVelocities)
+        for (int n : heldNotes)
         {
             if (n % 12 == baseNote)
             {
-                vel = v;
+                vel = noteVelocities[(size_t) n];
                 break;
             }
         }
@@ -166,7 +173,7 @@ Arpeggiator::ArpEvent Arpeggiator::process()
 void Arpeggiator::reset()
 {
     heldNotes.clear();
-    noteVelocities.clear();
+    noteVelocities.fill (0.0f);
     sequence.clear();
     currentIndex = 0;
     currentNote = -1;

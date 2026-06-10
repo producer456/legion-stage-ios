@@ -13,12 +13,8 @@ Severity: CRITICAL = crash/UAF · HIGH = glitch or wrong output · MED/LOW = qua
 - [x] CRITICAL plugin-graph topology race (load/unload/rewire/midi-route) — `947f294`
 
 ## Tier 2 — RT allocations + clip edits
-- [ ] HIGH record-START allocation on the audio thread — `ClipPlayerNode.cpp:87-113`
-      (`make_unique<AudioClip>` + 30s `setSize`, and `make_unique<MidiClip>`). Fix:
-      pre-build a spare clip + buffer on the message thread (maintain/arm), audio
-      thread swaps it in (atomic exchange), no alloc.
-- [ ] HIGH Juno arpeggiator allocates in the RT callback — `Juno60/Arpeggiator.cpp:58-107,177-207`
-      (`vector`/`map` grow inside `process()`). Fix: fixed-capacity buffers, no alloc.
+- [x] HIGH record-START allocation on the audio thread — spare-clip pool `b8e129e`.
+- [x] HIGH Juno arpeggiator allocates in the RT callback — fixed-capacity buffers + array velocity (commit below).
 - [ ] CRITICAL clip-event edits bypass sync — PianoRoll `applyNoteListToClip`
       (`PianoRollComponent.cpp:92`); Timeline split/resize/transpose/velocity/quantize
       (`:587/997/1065/2025/2066`), delete (`:864` → use `clearSlotDeferred`), cross-track

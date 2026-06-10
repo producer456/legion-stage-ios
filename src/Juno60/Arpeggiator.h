@@ -1,7 +1,7 @@
 #pragma once
 
 #include <vector>
-#include <map>
+#include <array>
 #include <algorithm>
 
 namespace Juno60 {
@@ -35,8 +35,12 @@ public:
     void reset();
 
 private:
+    // These are mutated from the audio thread (noteOn/noteOff/process), so they must
+    // not allocate: heldNotes/sequence are reserved to max capacity in setSampleRate,
+    // and per-note velocity is a fixed array indexed by MIDI note (was a std::map,
+    // which allocated/freed a tree node on every note — on the realtime callback).
     std::vector<int> heldNotes;
-    std::map<int, float> noteVelocities;
+    std::array<float, 128> noteVelocities {};
     std::vector<int> sequence;
     int currentIndex = 0;
     int currentNote = -1;
