@@ -70,6 +70,19 @@ public:
     void stopSlot(int slotIndex);
     void stopAllSlots();
 
+    // Safe slot clear (UI thread). Marks the slot Empty immediately so the audio
+    // thread stops touching it on the next block, but DEFERS freeing the clip
+    // object: the audio thread may be mid-block holding a reference. The actual
+    // delete happens in maintain() once the slot has been Empty long enough that
+    // no in-flight audio block can still reference it. Use this instead of
+    // `slot.clip = nullptr` anywhere the transport could be playing.
+    void clearSlotDeferred(int slotIndex);
+
+    // Message-thread maintenance — call from a UI timer. Frees settled cleared
+    // clips and grows active audio-recording buffers ahead of the write head so
+    // the audio thread never has to allocate.
+    void maintain();
+
     // Arm for recording
     std::atomic<bool> armed { false };
     std::atomic<bool> armLocked { false };  // stays armed when switching tracks
@@ -115,6 +128,12 @@ private:
     // Recording state
     double recordStartBeat = 0.0;
     double recordStartBpm = 120.0;
+
+    // Deferred slot clears (message thread only): a slot marked Empty here is
+    // freed by maintain() after the settle window, so the audio thread can never
+    // be freed out from under mid-block.
+    struct PendingClear { int slot; double markedMs; };
+    std::vector<PendingClear> pendingClears;
 
     // Track active notes so we can send explicit note-offs on loop wrap
     // First dimension is channel (0-15), second is note number (0-127)

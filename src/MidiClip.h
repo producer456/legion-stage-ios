@@ -52,6 +52,15 @@ struct AudioClip
     double sampleRate = 44100.0;
     double lengthInBeats = 4.0;
     double timelinePosition = 0.0;
+
+    // Real-time-safe recording growth: the audio thread NEVER reallocates the
+    // buffer (that would malloc/memcpy on the realtime callback). It only writes
+    // up to capacity and publishes its write head; a message-thread maintainer
+    // grows the buffer ahead of the write head, briefly raising growLock so the
+    // audio thread skips writes while the realloc happens.
+    std::atomic<int> recordWritePos { 0 };   // samples written so far (audio→msg)
+    std::atomic<bool> growLock { false };    // msg sets while reallocating; audio skips
+    std::atomic<bool> growAck { false };     // audio sets when it observes growLock
 };
 
 struct ClipSlot

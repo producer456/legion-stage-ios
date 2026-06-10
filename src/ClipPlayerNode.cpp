@@ -427,6 +427,69 @@ void ClipPlayerNode::stopAllSlots()
         stopSlot(i);
 }
 
+void ClipPlayerNode::clearSlotDeferred(int slotIndex)
+{
+    if (slotIndex < 0 || slotIndex >= getNumSlots()) return;
+    auto& slot = slots[static_cast<size_t>(slotIndex)];
+    // Mark Empty NOW so the audio thread skips this slot from the next block on.
+    // Don't free the clip yet — an in-flight block may still hold a reference.
+    slot.state.store(ClipSlot::Empty);
+    if (slot.clip != nullptr || slot.audioClip != nullptr)
+        pendingClears.push_back({ slotIndex, juce::Time::getMillisecondCounterHiRes() });
+}
+
+void ClipPlayerNode::maintain()
+{
+    const double now = juce::Time::getMillisecondCounterHiRes();
+
+    // 1) Free deferred-cleared clips once they've been Empty long enough that no
+    //    in-flight audio block can still reference them (~250ms = dozens of blocks).
+    //    If a slot was re-used (state no longer Empty) we leave its new clip alone.
+    for (size_t i = 0; i < pendingClears.size();)
+    {
+        const auto& pc = pendingClears[i];
+        if (now - pc.markedMs > 250.0)
+        {
+            if (pc.slot >= 0 && pc.slot < getNumSlots())
+            {
+                auto& slot = slots[static_cast<size_t>(pc.slot)];
+                if (slot.state.load() == ClipSlot::Empty)
+                {
+                    slot.clip.reset();        // safe: audio idle on this slot for 250ms+
+                    slot.audioClip.reset();
+                }
+            }
+            pendingClears.erase(pendingClears.begin() + static_cast<long>(i));
+        }
+        else ++i;
+    }
+
+    // 2) Grow the active audio-recording buffer ahead of the write head so the
+    //    audio thread never allocates. Keep ~5s of headroom; grow by 30s at a time.
+    const int rs = atomicRecordingSlot.load();
+    if (rs < 0 || rs >= getNumSlots() || !audioMode.load()) return;
+    auto& slot = slots[static_cast<size_t>(rs)];
+    AudioClip* clip = slot.audioClip.get();
+    if (clip == nullptr) return;
+    if (engine.isLoopEnabled() && engine.hasLoopRegion()) return;  // loop length is fixed
+
+    const int cap = clip->samples.getNumSamples();
+    const int wp = clip->recordWritePos.load();
+    const int margin = static_cast<int>(currentSampleRate * 5.0);
+    if (cap - wp > margin) return;
+
+    // Handshake: raise growLock, wait for the audio thread to acknowledge it has
+    // skipped its write (or for the timeout — it isn't touching the buffer then),
+    // realloc on THIS (message) thread, then release.
+    clip->growAck.store(false, std::memory_order_release);
+    clip->growLock.store(true, std::memory_order_release);
+    for (int i = 0; i < 40 && !clip->growAck.load(std::memory_order_acquire); ++i)
+        juce::Thread::sleep(1);
+    clip->samples.setSize(2, cap + static_cast<int>(currentSampleRate * 30.0),
+                          true /*keepExisting*/, true /*clearExtra*/, false);
+    clip->growLock.store(false, std::memory_order_release);
+}
+
 void ClipPlayerNode::closeOpenNotes(MidiClip& clip)
 {
     // Find note-ons without matching note-offs and add note-offs at clip end
@@ -489,6 +552,17 @@ void ClipPlayerNode::processAudioRecording(const juce::AudioBuffer<float>& input
     if (slot.audioClip == nullptr) { atomicRecordingSlot = -1; return; }
 
     auto& clip = *slot.audioClip;
+
+    // Real-time safety: NEVER reallocate here. While the message-thread maintainer
+    // is growing the buffer (growLock), skip this block's write — acknowledge so it
+    // knows the audio thread is clear of the buffer, then bail.
+    if (clip.growLock.load(std::memory_order_acquire))
+    {
+        clip.growAck.store(true, std::memory_order_release);
+        return;
+    }
+    clip.growAck.store(false, std::memory_order_release);
+
     double bpm = engine.getBpm();
     double beatsPerSample = (bpm / 60.0) / currentSampleRate;
     double beatsThisBlock = beatsPerSample * numSamples;
@@ -499,20 +573,14 @@ void ClipPlayerNode::processAudioRecording(const juce::AudioBuffer<float>& input
 
     int sampleOffset = static_cast<int>(beatOffset / beatsPerSample);
 
-    // Check if we need to grow the buffer
-    int needed = sampleOffset + numSamples;
-    if (needed > clip.samples.getNumSamples())
+    // Write only up to the current capacity. maintain() (message thread) keeps the
+    // buffer grown ~5s ahead of the write head, so hitting the cap here is a rare
+    // safety net (drops a few ms) rather than the normal path — no audio-thread malloc.
+    if (sampleOffset < 0 || sampleOffset >= clip.samples.getNumSamples())
     {
-        // In loop mode, don't grow beyond the loop
-        bool loopMode = engine.isLoopEnabled() && engine.hasLoopRegion();
-        if (loopMode) return; // beyond loop — skip
-
-        int newSize = juce::jmax(needed, clip.samples.getNumSamples() * 2);
-        clip.samples.setSize(2, newSize, true);
+        clip.recordWritePos.store(juce::jmax(0, clip.samples.getNumSamples()), std::memory_order_release);
+        return;
     }
-
-    // Copy input audio into the clip buffer (with bounds check to prevent overrun)
-    if (sampleOffset < 0 || sampleOffset >= clip.samples.getNumSamples()) return;
     int numCh = juce::jmin(inputBuffer.getNumChannels(), clip.samples.getNumChannels());
     int copyLen = juce::jmin(numSamples, clip.samples.getNumSamples() - sampleOffset);
     if (copyLen <= 0) return;
@@ -520,6 +588,7 @@ void ClipPlayerNode::processAudioRecording(const juce::AudioBuffer<float>& input
     {
         clip.samples.copyFrom(ch, sampleOffset, inputBuffer, ch, 0, copyLen);
     }
+    clip.recordWritePos.store(sampleOffset + copyLen, std::memory_order_release);
 
     // Update clip length
     double endBeat = beatOffset + beatsThisBlock;

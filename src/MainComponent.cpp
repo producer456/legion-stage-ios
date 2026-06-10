@@ -1413,6 +1413,36 @@ MainComponent::MainComponent()
         repaint();
     };
 
+    // ── ioStation 24c: hot-attach + virtual debug surface ────────────
+    iostation.attach(this);
+    iostationDebugView = std::make_unique<IOStation24cDebugView>(iostation);
+    addChildComponent(*iostationDebugView);
+
+    addAndMakeVisible(iostationDebugButton);
+    iostationDebugButton.setClickingTogglesState(true);
+    iostationDebugButton.onClick = [this] {
+        iostationDebugVisible = iostationDebugButton.getToggleState();
+        iostationDebugView->setVisible(iostationDebugVisible);
+        if (iostationDebugVisible) iostationDebugView->toFront(false);
+        resized();
+        repaint();
+    };
+
+    // ── iRig Keys I/O 49: hot-attach + virtual debug surface ────────
+    irig.attach(this);
+    irigDebugView = std::make_unique<IRigKeysIODebugView>(irig);
+    addChildComponent(*irigDebugView);
+
+    addAndMakeVisible(irigDebugButton);
+    irigDebugButton.setClickingTogglesState(true);
+    irigDebugButton.onClick = [this] {
+        irigDebugVisible = irigDebugButton.getToggleState();
+        irigDebugView->setVisible(irigDebugVisible);
+        if (irigDebugVisible) irigDebugView->toFront(false);
+        resized();
+        repaint();
+    };
+
     // On-screen MIDI inspector for the Launchkey DAW port — shows
     // the last 8 raw MIDI messages so we can decode what each
     // button/encoder actually sends without guessing pad colours.
@@ -1481,12 +1511,23 @@ MainComponent::~MainComponent()
 
 void MainComponent::timerCallback()
 {
+    // Message-thread upkeep for the clip players: free deferred-cleared clips once
+    // the audio thread is clear of them, and grow active recording buffers ahead of
+    // the write head (so the audio thread never allocates).
+    for (int t = 0; t < PluginHost::NUM_TRACKS; ++t)
+        if (auto* cp = pluginHost.getTrack(t).clipPlayer)
+            cp->maintain();
+
     // Hot-attach: if the device wasn't plugged in at app launch but
     // is plugged in now, attach() will succeed; otherwise no-op.
     if (!launchkey.isActive()) launchkey.attach(this);
     launchkey.tick();
     if (!keylab88.isActive()) keylab88.attach(this);
     keylab88.tick();
+    if (!iostation.isActive()) iostation.attach(this);
+    iostation.tick();
+    if (!irig.isActive()) irig.attach(this);
+    irig.tick();
     if (keylab88.isActive() && !keylab88ThemeApplied)
     {
         keylab88ThemeApplied = true;
@@ -2563,6 +2604,27 @@ void MainComponent::handleIncomingMidiMessage(juce::MidiInput* source, const juc
         && !source->getName().containsIgnoreCase("daw"))
     {
         if (keylab88.processIncoming(msg)) return;
+    }
+
+    // ioStation 24c — single MIDI port carrying transport / fader /
+    // encoder / channel-strip traffic.  Intercept fully; the device
+    // doesn't send keyboard notes so nothing here should fall through
+    // to the plugin host.
+    if (source != nullptr
+        && source->getName().containsIgnoreCase("iostation"))
+    {
+        if (iostation.processIncoming(msg)) return;
+    }
+
+    // iRig Keys I/O — single MIDI port that ALSO carries keyboard
+    // notes (it's a 49-key controller).  processIncoming() is careful
+    // to only consume the pad notes / encoder + transport CCs and
+    // returns false for everything else so the keyboard reaches
+    // plugins normally.
+    if (source != nullptr
+        && source->getName().containsIgnoreCase("irig"))
+    {
+        if (irig.processIncoming(msg)) return;
     }
 
     // Chord detection for incoming MIDI notes
@@ -3849,6 +3911,14 @@ void MainComponent::trimUndoHistoryByMemory()
 
 void MainComponent::restoreSnapshot(const ProjectSnapshot& snap)
 {
+    // Undo/redo can run while the transport is playing. Clearing and rebuilding the
+    // clip slots reassigns/frees the unique_ptrs the audio thread reads, so suspend
+    // graph processing for the structural edit: suspendProcessing(true) blocks until
+    // the in-flight audio callback exits and stops new ones (the player holds the
+    // graph's callback lock), guaranteeing the audio thread is never inside
+    // ClipPlayerNode::processBlock while we mutate the slots.
+    pluginHost.suspendProcessing(true);
+
     // Clear all clips
     for (int t = 0; t < PluginHost::NUM_TRACKS; ++t)
     {
@@ -3856,12 +3926,7 @@ void MainComponent::restoreSnapshot(const ProjectSnapshot& snap)
         if (cp == nullptr) continue;
 
         for (int s = 0; s < cp->getNumSlots(); ++s)
-        {
-            auto& slot = cp->getSlot(s);
-            slot.clip = nullptr;
-            slot.audioClip = nullptr;
-            slot.state.store(ClipSlot::Empty);
-        }
+            cp->clearSlotDeferred(s);   // marks Empty now, frees after audio is clear
     }
 
     pluginHost.getEngine().setBpm(snap.bpm);
@@ -3913,6 +3978,8 @@ void MainComponent::restoreSnapshot(const ProjectSnapshot& snap)
 
         slot.state.store(ClipSlot::Playing);
     }
+
+    pluginHost.suspendProcessing(false);   // clip slots rebuilt — resume audio
 
     // Restore automation lanes
     for (int t = 0; t < PluginHost::NUM_TRACKS; ++t)
@@ -4218,11 +4285,7 @@ void MainComponent::loadProject()
             auto* cp = pluginHost.getTrack(t).clipPlayer;
             if (cp == nullptr) continue;
             for (int s = 0; s < cp->getNumSlots(); ++s)
-            {
-                cp->getSlot(s).clip = nullptr;
-                cp->getSlot(s).audioClip = nullptr;
-                cp->getSlot(s).state.store(ClipSlot::Empty);
-            }
+                cp->clearSlotDeferred(s);   // marks Empty now, frees after audio is clear
         }
 
         // Clear undo history before loading new project
@@ -5712,6 +5775,10 @@ void MainComponent::resized()
 
         // KL88? toggle pill — sits just to the right of the LK pill.
         kl88DebugButton.setBounds(gap + pillW + gap, getHeight() - pillH - gap, 56, pillH);
+        // iO? toggle pill — sits just to the right of KL88?
+        iostationDebugButton.setBounds(gap + pillW + gap + 56 + gap, getHeight() - pillH - gap, 40, pillH);
+        // iR? toggle pill — to the right of iO?
+        irigDebugButton.setBounds(gap + pillW + gap + 56 + gap + 40 + gap, getHeight() - pillH - gap, 40, pillH);
     }
 
     // Virtual KL88 panel: large overlay near the bottom of the screen.
@@ -5731,6 +5798,46 @@ void MainComponent::resized()
         else
         {
             keylab88DebugView->setVisible(false);
+        }
+    }
+
+    // Virtual ioStation 24c panel — same overlay treatment as KL88.
+    if (iostationDebugView)
+    {
+        if (iostationDebugVisible)
+        {
+            const int margin = 24;
+            const int panelW = juce::jmin(getWidth() - 2 * margin, 720);
+            const int panelH = juce::jmin(getHeight() - 2 * margin, 520);
+            iostationDebugView->setBounds((getWidth() - panelW) / 2,
+                                          (getHeight() - panelH) / 2,
+                                          panelW, panelH);
+            iostationDebugView->setVisible(true);
+            iostationDebugView->toFront(false);
+        }
+        else
+        {
+            iostationDebugView->setVisible(false);
+        }
+    }
+
+    // Virtual iRig Keys I/O panel.
+    if (irigDebugView)
+    {
+        if (irigDebugVisible)
+        {
+            const int margin = 24;
+            const int panelW = juce::jmin(getWidth() - 2 * margin, 900);
+            const int panelH = juce::jmin(getHeight() - 2 * margin, 520);
+            irigDebugView->setBounds((getWidth() - panelW) / 2,
+                                     (getHeight() - panelH) / 2,
+                                     panelW, panelH);
+            irigDebugView->setVisible(true);
+            irigDebugView->toFront(false);
+        }
+        else
+        {
+            irigDebugView->setVisible(false);
         }
     }
 
@@ -9022,6 +9129,14 @@ void MainComponent::controllerParamPageNext()
     juce::MessageManager::callAsync([safe] {
         if (safe) safe->paramPageRight.triggerClick();
     });
+}
+
+float MainComponent::getFocusedTrackVolume() const
+{
+    if (selectedTrackIndex < 0 || selectedTrackIndex >= PluginHost::NUM_TRACKS)
+        return 0.0f;
+    auto& trk = const_cast<PluginHost&>(pluginHost).getTrack(selectedTrackIndex);
+    return trk.gainProcessor ? trk.gainProcessor->volume.load() : 0.0f;
 }
 
 void MainComponent::setFocusedTrackVolumeFromController(float value)
