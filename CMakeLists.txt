@@ -90,6 +90,14 @@ target_sources(Sequencer PRIVATE
     src/KeyLab88Mk2Controller.cpp
     src/KeyLab88DebugView.h
     src/KeyLab88DebugView.cpp
+    src/IOStation24cController.h
+    src/IOStation24cController.cpp
+    src/IOStation24cDebugView.h
+    src/IOStation24cDebugView.cpp
+    src/IRigKeysIOController.h
+    src/IRigKeysIOController.cpp
+    src/IRigKeysIODebugView.h
+    src/IRigKeysIODebugView.cpp
     src/PluginHost.h
     src/PluginHost.cpp
     src/GainProcessor.h

@@ -3,12 +3,24 @@
 
 namespace
 {
-    constexpr uint8_t kCcNextBank   = 0x16, kCcPrevBank   = 0x17, kCcLiveBank   = 0x18;
-    constexpr uint8_t kCcLeftArrow  = 0x1C, kCcRightArrow = 0x1D, kCcSelectMux  = 0x1E;
-    constexpr uint8_t kCcBigKnobRot = 0x70, kCcBigKnobPush = 0x71;
-    constexpr uint8_t kCcCategory   = 0x74, kCcPreset     = 0x75;
-    constexpr uint8_t kCcEncoder[9] = { 0x4A, 0x47, 0x4C, 0x4D, 0x5D, 0x12, 0x13, 0x10, 0x11 };
-    constexpr uint8_t kCcFader  [9] = { 0x49, 0x4B, 0x4F, 0x48, 0x50, 0x51, 0x52, 0x53, 0x55 };
+    // Standard MCU bindings — match what the KL88 actually emits in
+    // DAW=MCU mode.  Faders are pitch-bend per channel; encoders /
+    // big-knob are signed-bit relative on CCs.
+
+    // CCs
+    constexpr uint8_t kCcEncoderBase= 16;       // encoders 1-8 → CCs 16..23
+    constexpr uint8_t kCcMasterEnc  = 24;       // master/9th encoder
+    constexpr uint8_t kCcJogRot     = 60;       // big-knob rotate
+
+    // Notes (channel 1)
+    constexpr uint8_t kNoteSelectBase = 24;     // select buttons under faders → 24..31
+    constexpr uint8_t kNoteJogPush    = 84;     // big-knob push
+    constexpr uint8_t kNoteTrackDn    = 46;
+    constexpr uint8_t kNoteTrackUp    = 47;
+    constexpr uint8_t kNoteBankDn     = 48;
+    constexpr uint8_t kNoteBankUp     = 49;
+    constexpr uint8_t kNotePrevPage   = 98;
+    constexpr uint8_t kNoteNextPage   = 99;
 
     constexpr uint8_t kPadNotes[16] = {
         48, 49, 50, 51,   // top row
@@ -87,30 +99,31 @@ void KeyLab88DebugView::rebuildControls()
     auto mid = area.removeFromTop(70);
     area.removeFromTop(10);
 
+    // Bank / track navigation row — these are notes in MCU mode, not CCs.
     {
-        const struct { const char* label; uint8_t cc; } row[] = {
-            { "BANK-",  kCcPrevBank  }, { "BANK+",  kCcNextBank  }, { "LIVE",   kCcLiveBank   },
-            { "<",      kCcLeftArrow }, { ">",      kCcRightArrow },
-            { "CAT",    kCcCategory  }, { "PRESET", kCcPreset     }
+        const struct { const char* label; uint8_t note; } row[] = {
+            { "BANK-",  kNoteBankDn  }, { "BANK+",  kNoteBankUp  },
+            { "TRK-",   kNoteTrackDn }, { "TRK+",   kNoteTrackUp },
+            { "PG-",    kNotePrevPage}, { "PG+",    kNoteNextPage}
         };
         const int w = 60;
         for (auto& b : row)
         {
             auto r = mid.removeFromLeft(w).reduced(2);
-            const uint8_t cc = b.cc;
-            addButton(r, b.label, "CC " + juce::String(cc),
-                      [cc](juce::Point<int>) { return juce::MidiMessage::controllerEvent(1, cc, 127); });
+            const uint8_t n = b.note;
+            addButton(r, b.label, "n" + juce::String(n),
+                      [n](juce::Point<int>) { return juce::MidiMessage::noteOn(1, n, (juce::uint8) 100); });
         }
     }
     mid.removeFromLeft(20);
 
-    // Big knob
+    // Big knob — rotation = CC 60 signed-bit relative; push = note 84.
     {
         auto r = mid.removeFromLeft(70).reduced(2);
-        controls.push_back({ r, "BIG", "CC 112", Style::BigKnob, 0, kCcBigKnobRot, {} });
+        controls.push_back({ r, "JOG", "CC 60", Style::BigKnob, 0, kCcJogRot, {} });
         auto p = mid.removeFromLeft(60).reduced(2);
-        addButton(p, "PUSH", "CC 113",
-                  [](juce::Point<int>) { return juce::MidiMessage::controllerEvent(1, kCcBigKnobPush, 127); });
+        addButton(p, "PUSH", "n84",
+                  [](juce::Point<int>) { return juce::MidiMessage::noteOn(1, kNoteJogPush, (juce::uint8) 100); });
     }
 
     // ── Bottom-left: pads ─────────────────────────────────────────
@@ -150,27 +163,36 @@ void KeyLab88DebugView::rebuildControls()
                                             bottom.getY(), colW,
                                             bottom.getHeight()).reduced(3, 0);
 
+            // Encoders 1-8 = CC 16..23.  Index 8 (master) = CC 24.
+            const uint8_t encCc = (i < 8) ? (uint8_t)(kCcEncoderBase + i) : kCcMasterEnc;
             auto enc = col.removeFromTop(encH);
             controls.push_back({ enc, "E" + juce::String(i + 1),
-                                 "CC " + juce::String(kCcEncoder[i]),
-                                 Style::Encoder, i, kCcEncoder[i], {} });
+                                 "CC " + juce::String(encCc),
+                                 Style::Encoder, i, encCc, {} });
             col.removeFromTop(6);
 
+            // Faders 1-8 = pitch-bend on channels 1..8.  Index 8 (master)
+            // = pitch-bend channel 9.  No CC# applies; we store kindIndex
+            // and the interaction code emits 0xE0 + kindIndex directly.
             auto fad = col.removeFromTop(fadH);
             controls.push_back({ fad, "F" + juce::String(i + 1),
-                                 "CC " + juce::String(kCcFader[i]),
-                                 Style::Fader, i, kCcFader[i], {} });
+                                 "PB ch" + juce::String(i + 1),
+                                 Style::Fader, i, /*cc=*/0, {} });
             col.removeFromTop(6);
 
+            // Select buttons under each fader = notes 24..31.  No 9th
+            // select button on the device; index 8 stays empty.
             auto sel = col.removeFromTop(selH);
-            const int trackIdx = i;
-            const uint8_t pressVal = (uint8_t)(trackIdx * 2 + 1);
-            controls.push_back({ sel, "S" + juce::String(i + 1),
-                                 "CC 30 / " + juce::String(pressVal),
-                                 Style::SelectBtn, i, kCcSelectMux,
-                                 [pressVal](juce::Point<int>) {
-                                     return juce::MidiMessage::controllerEvent(1, kCcSelectMux, pressVal);
-                                 } });
+            if (i < 8)
+            {
+                const uint8_t selNote = (uint8_t)(kNoteSelectBase + i);
+                controls.push_back({ sel, "S" + juce::String(i + 1),
+                                     "n" + juce::String(selNote),
+                                     Style::SelectBtn, i, selNote,
+                                     [selNote](juce::Point<int>) {
+                                         return juce::MidiMessage::noteOn(1, selNote, (juce::uint8) 100);
+                                     } });
+            }
         }
     }
 }
@@ -293,6 +315,26 @@ void KeyLab88DebugView::paint(juce::Graphics& g)
             g.drawText(c.sub, c.bounds.reduced(2), juce::Justification::centredBottom);
         }
     }
+
+    // ── Live MIDI-in tail (bottom strip) ──────────────────────────
+    // Strictly informational: shows the most recent N hex-formatted
+    // messages the controller has seen so we can capture what physical
+    // buttons emit (e.g. Cat / Preset on this firmware) without needing
+    // a separate inspector overlay.
+    {
+        const int stripH = 88;
+        auto strip = getLocalBounds().removeFromBottom(stripH).reduced(20, 4);
+        g.setColour(juce::Colours::black.withAlpha(0.85f));
+        g.fillRoundedRectangle(strip.toFloat(), 6.0f);
+        g.setColour(juce::Colours::limegreen);
+        g.setFont(juce::Font(juce::Font::getDefaultMonospacedFontName(), 12.0f, juce::Font::plain));
+        auto txt = controller.getLastMessages();
+        if (txt.isEmpty())
+            txt = "MIDI-IN: (no messages yet — tap a control on the device)";
+        else
+            txt = "MIDI-IN:\n" + txt;
+        g.drawMultiLineText(txt, strip.getX() + 8, strip.getY() + 16, strip.getWidth() - 16);
+    }
 }
 
 // ── Interaction ──────────────────────────────────────────────────
@@ -312,7 +354,11 @@ void KeyLab88DebugView::mouseDown(const juce::MouseEvent& e)
                 (float)(c.bounds.getBottom() - e.getPosition().getY())
                 / (float) c.bounds.getHeight());
             if (c.kindIndex >= 0) faderValue[c.kindIndex] = v;
-            controller.injectMessage(juce::MidiMessage::controllerEvent(1, c.cc, (juce::uint8)(v * 127.0f)));
+            // Faders are pitch-bend per channel.  kindIndex 0..7 → ch 1..8;
+            // kindIndex 8 → ch 9 (master).
+            const int channel = c.kindIndex + 1;
+            controller.injectMessage(juce::MidiMessage::pitchWheel(
+                channel, juce::jlimit(0, 16383, (int)(v * 16383.0f))));
             dragControlIdx = (int) i;
             lastDragPos    = e.getPosition();
         }
@@ -346,7 +392,9 @@ void KeyLab88DebugView::mouseDrag(const juce::MouseEvent& e)
             (float)(c.bounds.getBottom() - e.getPosition().getY())
             / (float) c.bounds.getHeight());
         if (c.kindIndex >= 0) faderValue[c.kindIndex] = v;
-        controller.injectMessage(juce::MidiMessage::controllerEvent(1, c.cc, (juce::uint8)(v * 127.0f)));
+        const int channel = c.kindIndex + 1;
+        controller.injectMessage(juce::MidiMessage::pitchWheel(
+            channel, juce::jlimit(0, 16383, (int)(v * 16383.0f))));
         lastFiredIdx = dragControlIdx;
         lastFiredAt  = juce::Time::currentTimeMillis();
         return;

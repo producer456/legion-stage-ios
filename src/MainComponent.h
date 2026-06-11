@@ -31,6 +31,10 @@
 #include "LaunchkeyMK4Controller.h"
 #include "KeyLab88Mk2Controller.h"
 #include "KeyLab88DebugView.h"
+#include "IOStation24cController.h"
+#include "IOStation24cDebugView.h"
+#include "IRigKeysIOController.h"
+#include "IRigKeysIODebugView.h"
 
 // Content wrapper that paints a wireframe outline + black fill around its
 // child when the active theme is wireframe. Used by floating dialogs so
@@ -430,12 +434,26 @@ private:
     // DAW-port output + decodes its DAW-protocol input.
     LaunchkeyMK4Controller launchkey;
     KeyLab88Mk2Controller  keylab88;
+    IOStation24cController iostation;
     bool keylab88ThemeApplied = false;   // one-shot: auto-switch on first detection
 
     // Virtual KL88 panel for testing mappings without the hardware.
     std::unique_ptr<KeyLab88DebugView> keylab88DebugView;
     juce::TextButton kl88DebugButton { "KL88?" };
     bool kl88DebugVisible = false;
+
+    // Virtual ioStation 24c panel — same role as the KL88 debug surface,
+    // for working on ioStation mappings without the hardware plugged in.
+    std::unique_ptr<IOStation24cDebugView> iostationDebugView;
+    juce::TextButton iostationDebugButton { "iO?" };
+    bool iostationDebugVisible = false;
+
+    // iRig Keys I/O 49 — same shape as the ioStation: combined audio
+    // interface + control surface, single MIDI port.
+    IRigKeysIOController irig;
+    std::unique_ptr<IRigKeysIODebugView> irigDebugView;
+    juce::TextButton irigDebugButton { "iR?" };
+    bool irigDebugVisible = false;
 
     // KL88 snapshot slots — captured mixer + visible-param state per
     // slot.  In-memory only (lost on app close), small enough that we
@@ -468,6 +486,8 @@ public:
 
     // ── Launchkey MK4 native controller bridge ──
     SessionViewComponent* getSessionViewComponent() { return sessionViewComponent.get(); }
+    int   getFocusedTrackIndex()  const { return selectedTrackIndex; }
+    float getFocusedTrackVolume() const;   // 0..1 atomic read; 0 if no track
     void controllerPlayToggle();
     void controllerStop();
     void controllerRecordToggle();
