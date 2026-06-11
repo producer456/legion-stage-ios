@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(Sequencer VERSION 1.10.1)
+project(Sequencer VERSION 1.10.2)
 
 # CFBundleVersion (build number).  Defaults to the project VERSION
 # but the deploy script overrides it with epoch seconds so TestFlight
