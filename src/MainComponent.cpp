@@ -9,6 +9,8 @@
 #if JUCE_IOS || JUCE_MAC
 #include <mach/mach.h>
 #endif
+#include <map>
+#include <deque>
 
 MainComponent::MainComponent()
 {
@@ -1518,6 +1520,19 @@ void MainComponent::timerCallback()
     for (int t = 0; t < PluginHost::NUM_TRACKS; ++t)
         if (auto* cp = pluginHost.getTrack(t).clipPlayer)
             cp->maintain();
+
+    // Move-style capture discipline: the capture buffer holds what was played
+    // since the last transport transition, so clear it on every play/stop edge
+    // (replaces the old phrase-segmentation heuristics).
+    {
+        bool playing = pluginHost.getEngine().isPlaying();
+        if (playing != lastTransportPlaying)
+        {
+            lastTransportPlaying = playing;
+            captureCount.store(0);
+            captureWritePos.store(0);
+        }
+    }
 
     // Hot-attach: if the device wasn't plugged in at app launch but
     // is plugged in now, attach() will succeed; otherwise no-op.
@@ -3275,245 +3290,138 @@ static juce::Array<MainComponent::CaptureEvent> extractRingBuffer(
     return result;
 }
 
-// ── Phrase Segmentation ──
-// Scans backward from the end to find the musical phrase start.
-// Uses silence thresholding (>2s gap) and density clustering.
-static int findPhraseStart(const juce::Array<MainComponent::CaptureEvent>& events)
+// ── Tempo Estimates via median IOI (NoteLab capture port) ──
+// Median inter-onset interval interpreted three ways (as a 16th, an 8th, a
+// quarter), each folded into 55–200 and rounded to 0.5 BPM. Primary (index 0)
+// is the most musical reading (closest to 110); the rest are offered to the
+// user as alternates. Playback is identical at any choice because the grid
+// and the tempo move together.
+static juce::Array<double> tempoEstimates(const juce::Array<double>& onsetTimesSeconds,
+                                          double fallbackBpm)
 {
-    if (events.isEmpty()) return 0;
-
-    constexpr double silenceThreshold = 2.0;  // seconds of silence = phrase boundary
-
-    // Collect note-on indices and times
-    juce::Array<int> noteOnIndices;
-    juce::Array<double> noteOnTimes;
-    for (int i = 0; i < events.size(); ++i)
-    {
-        if (events[i].type == MainComponent::CaptureEvent::NoteOn)
-        {
-            noteOnIndices.add(i);
-            noteOnTimes.add(events[i].absTime);
-        }
-    }
-
-    if (noteOnTimes.size() < 2) return 0;
-
-    // Scan backward through note onsets looking for a gap > silenceThreshold
-    int phraseFirstOnsetIdx = 0;
-    for (int i = noteOnTimes.size() - 1; i > 0; --i)
-    {
-        double gap = noteOnTimes[i] - noteOnTimes[i - 1];
-        if (gap > silenceThreshold)
-        {
-            phraseFirstOnsetIdx = i;
-            break;
-        }
-    }
-
-    // The phrase starts at (or slightly before) the first onset after the gap.
-    // Include any events (CC, pitch bend) that precede the first note-on of the phrase
-    // by up to 0.1 seconds (pre-note expression).
-    int firstOnsetRingIdx = noteOnIndices[phraseFirstOnsetIdx];
-    double phraseTime = events[firstOnsetRingIdx].absTime;
-
-    for (int i = firstOnsetRingIdx - 1; i >= 0; --i)
-    {
-        if (phraseTime - events[i].absTime > 0.1)
-            return i + 1;
-    }
-    return 0;
-}
-
-// ── Tempo Induction via IOI Histogram ──
-// Analyzes inter-onset intervals, builds histogram, finds common denominator (tatum).
-// Returns BPM clamped to 80-160.
-static double detectTempoIOI(const juce::Array<double>& onsetTimesSeconds)
-{
-    if (onsetTimesSeconds.size() < 3) return 120.0;
-
-    // Collect all inter-onset intervals
-    juce::Array<double> intervals;
+    juce::Array<double> iois;
     for (int i = 1; i < onsetTimesSeconds.size(); ++i)
     {
         double dt = onsetTimesSeconds[i] - onsetTimesSeconds[i - 1];
-        if (dt > 0.05 && dt < 2.0)
-            intervals.add(dt);
+        if (dt > 0.03 && dt < 3.0)
+            iois.add(dt);
     }
-    if (intervals.isEmpty()) return 120.0;
 
-    // Build histogram: try BPM candidates 80-160 and score by how well intervals
-    // align to multiples of the beat duration
-    double bestBpm = 120.0;
-    double bestScore = 0.0;
-
-    for (int candidateBpm = 80; candidateBpm <= 160; ++candidateBpm)
+    juce::Array<double> out;
+    if (iois.size() < 2)
     {
-        double beatDur = 60.0 / candidateBpm;
-        double score = 0.0;
-
-        for (auto& interval : intervals)
-        {
-            // Score based on proximity to any integer multiple of beat duration
-            double beats = interval / beatDur;
-            double nearest = std::round(beats);
-            if (nearest < 1.0) nearest = 1.0;
-            double error = std::abs(beats - nearest) / nearest;
-            score += std::exp(-error * 10.0);
-        }
-
-        if (score > bestScore)
-        {
-            bestScore = score;
-            bestBpm = static_cast<double>(candidateBpm);
-        }
+        out.add(juce::jlimit(40.0, 240.0, fallbackBpm));
+        return out;
     }
 
-    // Clamp final result to 80-160 BPM range
-    return juce::jlimit(80.0, 160.0, bestBpm);
+    iois.sort();
+    double median = iois[iois.size() / 2];
+
+    for (double beats : { 0.25, 0.5, 1.0 })
+    {
+        double bpm = 60.0 * beats / median;
+        while (bpm > 200.0) bpm /= 2.0;
+        while (bpm < 55.0)  bpm *= 2.0;
+        bpm = std::round(bpm * 2.0) / 2.0;
+
+        bool dup = false;
+        for (auto b : out)
+            if (std::abs(b - bpm) < 1.0) { dup = true; break; }
+        if (!dup)
+            out.add(juce::jlimit(40.0, 240.0, bpm));
+    }
+
+    std::sort(out.begin(), out.end(),
+              [](double a, double b) { return std::abs(a - 110.0) < std::abs(b - 110.0); });
+    return out;
 }
 
-// ── Downbeat Estimation ──
-// Adjusts the phrase start time to account for pickup notes (anacrusis).
-// If the first note is short and weak compared to the following chord/note,
-// treat the strong event as beat 1 and shift the downbeat back.
-// Returns the time offset (in seconds) from the first event to the downbeat.
-static double estimateDownbeatOffset(const juce::Array<MainComponent::CaptureEvent>& phrase)
+// ── Capture gridding (NoteLab port) ──
+// Hard-quantizes raw captured events to a 12-ticks-per-beat grid (48/bar — the
+// LCM of binary and triplet 16ths, so triplets survive exactly). Note-ons keep
+// their as-played velocity; lengths come from the real note-off when one was
+// captured, else default to a 16th. Returns events beat-stamped relative to t0
+// and sets lengthInBeats to the bar-rounded extent (min 1 bar).
+static juce::MidiMessageSequence gridCapture(const juce::Array<MainComponent::CaptureEvent>& raw,
+                                             double t0, double secPerTick,
+                                             double& lengthInBeats)
 {
-    // Find first two note-on events
-    int firstIdx = -1, secondIdx = -1;
-    for (int i = 0; i < phrase.size(); ++i)
+    constexpr double ticksPerBeat = 12.0;
+    constexpr int ticksPerBar = 48;
+
+    // Pre-index note-offs by (channel, note) in time order for duration pairing.
+    std::map<int, std::deque<int>> offsByKey;
+    for (int i = 0; i < raw.size(); ++i)
+        if (raw[i].type == MainComponent::CaptureEvent::NoteOff)
+            offsByKey[(raw[i].channel << 8) | raw[i].data1].push_back(i);
+
+    juce::MidiMessageSequence seq;
+    int maxEndTicks = 1;
+
+    for (const auto& e : raw)
     {
-        if (phrase[i].type != MainComponent::CaptureEvent::NoteOn) continue;
-        if (firstIdx < 0) { firstIdx = i; continue; }
-        secondIdx = i;
-        break;
-    }
+        int tick = juce::jmax(0, (int) std::round((e.absTime - t0) / secPerTick));
+        double beat = tick / ticksPerBeat;
 
-    if (firstIdx < 0 || secondIdx < 0) return 0.0;
-
-    const auto& first = phrase[firstIdx];
-    const auto& second = phrase[secondIdx];
-    double gap = second.absTime - first.absTime;
-
-    // Heuristic: if the first note is significantly weaker than the second,
-    // and the gap is short (< 0.5 beat equivalent, roughly < 0.3s at 120 BPM),
-    // treat the first note as a pickup.
-    bool isPickup = (first.data2 < second.data2 * 0.7) && (gap < 0.4);
-
-    // Also check if second event is a chord (multiple note-ons within 30ms)
-    if (!isPickup && gap < 0.4)
-    {
-        int chordCount = 0;
-        for (int i = secondIdx; i < phrase.size(); ++i)
+        switch (e.type)
         {
-            if (phrase[i].type != MainComponent::CaptureEvent::NoteOn) continue;
-            if (phrase[i].absTime - second.absTime < 0.03) chordCount++;
-            else break;
-        }
-        if (chordCount >= 2 && first.data2 < second.data2)
-            isPickup = true;
-    }
-
-    if (isPickup)
-    {
-        // The downbeat is at the second note; return negative offset so the
-        // first note becomes a pickup before beat 1
-        return -(second.absTime - first.absTime);
-    }
-
-    return 0.0;
-}
-
-// ── Loop Detection ──
-// Finds shortest repeating pattern in beat-quantized onsets
-static double detectLoopLength(const juce::MidiMessageSequence& events, double totalBeats)
-{
-    juce::Array<double> onsets;
-    for (int i = 0; i < events.getNumEvents(); ++i)
-        if (events.getEventPointer(i)->message.isNoteOn())
-            onsets.add(events.getEventPointer(i)->message.getTimeStamp());
-
-    if (onsets.size() < 4) return totalBeats;
-
-    double candidates[] = { 8.0, 16.0, 32.0 };  // 2, 4, 8 bars
-
-    for (auto loopLen : candidates)
-    {
-        if (loopLen >= totalBeats) continue;
-        if (totalBeats / loopLen < 1.8) continue;
-
-        int matches = 0;
-        int totalNotes = 0;
-
-        for (auto onset : onsets)
-        {
-            if (onset >= loopLen) break;
-            totalNotes++;
-
-            bool found = false;
-            for (double cycle = loopLen; cycle < totalBeats; cycle += loopLen)
+            case MainComponent::CaptureEvent::NoteOn:
             {
-                for (auto other : onsets)
+                int lenTicks = 3;   // default 1/16 if released outside the buffer
+                auto& offs = offsByKey[(e.channel << 8) | e.data1];
+                while (!offs.empty() && raw[offs.front()].absTime <= e.absTime)
+                    offs.pop_front();
+                if (!offs.empty())
                 {
-                    if (std::abs((other - cycle) - onset) < 0.25)
-                    {
-                        found = true;
-                        break;
-                    }
+                    lenTicks = juce::jmax(1, (int) std::round(
+                        (raw[offs.front()].absTime - e.absTime) / secPerTick));
+                    offs.pop_front();
                 }
-                if (!found) break;
+
+                auto on = juce::MidiMessage::noteOn(e.channel, (int) e.data1, (juce::uint8) e.data2);
+                on.setTimeStamp(beat);
+                seq.addEvent(on);
+
+                auto off = juce::MidiMessage::noteOff(e.channel, (int) e.data1);
+                off.setTimeStamp((tick + lenTicks) / ticksPerBeat);
+                seq.addEvent(off);
+
+                maxEndTicks = juce::jmax(maxEndTicks, tick + lenTicks);
+                break;
             }
-            if (found) matches++;
-        }
-
-        if (totalNotes > 0 && static_cast<double>(matches) / totalNotes > 0.7)
-            return loopLen;
-    }
-
-    return totalBeats;
-}
-
-// ── Soft Quantize (80% strength to 1/16 grid) ──
-static void softQuantize(juce::MidiMessageSequence& events, double gridSize = 0.25)
-{
-    constexpr double strength = 0.8;
-
-    // Quantize all events, then ensure note-offs stay after their note-ons
-    for (int i = 0; i < events.getNumEvents(); ++i)
-    {
-        auto& msg = events.getEventPointer(i)->message;
-        double t = msg.getTimeStamp();
-        double nearest = std::round(t / gridSize) * gridSize;
-        msg.setTimeStamp(t + (nearest - t) * strength);
-    }
-
-    // Fix any inverted note pairs (note-off before note-on)
-    events.updateMatchedPairs();
-    for (int i = 0; i < events.getNumEvents(); ++i)
-    {
-        auto* evt = events.getEventPointer(i);
-        if (evt->message.isNoteOn() && evt->noteOffObject != nullptr)
-        {
-            double onTime = evt->message.getTimeStamp();
-            double offTime = evt->noteOffObject->message.getTimeStamp();
-            if (offTime <= onTime)
-                evt->noteOffObject->message.setTimeStamp(onTime + 0.05);  // minimum 1/20 beat
+            case MainComponent::CaptureEvent::NoteOff:
+                break;   // consumed by pairing above
+            case MainComponent::CaptureEvent::CC:
+            {
+                auto m = juce::MidiMessage::controllerEvent(e.channel, (int) e.data1, (int) e.data2);
+                m.setTimeStamp(beat);
+                seq.addEvent(m);
+                break;
+            }
+            case MainComponent::CaptureEvent::PitchBend:
+            {
+                auto m = juce::MidiMessage::pitchWheel(e.channel, e.pitchBend + 8192);
+                m.setTimeStamp(beat);
+                seq.addEvent(m);
+                break;
+            }
         }
     }
-}
 
-// ── Check if project has any existing clips ──
-static bool projectHasClips(PluginHost& host)
-{
-    for (int t = 0; t < PluginHost::NUM_TRACKS; ++t)
+    int lenTicks = juce::jmax(1, (int) std::ceil(maxEndTicks / (double) ticksPerBar)) * ticksPerBar;
+    lengthInBeats = lenTicks / ticksPerBeat;
+
+    // Clamp anything that landed at/past the end (mirrors closeOpenNotes' margin).
+    for (int i = 0; i < seq.getNumEvents(); ++i)
     {
-        auto& track = host.getTrack(t);
-        if (track.clipPlayer == nullptr) continue;
-        for (int s = 0; s < track.clipPlayer->getNumSlots(); ++s)
-            if (track.clipPlayer->getSlot(s).hasContent())
-                return true;
+        auto& m = seq.getEventPointer(i)->message;
+        if (m.getTimeStamp() >= lengthInBeats)
+            m.setTimeStamp(lengthInBeats - 0.01);
     }
-    return false;
+
+    seq.sort();
+    seq.updateMatchedPairs();
+    return seq;
 }
 
 void MainComponent::performCapture()
@@ -3539,197 +3447,32 @@ void MainComponent::performCapture()
         statusLabel.setText("Nothing to capture", juce::dontSendNotification);
         return;
     }
-    auto allEvents = extractRingBuffer(captureRing, wp, safeCount);
+    auto phrase = extractRingBuffer(captureRing, wp, safeCount);
 
-    // ── 2. Phrase Segmentation — find the musical idea ──
-    int phraseStart = findPhraseStart(allEvents);
-    juce::Array<CaptureEvent> phrase;
-    for (int i = phraseStart; i < allEvents.size(); ++i)
-        phrase.add(allEvents[i]);
-
+    // Move-style capture: the buffer holds everything played since the last
+    // transport transition (the ring is cleared on play/stop edges), so the
+    // whole buffer IS the phrase — no segmentation heuristics.
     if (phrase.isEmpty())
     {
         statusLabel.setText("Nothing to capture", juce::dontSendNotification);
         return;
     }
 
-    // Collect note-on times (in seconds) for tempo analysis
+    // Collect note-on times (in seconds) for tempo analysis; t0 = first note.
     juce::Array<double> noteOnTimes;
     for (auto& e : phrase)
         if (e.type == CaptureEvent::NoteOn)
             noteOnTimes.add(e.absTime);
 
-    if (noteOnTimes.size() < 2)
+    if (noteOnTimes.isEmpty())
     {
-        statusLabel.setText("Not enough notes", juce::dontSendNotification);
+        statusLabel.setText("Nothing to capture", juce::dontSendNotification);
         return;
     }
 
     auto& eng = pluginHost.getEngine();
     bool transportWasPlaying = eng.isPlaying();
 
-    // ── 3. Tempo Induction ──
-    double bpm = eng.getBpm();
-    bool emptyProject = !projectHasClips(pluginHost);
-
-    if (!transportWasPlaying && emptyProject)
-    {
-        // Case 1: Empty project — detect tempo, set global BPM
-        if (noteOnTimes.size() >= 3)
-        {
-            bpm = detectTempoIOI(noteOnTimes);
-            eng.setBpm(bpm);
-        }
-    }
-    // Case 2: Existing project or transport playing — use existing BPM (warp to grid)
-
-    double beatsPerSecond = bpm / 60.0;
-
-    // ── 4. Downbeat Estimation ──
-    double downbeatOffset = estimateDownbeatOffset(phrase);
-    // Clamp offset to prevent pathological values (max 1 beat pickup)
-    double maxPickupSeconds = 60.0 / bpm;  // 1 beat in seconds
-    downbeatOffset = juce::jlimit(-maxPickupSeconds, 0.0, downbeatOffset);
-
-    double phraseStartTime = phrase.getFirst().absTime;
-    double phraseEndTime = phrase.getLast().absTime;
-    // Downbeat reference: where beat 1.1.1 falls in absolute time
-    double downbeatTime = phraseStartTime - downbeatOffset;
-
-    // ── 5. Convert absolute time to beat positions ──
-    // Find the last note-off/note-on time for accurate duration (ignore trailing CC/PB)
-    double lastNoteTime = phraseStartTime;
-    for (int i = phrase.size() - 1; i >= 0; --i)
-    {
-        if (phrase[i].type == CaptureEvent::NoteOn || phrase[i].type == CaptureEvent::NoteOff)
-        {
-            lastNoteTime = phrase[i].absTime;
-            break;
-        }
-    }
-
-    juce::MidiMessageSequence beatEvents;
-    for (auto& e : phrase)
-    {
-        double beatPos = (e.absTime - downbeatTime) * beatsPerSecond;
-
-        // Pickup notes land at negative beat positions — wrap them to the end
-        // of the previous bar (e.g., -0.5 beats → 3.5 in a 4-beat bar).
-        // We'll shift them after we know the clip length.
-
-        juce::MidiMessage msg;
-        switch (e.type)
-        {
-            case CaptureEvent::NoteOn:
-                msg = juce::MidiMessage::noteOn(e.channel, (int)e.data1, (juce::uint8)e.data2);
-                break;
-            case CaptureEvent::NoteOff:
-                msg = juce::MidiMessage::noteOff(e.channel, (int)e.data1);
-                break;
-            case CaptureEvent::CC:
-                msg = juce::MidiMessage::controllerEvent(e.channel, (int)e.data1, (int)e.data2);
-                break;
-            case CaptureEvent::PitchBend:
-                msg = juce::MidiMessage::pitchWheel(e.channel, e.pitchBend + 8192);
-                break;
-        }
-        msg.setTimeStamp(beatPos);
-        beatEvents.addEvent(msg);
-    }
-    beatEvents.updateMatchedPairs();
-
-    // ── 6. Calculate clip length — round to nearest musical unit (2, 4, 8 bars) ──
-    double durationBeats = (lastNoteTime - downbeatTime) * beatsPerSecond;
-    double lengthInBeats;
-    if (durationBeats <= 8.0)
-        lengthInBeats = 8.0;   // 2 bars
-    else if (durationBeats <= 16.0)
-        lengthInBeats = 16.0;  // 4 bars
-    else if (durationBeats <= 32.0)
-        lengthInBeats = 32.0;  // 8 bars
-    else
-        lengthInBeats = std::ceil(durationBeats / 16.0) * 16.0;  // round to 4-bar blocks
-    if (lengthInBeats < 8.0) lengthInBeats = 8.0;
-
-    // ── 7. Wrap negative beat positions (pickup notes) to end of clip ──
-    beatEvents.updateMatchedPairs();
-    for (int i = 0; i < beatEvents.getNumEvents(); ++i)
-    {
-        auto* evt = beatEvents.getEventPointer(i);
-        if (evt->message.getTimeStamp() < 0.0)
-        {
-            double shift = lengthInBeats;
-            evt->message.setTimeStamp(evt->message.getTimeStamp() + shift);
-            // Also wrap the paired note-off, but only if it's also negative.
-            // If note-off is already positive (e.g. note-on at -0.5, note-off at 0.5),
-            // shifting it would push it beyond the clip end.
-            if (evt->message.isNoteOn() && evt->noteOffObject != nullptr)
-            {
-                if (evt->noteOffObject->message.getTimeStamp() < 0.0)
-                    evt->noteOffObject->message.setTimeStamp(
-                        evt->noteOffObject->message.getTimeStamp() + shift);
-            }
-        }
-    }
-    beatEvents.updateMatchedPairs();
-
-    // ── 8. Soft Quantize (80% strength, 1/16 grid) ──
-    softQuantize(beatEvents, 0.25);
-    beatEvents.updateMatchedPairs();
-
-    // ── 8. Loop Detection — trim to shortest repeating cycle ──
-    double loopLen = detectLoopLength(beatEvents, lengthInBeats);
-    if (loopLen < lengthInBeats)
-    {
-        juce::MidiMessageSequence trimmed;
-        std::set<int> openNotes;
-
-        for (int i = 0; i < beatEvents.getNumEvents(); ++i)
-        {
-            auto& msg = beatEvents.getEventPointer(i)->message;
-            if (msg.getTimeStamp() >= loopLen) break;
-
-            trimmed.addEvent(msg);
-            if (msg.isNoteOn())
-                openNotes.insert(msg.getNoteNumber());
-            else if (msg.isNoteOff())
-                openNotes.erase(msg.getNoteNumber());
-        }
-
-        // Close any notes still open at the loop boundary
-        for (int note : openNotes)
-        {
-            auto noteOff = juce::MidiMessage::noteOff(1, note);
-            noteOff.setTimeStamp(loopLen - 0.01);
-            trimmed.addEvent(noteOff);
-        }
-
-        trimmed.updateMatchedPairs();
-        beatEvents = trimmed;
-        lengthInBeats = loopLen;
-    }
-
-    // ── 9. Close any unclosed notes at clip boundary ──
-    {
-        beatEvents.updateMatchedPairs();
-        std::set<int> openNotes;
-        for (int i = 0; i < beatEvents.getNumEvents(); ++i)
-        {
-            auto& msg = beatEvents.getEventPointer(i)->message;
-            if (msg.isNoteOn()) openNotes.insert(msg.getNoteNumber());
-            else if (msg.isNoteOff()) openNotes.erase(msg.getNoteNumber());
-        }
-        for (int note : openNotes)
-        {
-            auto noteOff = juce::MidiMessage::noteOff(1, note);
-            noteOff.setTimeStamp(lengthInBeats - 0.01);
-            beatEvents.addEvent(noteOff);
-        }
-        if (!openNotes.empty())
-            beatEvents.updateMatchedPairs();
-    }
-
-    // ── 10. Create clip ──
     auto& track = pluginHost.getTrack(selectedTrackIndex);
     if (track.clipPlayer == nullptr) return;
 
@@ -3737,58 +3480,129 @@ void MainComponent::performCapture()
 
     takeSnapshot();
 
-    auto newClip = std::make_unique<MidiClip>();
-    newClip->lengthInBeats = lengthInBeats;
-    newClip->events = beatEvents;
-
-    // ── 10. Transport-aware placement ──
     if (transportWasPlaying)
     {
-        // Warp: place relative to current playback position, snapped to bar
+        // ── Running transport: notes land on the LIVE grid, no tempo estimate.
+        // Anchor the clip to the start of the bar containing the first note.
+        double bpm = eng.getBpm();
+        double bps = bpm / 60.0;
         double nowTime = juce::Time::getMillisecondCounterHiRes() * 0.001;
-        double currentPosBeats = eng.getPositionInBeats();
-        double captureStartBeats = currentPosBeats - (nowTime - downbeatTime) * beatsPerSecond;
-        captureStartBeats = std::floor(captureStartBeats / 4.0) * 4.0;
-        if (captureStartBeats < 0.0) captureStartBeats = 0.0;
-        newClip->timelinePosition = captureStartBeats;
+        double t0 = noteOnTimes.getFirst();
+        double beatAtT0 = eng.getPositionInBeats() - (nowTime - t0) * bps;
+        double barStart = std::floor(beatAtT0 / 4.0) * 4.0;
+        if (barStart < 0.0) barStart = 0.0;
+        double anchorTime = t0 - (beatAtT0 - barStart) / bps;
+        double secPerTick = 1.0 / (bps * 12.0);
+
+        double lengthInBeats = 4.0;
+        auto beatEvents = gridCapture(phrase, anchorTime, secPerTick, lengthInBeats);
+
+        auto newClip = std::make_unique<MidiClip>();
+        newClip->events = beatEvents;
+        newClip->lengthInBeats = lengthInBeats;
+        newClip->timelinePosition = barStart;
+
+        {
+            PluginHost::ScopedAudioEdit guard(pluginHost);
+            track.clipPlayer->getSlot(emptySlot).clip = std::move(newClip);
+            track.clipPlayer->getSlot(emptySlot).state.store(ClipSlot::Playing);
+        }
+        track.clipPlayer->sendAllNotesOff.store(true);
+
+        eng.setLoopRegion(barStart, barStart + lengthInBeats);
+        if (!eng.isLoopEnabled())
+            eng.toggleLoop();
+        loopButton.setToggleState(true, juce::dontSendNotification);
+
+        dismissTempoChoices();
+        showCaptureInfo(emptySlot, 0.0);
     }
     else
     {
-        newClip->timelinePosition = 0.0;
+        // ── Stopped transport: estimate tempo from the playing (median IOI as
+        // 16th/8th/quarter), apply the primary, offer alternates in a chooser.
+        // Grid + tempo move together, so playback matches the performance at
+        // any choice.
+        auto bpms = tempoEstimates(noteOnTimes, eng.getBpm());
+
+        lastCaptureRaw = phrase;
+        lastCaptureT0 = noteOnTimes.getFirst();
+        lastCaptureTrack = selectedTrackIndex;
+        lastCaptureSlot = emptySlot;
+        captureTempoChoices.clearQuick();
+        if (bpms.size() > 1)
+            captureTempoChoices = bpms;
+
+        applyCapture(bpms[0]);
+        showTempoChoices();
+        showCaptureInfo(emptySlot, bpms[0]);
     }
 
-    double clipStartBeats = transportWasPlaying ? newClip->timelinePosition : 0.0;
-    double clipEndBeats = clipStartBeats + lengthInBeats;
+    // Clear ring buffer (also cleared on every transport edge by timerCallback)
+    captureCount.store(0);
+    captureWritePos.store(0);
 
-    track.clipPlayer->getSlot(emptySlot).clip = std::move(newClip);
-    track.clipPlayer->getSlot(emptySlot).state.store(ClipSlot::Playing);
+    if (timelineComponent) timelineComponent->repaint();
+}
 
-    // Set loop region around the captured clip and enable looping
-    eng.setLoopRegion(clipStartBeats, clipEndBeats);
+// Re-grid the last stopped-transport capture at a chosen tempo and make it the
+// global BPM. Called for the primary estimate and again whenever the user taps
+// an alternate in the chooser — the clip is rebuilt from the raw performance,
+// so switching is lossless.
+void MainComponent::applyCapture(double bpm)
+{
+    if (lastCaptureTrack < 0 || lastCaptureRaw.isEmpty()) return;
+    auto& track = pluginHost.getTrack(lastCaptureTrack);
+    if (track.clipPlayer == nullptr) return;
+    if (lastCaptureSlot < 0 || lastCaptureSlot >= track.clipPlayer->getNumSlots()) return;
+
+    auto& eng = pluginHost.getEngine();
+    double secPerTick = 60.0 / bpm / 12.0;
+
+    double lengthInBeats = 4.0;
+    auto beatEvents = gridCapture(lastCaptureRaw, lastCaptureT0, secPerTick, lengthInBeats);
+
+    auto newClip = std::make_unique<MidiClip>();
+    newClip->events = beatEvents;
+    newClip->lengthInBeats = lengthInBeats;
+    newClip->timelinePosition = 0.0;
+
+    {
+        PluginHost::ScopedAudioEdit guard(pluginHost);
+        track.clipPlayer->getSlot(lastCaptureSlot).clip = std::move(newClip);
+        track.clipPlayer->getSlot(lastCaptureSlot).state.store(ClipSlot::Playing);
+    }
+    track.clipPlayer->sendAllNotesOff.store(true);
+
+    eng.setBpm(bpm);
+    eng.setLoopRegion(0.0, lengthInBeats);
     if (!eng.isLoopEnabled())
         eng.toggleLoop();
     loopButton.setToggleState(true, juce::dontSendNotification);
 
-    // Reset playhead to clip start, flush state, and start transport
-    eng.setPosition(clipStartBeats);
-    track.clipPlayer->sendAllNotesOff.store(true);
+    eng.setPosition(0.0);
     if (!eng.isPlaying())
         eng.play();
 
-    // Clear ring buffer
-    captureCount.store(0);
-    captureWritePos.store(0);
+    if (timelineComponent) timelineComponent->repaint();
+}
 
-    // Count notes for display
+void MainComponent::showCaptureInfo(int slotIndex, double shownBpm)
+{
+    auto& track = pluginHost.getTrack(selectedTrackIndex);
+    if (track.clipPlayer == nullptr) return;
+    auto* clip = track.clipPlayer->getSlot(slotIndex).clip.get();
+    if (clip == nullptr) return;
+
     int numNotes = 0;
-    for (int i = 0; i < track.clipPlayer->getSlot(emptySlot).clip->events.getNumEvents(); ++i)
-        if (track.clipPlayer->getSlot(emptySlot).clip->events.getEventPointer(i)->message.isNoteOn())
+    for (int i = 0; i < clip->events.getNumEvents(); ++i)
+        if (clip->events.getEventPointer(i)->message.isNoteOn())
             numNotes++;
 
-    int bars = static_cast<int>(lengthInBeats / 4);
+    int bars = juce::jmax(1, (int) (clip->lengthInBeats / 4));
     juce::String info = "Captured " + juce::String(numNotes) + " notes";
-    if (!transportWasPlaying && emptyProject)
-        info += " @ " + juce::String(static_cast<int>(bpm)) + " BPM";
+    if (shownBpm > 0.0)
+        info += " @ " + juce::String(shownBpm, shownBpm == std::floor(shownBpm) ? 0 : 1) + " BPM";
 
     statusLabel.setText(info, juce::dontSendNotification);
     chordLabel.setText(juce::String(bars) + " bar" + (bars != 1 ? "s" : ""), juce::dontSendNotification);
@@ -3800,8 +3614,70 @@ void MainComponent::performCapture()
             self->chordLabel.setText("---", juce::dontSendNotification);
         }
     });
+}
 
-    if (timelineComponent) timelineComponent->repaint();
+// ── Capture tempo chooser ── a row of BPM buttons shown after a
+// stopped-transport capture; tapping one re-grids the take at that tempo.
+void MainComponent::showTempoChoices()
+{
+    tempoChoiceButtons.clear(true);
+    tempoDismissButton.reset();
+    if (captureTempoChoices.size() < 2) return;
+
+    auto& theme = themeManager.getColors();
+
+    for (int i = 0; i < captureTempoChoices.size(); ++i)
+    {
+        double bpm = captureTempoChoices[i];
+        auto* b = tempoChoiceButtons.add(new juce::TextButton(
+            juce::String(bpm, bpm == std::floor(bpm) ? 0 : 1)));
+        b->setClickingTogglesState(false);
+        b->setToggleState(i == 0, juce::dontSendNotification);
+        b->setColour(juce::TextButton::buttonOnColourId, juce::Colour(theme.green));
+        b->onClick = [this, bpm, i] {
+            applyCapture(bpm);
+            for (int j = 0; j < tempoChoiceButtons.size(); ++j)
+                tempoChoiceButtons[j]->setToggleState(j == i, juce::dontSendNotification);
+        };
+        addAndMakeVisible(b);
+    }
+
+    tempoDismissButton = std::make_unique<juce::TextButton>("X");
+    tempoDismissButton->onClick = [this] { dismissTempoChoices(); };
+    addAndMakeVisible(*tempoDismissButton);
+
+    layoutTempoChoices();
+}
+
+void MainComponent::layoutTempoChoices()
+{
+    if (tempoChoiceButtons.isEmpty()) return;
+    // Anchor the row under the capture button.
+    auto cap = captureButton.getBounds();
+    int w = 56, h = juce::jmax(28, cap.getHeight()), gap = 4;
+    int x = juce::jmax(4, cap.getRight() - (tempoChoiceButtons.size() * (w + gap) + h));
+    int y = juce::jmin(getHeight() - h - 4, cap.getBottom() + gap);
+    for (auto* b : tempoChoiceButtons)
+    {
+        b->setBounds(x, y, w, h);
+        b->toFront(false);
+        x += w + gap;
+    }
+    if (tempoDismissButton)
+    {
+        tempoDismissButton->setBounds(x, y, h, h);
+        tempoDismissButton->toFront(false);
+    }
+}
+
+void MainComponent::dismissTempoChoices()
+{
+    tempoChoiceButtons.clear(true);
+    tempoDismissButton.reset();
+    captureTempoChoices.clearQuick();
+    lastCaptureRaw.clearQuick();
+    lastCaptureTrack = -1;
+    lastCaptureSlot = -1;
 }
 
 void MainComponent::takeSnapshot()
@@ -3912,6 +3788,10 @@ void MainComponent::trimUndoHistoryByMemory()
 
 void MainComponent::restoreSnapshot(const ProjectSnapshot& snap)
 {
+    // The tempo chooser re-grids into a specific slot; after a restore that slot
+    // may hold something else entirely, so drop the pending capture.
+    dismissTempoChoices();
+
     // Undo/redo can run while the transport is playing. Clearing and rebuilding the
     // clip slots reassigns/frees the unique_ptrs the audio thread reads, so suspend
     // graph processing for the structural edit: suspendProcessing(true) blocks until
@@ -7266,6 +7146,8 @@ void MainComponent::resized()
     // Hide minimap when mixer is visible or timeline is hidden
     if (mixerVisible && arrangerMinimap)
         arrangerMinimap->setVisible(false);
+
+    layoutTempoChoices();
 }
 
 // ── Keyboard ─────────────────────────────────────────────────────────────────

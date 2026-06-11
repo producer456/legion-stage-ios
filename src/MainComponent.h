@@ -268,6 +268,23 @@ private:
 
     void performCapture();
 
+    // NoteLab-style capture: raw take + target kept so the tempo chooser can
+    // re-grid the same performance at an alternate estimate, losslessly.
+    juce::Array<CaptureEvent> lastCaptureRaw;
+    double lastCaptureT0 = 0.0;
+    int lastCaptureTrack = -1;
+    int lastCaptureSlot = -1;
+    juce::Array<double> captureTempoChoices;
+    juce::OwnedArray<juce::TextButton> tempoChoiceButtons;
+    std::unique_ptr<juce::TextButton> tempoDismissButton;
+    bool lastTransportPlaying = false;   // edge-detect: clear capture ring on transitions
+
+    void applyCapture(double bpm);
+    void showCaptureInfo(int slotIndex, double shownBpm);
+    void showTempoChoices();
+    void layoutTempoChoices();
+    void dismissTempoChoices();
+
     // ── Navigation ──
     juce::TextButton zoomInButton { "Zoom +" };
     juce::TextButton zoomOutButton { "Zoom -" };
