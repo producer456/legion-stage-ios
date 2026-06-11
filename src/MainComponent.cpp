@@ -42,6 +42,13 @@ MainComponent::MainComponent()
 
     themeManager.setTheme(ThemeManager::Ioniq, this);
 
+    // Debug hook: LS_THEME=<index> forces a theme at startup (sim screenshot runs).
+    if (auto themeEnv = juce::SystemStats::getEnvironmentVariable("LS_THEME", ""); themeEnv.isNotEmpty())
+    {
+        int idx = juce::jlimit(0, (int) ThemeManager::NumThemes - 1, themeEnv.getIntValue());
+        themeManager.setTheme((ThemeManager::Theme) idx, this);
+    }
+
     auto result = deviceManager.initialiseWithDefaultDevices(2, 2);  // 2 in, 2 out for mic recording
     if (result.isNotEmpty())
         DBG("Audio device init error: " + result);
@@ -1325,7 +1332,7 @@ MainComponent::MainComponent()
         auto* label = new juce::Label();
         label->setJustificationType(juce::Justification::centred);
         label->setFont(juce::Font(9.0f));
-        label->setColour(juce::Label::textColourId, juce::Colour(0xffaaaaaa));
+        label->setColour(juce::Label::textColourId, juce::Colour(themeManager.getColors().textSecondary));
         addAndMakeVisible(label);
         paramLabels.add(label);
     }
@@ -1981,7 +1988,8 @@ void MainComponent::timerCallback()
     if (recordButton.getToggleState())
     {
         bool flash = (juce::Time::currentTimeMillis() / 400) % 2 == 0;
-        auto flashColor = flash ? juce::Colour(0xffdd6600) : juce::Colour(themeManager.getColors().redDark);
+        auto flashColor = flash ? juce::Colour(themeManager.getColors().amber)
+                                : juce::Colour(themeManager.getColors().redDark);
         recordButton.setColour(juce::TextButton::buttonColourId, flashColor);
         recordButton.setColour(juce::TextButton::buttonOnColourId, flashColor);
         recordButton.repaint();
@@ -4752,17 +4760,19 @@ void MainComponent::showExpandedEkg()
             auto bounds = getLocalBounds().toFloat();
 
             // Get theme colors
-            uint32_t lcdBg = 0xff000000, lcdText = 0xffb8d8f0, red = 0xffff4444, amber = 0xffffaa44;
+            uint32_t lcdBg = 0xff000000, lcdText = 0xffb8d8f0, red = 0xffff4444, amber = 0xffffaa44,
+                     border = 0xff333333;
             if (auto* lnf = dynamic_cast<DawLookAndFeel*>(&getLookAndFeel()))
             {
                 auto& t = lnf->getTheme();
                 lcdBg = t.lcdBg; lcdText = t.lcdText; red = t.red; amber = t.amber;
+                border = t.border;
             }
 
             // OLED background
             g.setColour(juce::Colour(lcdBg));
             g.fillRoundedRectangle(bounds, 6.0f);
-            g.setColour(juce::Colour(0xff333333));
+            g.setColour(juce::Colour(border));
             g.drawRoundedRectangle(bounds, 6.0f, 1.0f);
 
             auto inner = bounds.reduced(10.0f, 8.0f);
@@ -5626,15 +5636,15 @@ void MainComponent::paintOverChildren(juce::Graphics& g)
     if (recordButton.isVisible())
     {
         auto btnBounds = recordButton.getBounds().toFloat().expanded(0.5f);
-        g.setColour(juce::Colours::red.withAlpha(recHighlightAlpha * 0.9f));
+        g.setColour(juce::Colour(themeManager.getColors().red).withAlpha(recHighlightAlpha * 0.9f));
         g.drawRoundedRectangle(btnBounds, radius, 2.0f);
     }
 
-    // Draw blue border on loop button (flashes when loop is on)
+    // Draw accent border on loop button (flashes when loop is on)
     if (loopButton.isVisible())
     {
         auto btnBounds = loopButton.getBounds().toFloat().expanded(0.5f);
-        g.setColour(juce::Colour(0xff4488cc).withAlpha(loopHighlightAlpha * 0.9f));
+        g.setColour(juce::Colour(themeManager.getColors().loopBorder).withAlpha(loopHighlightAlpha * 0.9f));
         g.drawRoundedRectangle(btnBounds, radius, 2.0f);
     }
 
@@ -7628,6 +7638,8 @@ void MainComponent::applyThemeToControls()
     chordLabel.setColour(juce::Label::backgroundColourId, juce::Colours::transparentBlack);
     chordLabel.setJustificationType(juce::Justification::centred);
     trackInfoLabel.setColour(juce::Label::textColourId, juce::Colour(c.textSecondary));
+    for (auto* l : paramLabels)
+        l->setColour(juce::Label::textColourId, juce::Colour(c.textSecondary));
 
     // BPM controls
     bpmLabel.setFont(juce::Font(fontName, 14.0f, juce::Font::bold));
