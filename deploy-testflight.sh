@@ -86,7 +86,10 @@ xcodebuild -exportArchive \
     -archivePath "$ARCHIVE_PATH" \
     -exportOptionsPlist /tmp/ExportOptions.plist \
     -exportPath "$EXPORT_PATH" \
-    -allowProvisioningUpdates
+    -allowProvisioningUpdates \
+    -authenticationKeyID FV5WR6A335 \
+    -authenticationKeyIssuerID 063d077f-1dbb-4904-8ead-515fe477da68 \
+    -authenticationKeyPath "$HOME/.appstoreconnect/private_keys/AuthKey_FV5WR6A335.p8"
 
 echo ">> Upload complete. Waiting for Apple to process and unblocking TestFlight..."
 python3 ~/.appstoreconnect/tf-publish.py com.dev.legionstage
